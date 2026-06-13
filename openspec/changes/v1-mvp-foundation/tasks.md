@@ -8,11 +8,11 @@
 - [x] 1.6 Create frontend/nginx.conf (serve static files, proxy /api to backend)
 - [x] 1.7 Create docker-compose.dev.yml (backend + frontend containers, volume mounts for source/data/logs)
 - [x] 1.8 Create Makefile with targets: dev, dev-rebuild, stop, logs, backup, clean
-- [ ] 1.9 Initialize git repo and create initial commit
+- [x] 1.9 Initialize git repo and create initial commit
 
 ## 2. Backend Core
 
-- [ ] 2.1 Create backend/app/config.py — load environment variables via pydantic Settings
+- [x] 2.1 Create backend/app/config.py — load environment variables via pydantic Settings
 - [ ] 2.2 Create backend/app/database.py — SQLAlchemy engine, session factory, base model
 - [ ] 2.3 Create backend/app/models.py — Device SQLAlchemy model with all fields
 - [ ] 2.4 Create backend/app/schemas.py — Pydantic request/response models for device and VLAN
