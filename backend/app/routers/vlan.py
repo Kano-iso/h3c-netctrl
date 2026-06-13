@@ -1,5 +1,4 @@
 import logging
-import re
 import xml.etree.ElementTree as ET
 
 from fastapi import APIRouter, Depends
@@ -15,9 +14,8 @@ logger = logging.getLogger("app")
 
 router = APIRouter(tags=["vlan"])
 
-# H3C VLAN YANG namespace
-H3C_VLAN_NS = "http://www.h3c.com/netconf/conf:vg"
-H3C_VLAN_NS_PREFIX = "h3c"
+# H3C VLAN 命名空间（通过实际设备探测确认）
+H3C_CONFIG_NS = "http://www.h3c.com/netconf/config:1.0"
 
 
 def _get_device_and_password(db: Session):
@@ -34,58 +32,52 @@ def _get_device_and_password(db: Session):
 
 
 def _build_vlan_filter_xml() -> str:
-    """构造 H3C VLAN get-config filter XML"""
-    return f"""
-    <top xmlns="{H3C_VLAN_NS}">
-        <Vlan>
-            <VlanInterfaces>
-                <VlanInterface>
-                    <VlanID></VlanID>
-                    <Name></Name>
-                </VlanInterface>
-            </VlanInterfaces>
-        </Vlan>
-    </top>
-    """
+    """构造 H3C VLAN get-config filter XML（简单 VLAN 标签即可）"""
+    return f'<top xmlns="{H3C_CONFIG_NS}"><VLAN></VLAN></top>'
 
 
 def _parse_vlan_response(xml_str: str) -> list[dict]:
-    """解析 H3C VLAN get-config 响应 XML，提取 vlan_id 和 name"""
+    """解析 H3C VLAN get-config 响应 XML
+
+    实际响应结构:
+    <VLANs>
+      <VLANID><ID>1</ID></VLANID>
+      <VLANID><ID>100</ID><AccessPortList>2-21</AccessPortList>...</VLANID>
+    </VLANs>
+    """
     vlans = []
     try:
         root = ET.fromstring(xml_str)
-        # 在 XML 中查找所有 VlanInterface 元素
-        # H3C namespace 可能出现在各种位置
         for elem in root.iter():
-            if elem.tag.endswith("VlanInterface") or elem.tag == "VlanInterface":
+            tag = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
+            if tag == "VLANID":
                 vlan_id = None
-                name = None
                 for child in elem:
-                    tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
-                    if tag == "VlanID":
+                    child_tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+                    if child_tag == "ID":
                         vlan_id = int(child.text) if child.text else None
-                    elif tag == "Name":
-                        name = child.text or ""
                 if vlan_id is not None:
-                    vlans.append({"vlan_id": vlan_id, "name": name})
+                    vlans.append({"vlan_id": vlan_id, "name": f"VLAN {vlan_id}"})
     except ET.ParseError as e:
         logger.error(f"VLAN XML 解析失败: {e}")
     return vlans
 
 
 def _build_vlan_create_xml(vlan_id: int, name: str) -> str:
-    """构造 H3C VLAN 创建 edit-config XML"""
+    """构造 H3C VLAN 创建 edit-config XML
+
+    H3C VLAN 创建使用 VLANs/VLANID/ID 结构
+    """
     return f"""
     <config>
-        <top xmlns="{H3C_VLAN_NS}">
-            <Vlan>
-                <VlanInterfaces>
-                    <VlanInterface>
-                        <VlanID>{vlan_id}</VlanID>
-                        <Name>{name}</Name>
-                    </VlanInterface>
-                </VlanInterfaces>
-            </Vlan>
+        <top xmlns="{H3C_CONFIG_NS}">
+            <VLAN>
+                <VLANs>
+                    <VLANID>
+                        <ID>{vlan_id}</ID>
+                    </VLANID>
+                </VLANs>
+            </VLAN>
         </top>
     </config>
     """
@@ -95,14 +87,14 @@ def _build_vlan_delete_xml(vlan_id: int) -> str:
     """构造 H3C VLAN 删除 edit-config XML"""
     return f"""
     <config>
-        <top xmlns="{H3C_VLAN_NS}">
-            <Vlan>
-                <VlanInterfaces>
-                    <VlanInterface xmlns:xc="urn:ietf:params:xml:ns:netconf:base:1.0" xc:operation="delete">
-                        <VlanID>{vlan_id}</VlanID>
-                    </VlanInterface>
-                </VlanInterfaces>
-            </Vlan>
+        <top xmlns="{H3C_CONFIG_NS}">
+            <VLAN>
+                <VLANs xmlns:xc="urn:ietf:params:xml:ns:netconf:base:1.0">
+                    <VLANID xc:operation="delete">
+                        <ID>{vlan_id}</ID>
+                    </VLANID>
+                </VLANs>
+            </VLAN>
         </top>
     </config>
     """
@@ -135,7 +127,6 @@ def get_vlans(db: Session = Depends(get_db)):
 @router.post("/vlans", response_model=APIResponse)
 def create_vlan(body: VLANCreate, db: Session = Depends(get_db)):
     """创建 VLAN"""
-    # 输入校验
     if not body.name:
         return APIResponse(success=False, error="缺少必填字段: name")
 
@@ -172,7 +163,6 @@ def create_vlan(body: VLANCreate, db: Session = Depends(get_db)):
 @router.put("/vlans/{vlan_id}", response_model=APIResponse)
 def update_vlan(vlan_id: int, body: VLANUpdate, db: Session = Depends(get_db)):
     """修改 VLAN 名称"""
-    # 输入校验
     if not body.name:
         return APIResponse(success=False, error="缺少必填字段: name")
     if vlan_id < 1 or vlan_id > 4094:
@@ -269,7 +259,6 @@ def _classify_vlan_error(error: Exception) -> str:
 def _translate_rpc_error(error) -> str:
     """翻译 NETCONF RPC 错误信息"""
     msg = str(error.message) if hasattr(error, "message") else str(error)
-    # 常见 H3C 错误翻译
     if "already exist" in msg.lower() or "already exists" in msg.lower():
         return "VLAN已存在"
     if "not found" in msg.lower() or "does not exist" in msg.lower():

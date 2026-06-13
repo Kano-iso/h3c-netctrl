@@ -9,6 +9,17 @@ from ncclient.operations.rpc import RPCError
 
 logger = logging.getLogger("app")
 
+# 放宽 SSH 密钥算法支持，兼容 H3C 旧设备
+paramiko.Transport._preferred_kex = (
+    "diffie-hellman-group14-sha1",
+    "diffie-hellman-group14-sha256",
+    "diffie-hellman-group16-sha512",
+    "diffie-hellman-group-exchange-sha256",
+    "ecdh-sha2-nistp256",
+    "ecdh-sha2-nistp384",
+    "ecdh-sha2-nistp521",
+)
+
 
 class NetconfClient:
     """NETCONF 连接管理器，使用 context manager 模式管理连接生命周期"""

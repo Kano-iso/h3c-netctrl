@@ -2,14 +2,18 @@ FROM python:3.10-slim
 
 WORKDIR /app
 
-# 安装系统依赖（ncclient 需要 lxml）
+# 替换为火山镜像源加速
+RUN sed -i 's|deb.debian.org|mirrors.volces.com|g' /etc/apt/sources.list.d/debian.sources \
+    && sed -i 's|security.debian.org|mirrors.volces.com/debian-security|g' /etc/apt/sources.list.d/debian.sources
+
+# 安装系统依赖（ncclient 需要 lxml 编译）
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
 # 先复制依赖文件，利用 Docker 缓存层
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -i https://mirrors.volces.com/pypi/simple/ -r requirements.txt
 
 # 源码通过 volume 挂载，不在此 COPY
 # 开发环境使用 uvicorn 热重载

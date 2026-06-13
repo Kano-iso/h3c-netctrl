@@ -1,7 +1,9 @@
 fastapi==0.115.12
 uvicorn[standard]==0.34.2
+paramiko==2.10.3
 ncclient==0.6.16
 sqlalchemy==2.0.41
-cryptography==45.0.3
+cryptography>=41.0.0,<45.0
 pydantic==2.11.4
+pydantic-settings==2.9.1
 python-dotenv==1.1.0
