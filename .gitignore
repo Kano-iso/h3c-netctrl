@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+
+# Environment
+.env
+
+# Data & Logs
+data/
+logs/
+
+# Backups
+backups/
+
+# IDE
+.idea/
+.vscode/
+*.swp
