@@ -1,13 +1,13 @@
 ## 1. Project Scaffold
 
-- [ ] 1.1 Create project directory structure (backend/app/, backend/app/routers/, backend/app/utils/, frontend/, data/, logs/) with __init__.py files
-- [ ] 1.2 Create backend/requirements.txt with all Python dependencies (fastapi, uvicorn, ncclient, sqlalchemy, cryptography, pydantic, python-dotenv)
-- [ ] 1.3 Create .env.example with all required environment variables (LOG_LEVEL, ENCRYPTION_KEY, DB_PATH, BACKEND_PORT)
-- [ ] 1.4 Create .gitignore excluding data/, logs/, .env, __pycache__/, *.pyc, .venv/, backups/
-- [ ] 1.5 Create backend/Dockerfile.dev (Python 3.10, install requirements, mount source, uvicorn hot-reload)
-- [ ] 1.6 Create frontend/nginx.conf (serve static files, proxy /api to backend)
-- [ ] 1.7 Create docker-compose.dev.yml (backend + frontend containers, volume mounts for source/data/logs)
-- [ ] 1.8 Create Makefile with targets: dev, dev-rebuild, stop, logs, backup, clean
+- [x] 1.1 Create project directory structure (backend/app/, backend/app/routers/, backend/app/utils/, frontend/, data/, logs/) with __init__.py files
+- [x] 1.2 Create backend/requirements.txt with all Python dependencies (fastapi, uvicorn, ncclient, sqlalchemy, cryptography, pydantic, python-dotenv)
+- [x] 1.3 Create .env.example with all required environment variables (LOG_LEVEL, ENCRYPTION_KEY, DB_PATH, BACKEND_PORT)
+- [x] 1.4 Create .gitignore excluding data/, logs/, .env, __pycache__/, *.pyc, .venv/, backups/
+- [x] 1.5 Create backend/Dockerfile.dev (Python 3.10, install requirements, mount source, uvicorn hot-reload)
+- [x] 1.6 Create frontend/nginx.conf (serve static files, proxy /api to backend)
+- [x] 1.7 Create docker-compose.dev.yml (backend + frontend containers, volume mounts for source/data/logs)
+- [x] 1.8 Create Makefile with targets: dev, dev-rebuild, stop, logs, backup, clean
 - [ ] 1.9 Initialize git repo and create initial commit
 
 ## 2. Backend Core

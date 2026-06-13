@@ -1,0 +1,7 @@
+fastapi==0.115.12
+uvicorn[standard]==0.34.2
+ncclient==0.6.16
+sqlalchemy==2.0.41
+cryptography==45.0.3
+pydantic==2.11.4
+python-dotenv==1.1.0

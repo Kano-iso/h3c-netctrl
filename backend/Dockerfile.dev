@@ -1,0 +1,16 @@
+FROM python:3.10-slim
+
+WORKDIR /app
+
+# 安装系统依赖（ncclient 需要 lxml）
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# 先复制依赖文件，利用 Docker 缓存层
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# 源码通过 volume 挂载，不在此 COPY
+# 开发环境使用 uvicorn 热重载
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
