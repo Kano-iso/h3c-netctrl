@@ -128,7 +128,7 @@ def get_vlans(db: Session = Depends(get_db)):
         return APIResponse(success=True, data=vlans)
     except Exception as e:
         error_msg = _classify_vlan_error(e)
-        logger.info(f"VLAN查询失败: {error_msg}")
+        logger.error(f"VLAN查询失败: {error_msg}", exc_info=True)
         return APIResponse(success=False, error=error_msg)
 
 
@@ -165,7 +165,7 @@ def create_vlan(body: VLANCreate, db: Session = Depends(get_db)):
         return APIResponse(success=True, data={"vlan_id": body.vlan_id, "name": body.name})
     except Exception as e:
         error_msg = _classify_vlan_error(e)
-        logger.info(f"VLAN创建失败: vlan_id={body.vlan_id}, 原因={error_msg}")
+        logger.error(f"VLAN创建失败: vlan_id={body.vlan_id}, 原因={error_msg}", exc_info=True)
         return APIResponse(success=False, error=error_msg)
 
 
@@ -204,7 +204,7 @@ def update_vlan(vlan_id: int, body: VLANUpdate, db: Session = Depends(get_db)):
         return APIResponse(success=True, data={"vlan_id": vlan_id, "name": body.name})
     except Exception as e:
         error_msg = _classify_vlan_error(e)
-        logger.info(f"VLAN修改失败: vlan_id={vlan_id}, 原因={error_msg}")
+        logger.error(f"VLAN修改失败: vlan_id={vlan_id}, 原因={error_msg}", exc_info=True)
         return APIResponse(success=False, error=error_msg)
 
 
@@ -240,7 +240,7 @@ def delete_vlan(vlan_id: int, db: Session = Depends(get_db)):
         return APIResponse(success=True, data={"message": f"VLAN {vlan_id}已删除"})
     except Exception as e:
         error_msg = _classify_vlan_error(e)
-        logger.info(f"VLAN删除失败: vlan_id={vlan_id}, 原因={error_msg}")
+        logger.error(f"VLAN删除失败: vlan_id={vlan_id}, 原因={error_msg}", exc_info=True)
         return APIResponse(success=False, error=error_msg)
 
 

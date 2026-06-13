@@ -1,15 +1,19 @@
-import logging
 import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.config import settings
 from app.database import Base, engine
 from app.routers import device, vlan
+from app.utils.logger import setup_logging
 
 # 确保数据目录存在
-os.makedirs(os.path.dirname("./data"), exist_ok=True)
-os.makedirs(os.path.dirname("./logs"), exist_ok=True)
+os.makedirs(os.path.dirname(settings.DB_PATH), exist_ok=True)
+os.makedirs("./logs", exist_ok=True)
+
+# 初始化日志系统
+setup_logging(log_level=settings.LOG_LEVEL, log_file="./logs/app.log")
 
 app = FastAPI(
     title="H3C NetCtrl",
@@ -35,6 +39,7 @@ app.include_router(vlan.router, prefix="/api")
 def on_startup():
     """应用启动时创建数据库表"""
     Base.metadata.create_all(bind=engine)
+    import logging
     logging.getLogger("app").info("数据库表已创建/确认")
 
 

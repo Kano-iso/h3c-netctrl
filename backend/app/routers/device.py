@@ -122,5 +122,5 @@ def test_device_connection(db: Session = Depends(get_db)):
         return APIResponse(success=True, data={"message": "连接成功"})
     except Exception as e:
         error_msg = classify_connection_error(e)
-        logger.info(f"设备连接测试失败: {device.host}:{device.port}, 原因: {error_msg}")
+        logger.error(f"设备连接测试失败: {device.host}:{device.port}, 原因: {error_msg}", exc_info=True)
         return APIResponse(success=False, error=error_msg)
