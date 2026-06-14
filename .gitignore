@@ -18,3 +18,7 @@ backups/
 .idea/
 .vscode/
 *.swp
+
+# Node.js
+node_modules/
+frontend/dist/

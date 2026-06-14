@@ -9,32 +9,45 @@ from app.models import Device
 from app.netconf_client import NetconfClient, classify_connection_error
 from app.schemas import APIResponse, DeviceCreate, DeviceResponse, DeviceUpdate
 from app.utils.crypto import decrypt_password, encrypt_password
+from app.utils.log_recorder import record_log
 
 logger = logging.getLogger("app")
 
 router = APIRouter(tags=["device"])
 
 
-@router.get("/device", response_model=APIResponse)
-def get_device(db: Session = Depends(get_db)):
-    """获取当前设备信息（V1.0 仅支持单设备）"""
-    device = db.query(Device).first()
+def _get_device_or_404(db: Session, device_id: int):
+    """根据 ID 获取设备，不存在时返回错误响应元组"""
+    device = db.query(Device).filter(Device.id == device_id).first()
     if not device:
-        return APIResponse(success=True, data=None)
+        return None, APIResponse(success=False, error=f"设备不存在: id={device_id}")
+    return device, None
 
+
+# ========== 多设备 CRUD（v1.1 主路由） ==========
+
+
+@router.get("/devices", response_model=APIResponse)
+def list_devices(db: Session = Depends(get_db)):
+    """获取设备列表"""
+    devices = db.query(Device).all()
+    data = [DeviceResponse.model_validate(d).model_dump() for d in devices]
+    return APIResponse(success=True, data=data)
+
+
+@router.get("/devices/{device_id}", response_model=APIResponse)
+def get_device(device_id: int, db: Session = Depends(get_db)):
+    """获取单个设备详情"""
+    device, error = _get_device_or_404(db, device_id)
+    if error:
+        return error
     resp = DeviceResponse.model_validate(device)
     return APIResponse(success=True, data=resp.model_dump())
 
 
-@router.post("/device", response_model=APIResponse)
+@router.post("/devices", response_model=APIResponse)
 def create_device(body: DeviceCreate, db: Session = Depends(get_db)):
-    """创建设备（V1.0 仅支持单设备，已存在时返回错误）"""
-    # 检查是否已有设备
-    existing = db.query(Device).first()
-    if existing:
-        return APIResponse(success=False, error="已存在设备配置，V1.0仅支持单设备，请使用PUT更新")
-
-    # 校验必填字段
+    """添加设备"""
     if not body.host:
         return APIResponse(success=False, error="缺少必填字段: host")
     if not body.username:
@@ -42,7 +55,6 @@ def create_device(body: DeviceCreate, db: Session = Depends(get_db)):
     if not body.password:
         return APIResponse(success=False, error="缺少必填字段: password")
 
-    # 加密密码后存储
     try:
         encrypted_pwd = encrypt_password(body.password)
     except ValueError as e:
@@ -59,20 +71,18 @@ def create_device(body: DeviceCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(device)
 
-    logger.info(f"设备创建成功: name={device.name}, host={device.host}")
-
+    logger.info(f"设备创建成功: id={device.id}, name={device.name}, host={device.host}")
     resp = DeviceResponse.model_validate(device)
     return APIResponse(success=True, data=resp.model_dump())
 
 
-@router.put("/device", response_model=APIResponse)
-def update_device(body: DeviceUpdate, db: Session = Depends(get_db)):
+@router.put("/devices/{device_id}", response_model=APIResponse)
+def update_device(device_id: int, body: DeviceUpdate, db: Session = Depends(get_db)):
     """更新设备信息"""
-    device = db.query(Device).first()
-    if not device:
-        return APIResponse(success=False, error="未配置设备，请先添加设备信息")
+    device, error = _get_device_or_404(db, device_id)
+    if error:
+        return error
 
-    # 更新非空字段
     if body.name is not None:
         device.name = body.name
     if body.host is not None:
@@ -82,7 +92,6 @@ def update_device(body: DeviceUpdate, db: Session = Depends(get_db)):
     if body.username is not None:
         device.username = body.username
     if body.password is not None:
-        # 密码变更时重新加密
         try:
             device.password_encrypted = encrypt_password(body.password)
         except ValueError as e:
@@ -91,15 +100,136 @@ def update_device(body: DeviceUpdate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(device)
 
-    logger.info(f"设备更新成功: name={device.name}, host={device.host}")
-
+    logger.info(f"设备更新成功: id={device.id}, name={device.name}, host={device.host}")
     resp = DeviceResponse.model_validate(device)
     return APIResponse(success=True, data=resp.model_dump())
 
 
-@router.post("/device/test", response_model=APIResponse)
-def test_device_connection(db: Session = Depends(get_db)):
-    """测试 NETCONF 连接，返回精确的错误分类"""
+@router.delete("/devices/{device_id}", response_model=APIResponse)
+def delete_device(device_id: int, db: Session = Depends(get_db)):
+    """删除设备"""
+    device, error = _get_device_or_404(db, device_id)
+    if error:
+        return error
+
+    db.delete(device)
+    db.commit()
+
+    logger.info(f"设备删除成功: id={device_id}")
+    return APIResponse(success=True, data={"message": f"设备 {device_id} 已删除"})
+
+
+@router.post("/devices/{device_id}/test", response_model=APIResponse)
+def test_device_connection(device_id: int, db: Session = Depends(get_db)):
+    """测试设备 NETCONF 连接"""
+    device, error = _get_device_or_404(db, device_id)
+    if error:
+        return error
+
+    try:
+        password = decrypt_password(device.password_encrypted)
+    except Exception as e:
+        logger.error(f"密码解密失败: {e}")
+        return APIResponse(success=False, error="密码解密失败，请检查ENCRYPTION_KEY配置")
+
+    try:
+        with NetconfClient(
+            host=device.host,
+            port=device.port,
+            username=device.username,
+            password=password,
+        ):
+            pass
+        logger.info(f"设备连接测试成功: {device.host}:{device.port}")
+        record_log(db, device.id, device.name, "connect", f"测试连接 {device.host}:{device.port}", "success")
+        return APIResponse(success=True, data={"message": "连接成功"})
+    except Exception as e:
+        error_msg = classify_connection_error(e)
+        logger.error(f"设备连接测试失败: {device.host}:{device.port}, 原因: {error_msg}", exc_info=True)
+        record_log(db, device.id, device.name, "connect", f"测试连接 {device.host}:{device.port}", "failed")
+        return APIResponse(success=False, error=error_msg)
+
+
+# ========== v1.0 兼容路由（deprecated） ==========
+
+
+@router.get("/device", response_model=APIResponse, deprecated=True)
+def compat_get_device(db: Session = Depends(get_db)):
+    """[已弃用] 获取当前设备信息，请使用 GET /api/devices"""
+    device = db.query(Device).first()
+    if not device:
+        return APIResponse(success=True, data=None)
+    resp = DeviceResponse.model_validate(device)
+    return APIResponse(success=True, data=resp.model_dump())
+
+
+@router.post("/device", response_model=APIResponse, deprecated=True)
+def compat_create_device(body: DeviceCreate, db: Session = Depends(get_db)):
+    """[已弃用] 创建设备，请使用 POST /api/devices"""
+    existing = db.query(Device).first()
+    if existing:
+        return APIResponse(success=False, error="已存在设备配置，V1.0仅支持单设备，请使用PUT更新")
+
+    if not body.host:
+        return APIResponse(success=False, error="缺少必填字段: host")
+    if not body.username:
+        return APIResponse(success=False, error="缺少必填字段: username")
+    if not body.password:
+        return APIResponse(success=False, error="缺少必填字段: password")
+
+    try:
+        encrypted_pwd = encrypt_password(body.password)
+    except ValueError as e:
+        return APIResponse(success=False, error=str(e))
+
+    device = Device(
+        name=body.name,
+        host=body.host,
+        port=body.port,
+        username=body.username,
+        password_encrypted=encrypted_pwd,
+    )
+    db.add(device)
+    db.commit()
+    db.refresh(device)
+
+    logger.info(f"设备创建成功(v1兼容): name={device.name}, host={device.host}")
+    resp = DeviceResponse.model_validate(device)
+    return APIResponse(success=True, data=resp.model_dump())
+
+
+@router.put("/device", response_model=APIResponse, deprecated=True)
+def compat_update_device(body: DeviceUpdate, db: Session = Depends(get_db)):
+    """[已弃用] 更新设备信息，请使用 PUT /api/devices/{id}"""
+    device = db.query(Device).first()
+    if not device:
+        return APIResponse(success=False, error="未配置设备，请先添加设备信息")
+
+    if body.name is not None:
+        device.name = body.name
+    if body.host is not None:
+        device.host = body.host
+    if body.port is not None:
+        device.port = body.port
+    if body.username is not None:
+        device.username = body.username
+    if body.password is not None:
+        try:
+            device.password_encrypted = encrypt_password(body.password)
+        except ValueError as e:
+            return APIResponse(success=False, error=str(e))
+
+    db.commit()
+    db.refresh(device)
+
+    logger.info(f"设备更新成功(v1兼容): name={device.name}, host={device.host}")
+    resp = DeviceResponse.model_validate(device)
+    return APIResponse(success=True, data=resp.model_dump())
+
+
+@router.post("/device/test", response_model=APIResponse, deprecated=True)
+def compat_test_device(db: Session = Depends(get_db)):
+    """[已弃用] 测试设备连接，请使用 POST /api/devices/{id}/test"""
     device = db.query(Device).first()
     if not device:
         return APIResponse(success=False, error="未配置设备，请先添加设备信息")
@@ -117,10 +247,10 @@ def test_device_connection(db: Session = Depends(get_db)):
             username=device.username,
             password=password,
         ):
-            pass  # 连接成功即关闭（context manager 自动管理）
-        logger.info(f"设备连接测试成功: {device.host}:{device.port}")
+            pass
+        logger.info(f"设备连接测试成功(v1兼容): {device.host}:{device.port}")
         return APIResponse(success=True, data={"message": "连接成功"})
     except Exception as e:
         error_msg = classify_connection_error(e)
-        logger.error(f"设备连接测试失败: {device.host}:{device.port}, 原因: {error_msg}", exc_info=True)
+        logger.error(f"设备连接测试失败(v1兼容): {device.host}:{device.port}, 原因: {error_msg}", exc_info=True)
         return APIResponse(success=False, error=error_msg)

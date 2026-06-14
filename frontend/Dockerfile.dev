@@ -1,0 +1,14 @@
+FROM node:20-alpine
+
+WORKDIR /app
+
+# 替换为淘宝镜像源加速
+RUN npm config set registry https://registry.npmmirror.com/
+
+# 先复制 package.json，利用 Docker 缓存层
+COPY package*.json ./
+RUN npm install
+
+# 源码通过 volume 挂载，不在此 COPY
+# 开发环境使用 Vite HMR 热重载
+CMD ["npm", "run", "dev"]

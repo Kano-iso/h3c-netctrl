@@ -6,12 +6,9 @@ WORKDIR /app
 RUN sed -i 's|deb.debian.org|mirrors.volces.com|g' /etc/apt/sources.list.d/debian.sources \
     && sed -i 's|security.debian.org|mirrors.volces.com/debian-security|g' /etc/apt/sources.list.d/debian.sources
 
-# 安装编译依赖 → pip install → 清理编译依赖（合并为一层，避免镜像膨胀）
+# 安装 Python 依赖（所有包均有预编译 wheel，无需 gcc）
 COPY requirements.txt .
-RUN apt-get update && apt-get install -y --no-install-recommends gcc && \
-    pip install --no-cache-dir -i https://mirrors.volces.com/pypi/simple/ -r requirements.txt && \
-    apt-get purge -y gcc && apt-get autoremove -y --purge && \
-    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+RUN pip install --no-cache-dir -i https://mirrors.volces.com/pypi/simple/ -r requirements.txt
 
 # 源码通过 volume 挂载，不在此 COPY
 # 开发环境使用 uvicorn 热重载

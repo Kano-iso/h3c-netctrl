@@ -56,3 +56,17 @@ class APIResponse(BaseModel):
     success: bool
     data: Optional[object] = None
     error: Optional[str] = None
+
+
+# --- Log 响应模型 ---
+
+class LogResponse(BaseModel):
+    id: int
+    device_id: int
+    device_name: str
+    action: str
+    detail: str
+    status: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
