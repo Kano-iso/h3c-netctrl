@@ -35,6 +35,7 @@ class Log(Base):
     action: Mapped[str] = mapped_column(String(50), nullable=False)
     detail: Mapped[str] = mapped_column(String(500), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False)
+    error_message: Mapped[str] = mapped_column(String(1000), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 

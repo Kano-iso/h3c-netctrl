@@ -117,6 +117,48 @@ class SSHExecutor:
             if client:
                 client.close()
 
+    def execute_commands(self, commands: list) -> dict:
+        """执行多条配置命令（如 system-view → interface → 配置），逐条发送"""
+        start_time = time.time()
+        client = None
+        try:
+            client = self._connect()
+            channel = client.invoke_shell(width=200, height=1000)
+            time.sleep(0.5)
+
+            # 清空欢迎信息
+            if channel.recv_ready():
+                channel.recv(65535)
+                time.sleep(0.3)
+
+            full_output = ""
+            for cmd in commands:
+                channel.send(cmd.strip() + '\n')
+                time.sleep(0.8)
+                output = self._read_with_pagination(channel, max_wait=10)
+                full_output += output + '\n'
+
+            execution_time = round(time.time() - start_time, 2)
+
+            # 清理 ANSI 和分页
+            full_output = re.sub(r'\x1b\[[^m]*m', '', full_output)
+            full_output = re.sub(r'\x1b\[K', '', full_output)
+            full_output = full_output.replace('\r\n', '\n').replace('\r', '')
+
+            # 检查是否有错误提示
+            error_indicators = ['Error:', 'Error :', 'Incomplete command', 'Unrecognized command',
+                                'Wrong parameter', 'Too many parameters']
+            has_error = any(indicator in full_output for indicator in error_indicators)
+
+            return {"success": not has_error, "output": full_output.strip(), "execution_time": execution_time}
+        except Exception as e:
+            execution_time = round(time.time() - start_time, 2)
+            logger.error(f"SSH 多命令执行失败: {e}", exc_info=True)
+            return {"success": False, "output": str(e), "execution_time": execution_time}
+        finally:
+            if client:
+                client.close()
+
     def collect_hardware_info(self) -> dict:
         """采集设备硬件信息（型号、SN、固件版本、软件包版本）"""
         info = {}

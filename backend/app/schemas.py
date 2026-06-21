@@ -67,6 +67,7 @@ class LogResponse(BaseModel):
     action: str
     detail: str
     status: str
+    error_message: Optional[str] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

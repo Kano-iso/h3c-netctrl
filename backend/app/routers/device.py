@@ -152,7 +152,7 @@ def test_device_connection(device_id: int, db: Session = Depends(get_db)):
     except Exception as e:
         error_msg = classify_connection_error(e)
         logger.error(f"设备连接测试失败: {device.host}:{device.port}, 原因: {error_msg}", exc_info=True)
-        record_log(db, device.id, device.name, "connect", f"测试连接 {device.host}:{device.port}", "failed")
+        record_log(db, device.id, device.name, "connect", f"测试连接 {device.host}:{device.port}", "failed", error_message=error_msg)
         return APIResponse(success=False, error=error_msg)
 
 

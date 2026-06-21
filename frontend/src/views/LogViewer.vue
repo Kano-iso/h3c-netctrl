@@ -51,6 +51,7 @@
         <table class="table table-striped table-hover mb-0">
           <thead>
             <tr>
+              <th style="width: 30px"></th>
               <th>时间</th>
               <th>设备</th>
               <th>操作</th>
@@ -59,23 +60,36 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="log in logs" :key="log.id" @click="toggleLogDetail(log.id)" style="cursor: pointer;">
-              <td><small>{{ formatTime(log.created_at) }}</small></td>
-              <td>{{ log.device_name }}</td>
-              <td><span class="badge bg-secondary">{{ actionLabel(log.action) }}</span></td>
-              <td>{{ log.detail }}</td>
-              <td>
-                <span v-if="log.status === 'success'" class="badge bg-success">成功</span>
-                <span v-else class="badge bg-danger">失败</span>
-              </td>
-            </tr>
-            <tr v-if="expandedLogId">
-              <td colspan="5">
-                <div class="p-2 bg-light rounded small">
-                  <strong>详细信息:</strong> {{ logs.find(l => l.id === expandedLogId)?.detail }}
-                </div>
-              </td>
-            </tr>
+            <template v-for="log in logs" :key="log.id">
+              <tr @click="toggleLogDetail(log.id)" style="cursor: pointer;">
+                <td class="text-center">
+                  <span class="text-muted" style="font-size: 12px;">{{ expandedLogId === log.id ? '▼' : '▶' }}</span>
+                </td>
+                <td><small>{{ formatTime(log.created_at) }}</small></td>
+                <td>{{ log.device_name }}</td>
+                <td><span class="badge bg-secondary">{{ actionLabel(log.action) }}</span></td>
+                <td>{{ log.detail }}</td>
+                <td>
+                  <span v-if="log.status === 'success'" class="badge bg-success">成功</span>
+                  <span v-else class="badge bg-danger">失败</span>
+                </td>
+              </tr>
+              <tr v-if="expandedLogId === log.id">
+                <td colspan="6">
+                  <div class="p-3 bg-light border-start border-3" :class="log.status === 'failed' ? 'border-danger' : 'border-primary'">
+                    <div class="mb-2">
+                      <strong>操作详情:</strong> {{ log.detail }}
+                    </div>
+                    <div v-if="log.error_message" class="text-danger">
+                      <strong>错误信息:</strong> {{ log.error_message }}
+                    </div>
+                    <div v-if="!log.error_message && log.status === 'failed'" class="text-muted">
+                      <small>暂无详细错误信息</small>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+            </template>
           </tbody>
         </table>
       </div>

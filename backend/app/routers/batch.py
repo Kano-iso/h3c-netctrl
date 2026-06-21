@@ -69,7 +69,10 @@ def batch_execute(body: BatchExecuteRequest, db: Session = Depends(get_db)):
     # 记录批量操作日志
     for device in devices:
         status = "success" if any(r["device_id"] == device.id and r["success"] for r in results) else "failed"
-        record_log(db, device.id, device.name, "batch_execute", f"批量执行: {command}", status)
+        error_msg = None
+        if status == "failed":
+            error_msg = next((r.get("error", "") for r in results if r["device_id"] == device.id and not r["success"]), "")
+        record_log(db, device.id, device.name, "batch_execute", f"批量执行: {command}", status, error_message=error_msg)
 
     return APIResponse(success=True, data={
         "total": len(results),

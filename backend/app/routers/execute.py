@@ -53,10 +53,10 @@ def execute_command(device_id: int, body: ExecuteRequest, db: Session = Depends(
                 "execution_time": result["execution_time"],
             })
         else:
-            record_log(db, device.id, device.name, "execute", f"执行命令失败: {body.command.strip()}", "failed")
+            record_log(db, device.id, device.name, "execute", f"执行命令失败: {body.command.strip()}", "failed", error_message=result['output'])
             return APIResponse(success=False, error=f"命令执行失败: {result['output']}")
     except Exception as e:
         error_msg = f"命令执行异常: {str(e)}"
         logger.error(error_msg, exc_info=True)
-        record_log(db, device.id, device.name, "execute", f"执行命令异常: {body.command.strip()}", "failed")
+        record_log(db, device.id, device.name, "execute", f"执行命令异常: {body.command.strip()}", "failed", error_message=str(e))
         return APIResponse(success=False, error=error_msg)

@@ -115,5 +115,5 @@ def refresh_asset(device_id: int, db: Session = Depends(get_db)):
         db.commit()
         error_msg = f"采集硬件信息失败: {str(e)}"
         logger.error(error_msg, exc_info=True)
-        record_log(db, device.id, device.name, "asset_refresh", f"刷新硬件信息失败: {device.host}", "failed")
+        record_log(db, device.id, device.name, "asset_refresh", f"刷新硬件信息失败: {device.host}", "failed", error_message=error_msg)
         return APIResponse(success=False, error=error_msg)

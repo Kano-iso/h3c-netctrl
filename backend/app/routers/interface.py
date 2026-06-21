@@ -18,6 +18,7 @@ router = APIRouter(tags=["interface"])
 
 
 class InterfaceConfig(BaseModel):
+    interface_name: str  # 接口名，如 GigabitEthernet1/0/1
     mode: str  # "access" or "trunk"
     access_vlan: Optional[int] = None
     allowed_vlans: Optional[List[int]] = None
@@ -84,9 +85,9 @@ def get_interfaces(device_id: int, db: Session = Depends(get_db)):
         return APIResponse(success=False, error=f"获取接口列表异常: {str(e)}")
 
 
-@router.put("/devices/{device_id}/interfaces/{interface_name}/config", response_model=APIResponse)
-def configure_interface(device_id: int, interface_name: str, body: InterfaceConfig, db: Session = Depends(get_db)):
-    """下发接口配置"""
+@router.post("/devices/{device_id}/interfaces/config", response_model=APIResponse)
+def configure_interface(device_id: int, body: InterfaceConfig, db: Session = Depends(get_db)):
+    """下发接口配置（POST + 请求体传接口名，避免路径中 / 导致 404）"""
     device = db.query(Device).filter(Device.id == device_id).first()
     if not device:
         return APIResponse(success=False, error=f"设备不存在: id={device_id}")
@@ -99,8 +100,8 @@ def configure_interface(device_id: int, interface_name: str, body: InterfaceConf
     except Exception as e:
         return APIResponse(success=False, error="密码解密失败")
 
-    # 构建 CLI 配置命令
-    commands = [f"system-view", f"interface {interface_name}"]
+    # 构建 CLI 配置命令（逐条发送）
+    commands = ["system-view", f"interface {body.interface_name}"]
 
     if body.mode == "access":
         commands.append("port link-mode bridge")
@@ -121,20 +122,19 @@ def configure_interface(device_id: int, interface_name: str, body: InterfaceConf
     try:
         from app.utils.ssh_executor import SSHExecutor
         executor = SSHExecutor(host=device.host, port=22, username=device.username, password=password)
-        # 逐条发送命令
-        full_command = "\n".join(commands)
-        result = executor.execute(full_command)
+        # 逐条发送命令（invoke_shell 模式）
+        result = executor.execute_commands(commands)
 
         if result["success"]:
             record_log(db, device.id, device.name, "interface_config",
-                       f"配置接口 {interface_name}: mode={body.mode}", "success")
-            return APIResponse(success=True, data={"message": f"接口 {interface_name} 配置已下发"})
+                       f"配置接口 {body.interface_name}: mode={body.mode}", "success")
+            return APIResponse(success=True, data={"message": f"接口 {body.interface_name} 配置已下发"})
         else:
             record_log(db, device.id, device.name, "interface_config",
-                       f"配置接口 {interface_name} 失败", "failed")
+                       f"配置接口 {body.interface_name} 失败", "failed", error_message=result['output'])
             return APIResponse(success=False, error=f"配置下发失败: {result['output']}")
     except Exception as e:
         logger.error(f"接口配置异常: {e}", exc_info=True)
         record_log(db, device.id, device.name, "interface_config",
-                   f"配置接口 {interface_name} 异常", "failed")
+                   f"配置接口 {body.interface_name} 异常", "failed", error_message=str(e))
         return APIResponse(success=False, error=f"配置下发异常: {str(e)}")

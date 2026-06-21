@@ -492,15 +492,15 @@ function openIfaceConfig(iface) {
 async function saveIfaceConfig() {
   saving.value = true
   error.value = ''
-  const body = { mode: ifaceConfigForm.value.mode }
+  const body = { interface_name: ifaceConfigTarget.value.name, mode: ifaceConfigForm.value.mode }
   if (body.mode === 'access') {
     body.access_vlan = ifaceConfigForm.value.access_vlan
   } else {
     body.allowed_vlans = ifaceConfigForm.value.allowed_vlans_str.split(',').map(Number).filter(n => n > 0)
     body.pvid = ifaceConfigForm.value.pvid
   }
-  const res = await apiCall(`/devices/${deviceId}/interfaces/${encodeURIComponent(ifaceConfigTarget.value.name)}/config`, {
-    method: 'PUT',
+  const res = await apiCall(`/devices/${deviceId}/interfaces/config`, {
+    method: 'POST',
     body: JSON.stringify(body),
   })
   if (res.success) {

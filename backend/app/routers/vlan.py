@@ -160,7 +160,7 @@ def create_vlan(device_id: int, body: VLANCreate, db: Session = Depends(get_db))
     except Exception as e:
         error_msg = _classify_vlan_error(e)
         logger.error(f"VLAN创建失败: device_id={device_id}, vlan_id={body.vlan_id}, 原因={error_msg}", exc_info=True)
-        record_log(db, device.id, device.name, "vlan_create", f"创建 VLAN {body.vlan_id} (name={body.name})", "failed")
+        record_log(db, device.id, device.name, "vlan_create", f"创建 VLAN {body.vlan_id} (name={body.name})", "failed", error_message=error_msg)
         return APIResponse(success=False, error=error_msg)
 
 
@@ -198,7 +198,7 @@ def update_vlan(device_id: int, vlan_id: int, body: VLANUpdate, db: Session = De
     except Exception as e:
         error_msg = _classify_vlan_error(e)
         logger.error(f"VLAN修改失败: device_id={device_id}, vlan_id={vlan_id}, 原因={error_msg}", exc_info=True)
-        record_log(db, device.id, device.name, "vlan_update", f"修改 VLAN {vlan_id} (name={body.name})", "failed")
+        record_log(db, device.id, device.name, "vlan_update", f"修改 VLAN {vlan_id} (name={body.name})", "failed", error_message=error_msg)
         return APIResponse(success=False, error=error_msg)
 
 
@@ -234,7 +234,7 @@ def delete_vlan(device_id: int, vlan_id: int, db: Session = Depends(get_db)):
     except Exception as e:
         error_msg = _classify_vlan_error(e)
         logger.error(f"VLAN删除失败: device_id={device_id}, vlan_id={vlan_id}, 原因={error_msg}", exc_info=True)
-        record_log(db, device.id, device.name, "vlan_delete", f"删除 VLAN {vlan_id}", "failed")
+        record_log(db, device.id, device.name, "vlan_delete", f"删除 VLAN {vlan_id}", "failed", error_message=error_msg)
         return APIResponse(success=False, error=error_msg)
 
 

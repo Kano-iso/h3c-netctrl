@@ -6,7 +6,7 @@ from app.models import Log
 logger = logging.getLogger("app")
 
 
-def record_log(db: Session, device_id: int, device_name: str, action: str, detail: str, status: str):
+def record_log(db: Session, device_id: int, device_name: str, action: str, detail: str, status: str, error_message: str = None):
     """记录操作日志到数据库"""
     try:
         log = Log(
@@ -15,6 +15,7 @@ def record_log(db: Session, device_id: int, device_name: str, action: str, detai
             action=action,
             detail=detail,
             status=status,
+            error_message=error_message,
         )
         db.add(log)
         db.commit()
