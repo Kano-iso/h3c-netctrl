@@ -1,7 +1,7 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, Integer, String, func
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import DateTime, Integer, String, ForeignKey, func
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
 
@@ -22,6 +22,9 @@ class Device(Base):
         DateTime, server_default=func.now(), onupdate=func.now()
     )
 
+    # 一对一关联资产信息
+    asset: Mapped["Asset"] = relationship("Asset", back_populates="device", uselist=False, cascade="all, delete-orphan")
+
 
 class Log(Base):
     __tablename__ = "logs"
@@ -33,3 +36,22 @@ class Log(Base):
     detail: Mapped[str] = mapped_column(String(500), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class Asset(Base):
+    __tablename__ = "assets"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    device_id: Mapped[int] = mapped_column(Integer, ForeignKey("devices.id"), unique=True, nullable=False)
+    model: Mapped[str] = mapped_column(String, nullable=True)
+    serial_number: Mapped[str] = mapped_column(String, nullable=True)
+    firmware_version: Mapped[str] = mapped_column(String, nullable=True)
+    cpu_usage: Mapped[str] = mapped_column(String, nullable=True)
+    memory_usage: Mapped[str] = mapped_column(String, nullable=True)
+    location: Mapped[str] = mapped_column(String, nullable=True)
+    tags: Mapped[str] = mapped_column(String, nullable=True)
+    status: Mapped[str] = mapped_column(String, default="unknown")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    # 反向关联设备
+    device: Mapped["Device"] = relationship("Device", back_populates="asset")

@@ -20,6 +20,10 @@
               <option value="vlan_create">创建VLAN</option>
               <option value="vlan_update">修改VLAN</option>
               <option value="vlan_delete">删除VLAN</option>
+              <option value="execute">命令执行</option>
+              <option value="batch_execute">批量执行</option>
+              <option value="asset_refresh">刷新资产</option>
+              <option value="interface_config">接口配置</option>
             </select>
           </div>
           <div class="col-md-3">
@@ -106,6 +110,10 @@ const actionLabels = {
   vlan_create: '创建VLAN',
   vlan_update: '修改VLAN',
   vlan_delete: '删除VLAN',
+  execute: '命令执行',
+  batch_execute: '批量执行',
+  asset_refresh: '刷新资产',
+  interface_config: '接口配置',
 }
 
 function actionLabel(action) {

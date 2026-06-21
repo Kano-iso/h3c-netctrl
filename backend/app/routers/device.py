@@ -71,6 +71,12 @@ def create_device(body: DeviceCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(device)
 
+    # 自动创建空资产记录
+    from app.models import Asset
+    asset = Asset(device_id=device.id, status="unknown")
+    db.add(asset)
+    db.commit()
+
     logger.info(f"设备创建成功: id={device.id}, name={device.name}, host={device.host}")
     resp = DeviceResponse.model_validate(device)
     return APIResponse(success=True, data=resp.model_dump())
@@ -192,6 +198,12 @@ def compat_create_device(body: DeviceCreate, db: Session = Depends(get_db)):
     db.add(device)
     db.commit()
     db.refresh(device)
+
+    # 自动创建空资产记录
+    from app.models import Asset
+    asset = Asset(device_id=device.id, status="unknown")
+    db.add(asset)
+    db.commit()
 
     logger.info(f"设备创建成功(v1兼容): name={device.name}, host={device.host}")
     resp = DeviceResponse.model_validate(device)

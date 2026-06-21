@@ -70,3 +70,11 @@ class LogResponse(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+# --- Asset 请求/响应模型 ---
+
+class AssetUpdate(BaseModel):
+    location: Optional[str] = None
+    tags: Optional[str] = None
+    status: Optional[str] = None
