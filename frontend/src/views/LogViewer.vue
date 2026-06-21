@@ -59,7 +59,7 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="log in logs" :key="log.id">
+            <tr v-for="log in logs" :key="log.id" @click="toggleLogDetail(log.id)" style="cursor: pointer;">
               <td><small>{{ formatTime(log.created_at) }}</small></td>
               <td>{{ log.device_name }}</td>
               <td><span class="badge bg-secondary">{{ actionLabel(log.action) }}</span></td>
@@ -67,6 +67,13 @@
               <td>
                 <span v-if="log.status === 'success'" class="badge bg-success">成功</span>
                 <span v-else class="badge bg-danger">失败</span>
+              </td>
+            </tr>
+            <tr v-if="expandedLogId">
+              <td colspan="5">
+                <div class="p-2 bg-light rounded small">
+                  <strong>详细信息:</strong> {{ logs.find(l => l.id === expandedLogId)?.detail }}
+                </div>
               </td>
             </tr>
           </tbody>
@@ -104,6 +111,11 @@ const pageSize = ref(20)
 const total = ref(0)
 
 const filter = ref({ action: '', device_id: '' })
+
+const expandedLogId = ref(null)
+function toggleLogDetail(id) {
+  expandedLogId.value = expandedLogId.value === id ? null : id
+}
 
 const actionLabels = {
   connect: '连接测试',

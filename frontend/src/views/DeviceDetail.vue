@@ -94,8 +94,7 @@
             </div>
           </div>
           <div class="row mt-2">
-            <div class="col-md-3"><strong>CPU:</strong> {{ assetInfo.cpu_usage || '-' }}</div>
-            <div class="col-md-3"><strong>内存:</strong> {{ assetInfo.memory_usage || '-' }}</div>
+            <div class="col-md-3"><strong>软件包:</strong> {{ assetInfo.software_package || '-' }}</div>
             <div class="col-md-3"><strong>位置:</strong> {{ assetInfo.location || '-' }}</div>
             <div class="col-md-3"><strong>标签:</strong> {{ assetInfo.tags || '-' }}</div>
           </div>

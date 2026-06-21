@@ -45,8 +45,7 @@ def get_asset(device_id: int, db: Session = Depends(get_db)):
         "model": asset.model,
         "serial_number": asset.serial_number,
         "firmware_version": asset.firmware_version,
-        "cpu_usage": asset.cpu_usage,
-        "memory_usage": asset.memory_usage,
+        "software_package": asset.software_package,
         "location": asset.location,
         "tags": asset.tags,
         "status": asset.status,
@@ -105,8 +104,7 @@ def refresh_asset(device_id: int, db: Session = Depends(get_db)):
         asset.model = info.get("model", asset.model)
         asset.serial_number = info.get("serial_number", asset.serial_number)
         asset.firmware_version = info.get("firmware_version", asset.firmware_version)
-        asset.cpu_usage = info.get("cpu_usage", asset.cpu_usage)
-        asset.memory_usage = info.get("memory_usage", asset.memory_usage)
+        asset.software_package = info.get("software_package", asset.software_package)
         asset.status = "online"
         db.commit()
 

@@ -22,6 +22,9 @@
                 执行
               </button>
             </div>
+            <div v-if="longRunningTip" class="text-muted small mt-1">
+              <i class="bi bi-info-circle me-1"></i>命令执行中，您可以切换到其他页面
+            </div>
           </div>
           <div class="col-md-2">
             <label class="form-label">历史</label>
@@ -69,6 +72,8 @@ const executing = ref(false)
 const error = ref('')
 const lastExecutionTime = ref(null)
 const commandHistory = ref([])
+const longRunningTip = ref(false)
+let longRunningTimer = null
 
 async function loadDevices() {
   const res = await deviceApi.list()
@@ -82,11 +87,16 @@ async function executeCommand() {
   executing.value = true
   error.value = ''
   output.value = ''
+  longRunningTip.value = false
+  longRunningTimer = setTimeout(() => { longRunningTip.value = true }, 5000)
 
   const res = await apiCall(`/devices/${selectedDeviceId.value}/execute`, {
     method: 'POST',
     body: JSON.stringify({ command: command.value }),
   })
+
+  clearTimeout(longRunningTimer)
+  longRunningTip.value = false
 
   if (res.success) {
     output.value = res.data.output

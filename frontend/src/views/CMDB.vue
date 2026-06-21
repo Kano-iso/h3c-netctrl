@@ -22,6 +22,7 @@
               <th>型号</th>
               <th>SN</th>
               <th>固件版本</th>
+              <th>软件包</th>
               <th>位置</th>
               <th>标签</th>
               <th>状态</th>
@@ -35,6 +36,7 @@
               <td>{{ item.model || '-' }}</td>
               <td>{{ item.serial_number || '-' }}</td>
               <td>{{ item.firmware_version || '-' }}</td>
+              <td>{{ item.software_package || '-' }}</td>
               <td>{{ item.location || '-' }}</td>
               <td>
                 <span v-for="tag in (item.tags || '').split(',').filter(Boolean)" :key="tag" class="badge bg-info me-1">{{ tag }}</span>
