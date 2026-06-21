@@ -14,7 +14,7 @@
 - [x] 1.6 验证 upgrade/downgrade 流程正常
 - [x] 1.7 创建 GitHub Actions CI 配置（.github/workflows/ci.yml）
 - [x] 1.8 补充后端测试用例（API 端点、XML 构建/解析）
-- [ ] 1.9 推送验证 CI 流水线运行正常
+- [x] 1.9 推送验证 CI 流水线运行正常
 
 ### Phase 2: 前端平台化（platform-ui）
 
@@ -87,9 +87,9 @@
 
 ### Phase 8: 集成与收尾
 
-- [ ] 8.1 全流程自测：Dashboard → 设备管理 → 运维终端 → 接口管理 → CMDB → 批量操作 → 日志
-- [ ] 8.2 前端生产构建验证（Dockerfile 多阶段构建）
-- [ ] 8.3 更新 docker-compose.dev.yml（如有变更）
-- [ ] 8.4 更新 .env.example（如有新增配置项）
-- [ ] 8.5 更新 PRD-V2.0.md 验收标准对照
-- [ ] 8.6 提交代码并推送到 GitHub
+- [x] 8.1 全流程自测：Dashboard → 设备管理 → 运维终端 → 接口管理 → CMDB → 批量操作 → 日志
+- [x] 8.2 前端生产构建验证（Dockerfile 多阶段构建）
+- [x] 8.3 更新 docker-compose.dev.yml（如有变更）
+- [x] 8.4 更新 .env.example（如有新增配置项）
+- [x] 8.5 更新 PRD-V2.0.md 验收标准对照
+- [x] 8.6 提交代码并推送到 GitHub
