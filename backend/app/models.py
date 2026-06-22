@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, Integer, String, ForeignKey, func
+from sqlalchemy import DateTime, Integer, String, Text, ForeignKey, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -15,6 +15,8 @@ class Device(Base):
     port: Mapped[int] = mapped_column(Integer, default=830)
     username: Mapped[str] = mapped_column(String, nullable=False)
     password_encrypted: Mapped[str] = mapped_column(String, nullable=False)
+    # 受保护的接口（JSON 字符串列表，存 if_index），配置时会被拦截
+    protected_interfaces: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now()
     )

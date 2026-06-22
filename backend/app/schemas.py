@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 
 from pydantic import BaseModel, Field
 
@@ -12,6 +12,7 @@ class DeviceCreate(BaseModel):
     port: int = 830
     username: str
     password: str
+    protected_interfaces: Optional[List[int]] = None
 
 
 class DeviceUpdate(BaseModel):
@@ -20,6 +21,7 @@ class DeviceUpdate(BaseModel):
     port: Optional[int] = None
     username: Optional[str] = None
     password: Optional[str] = None
+    protected_interfaces: Optional[List[int]] = None
 
 
 class DeviceResponse(BaseModel):
@@ -28,8 +30,21 @@ class DeviceResponse(BaseModel):
     host: str
     port: int
     username: str
+    protected_interfaces: List[int] = []
     created_at: datetime
     updated_at: datetime
+
+    @classmethod
+    def model_validate(cls, obj, *args, **kwargs):
+        instance = super().model_validate(obj, *args, **kwargs)
+        # 把存储的 JSON 字符串解析为 list
+        import json
+        if isinstance(getattr(obj, "protected_interfaces", None), str):
+            try:
+                instance.protected_interfaces = json.loads(obj.protected_interfaces or "[]")
+            except (json.JSONDecodeError, TypeError):
+                instance.protected_interfaces = []
+        return instance
 
     model_config = {"from_attributes": True}
 

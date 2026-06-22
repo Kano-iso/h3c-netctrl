@@ -1,3 +1,4 @@
+import json
 import logging
 from typing import Optional
 
@@ -66,6 +67,7 @@ def create_device(body: DeviceCreate, db: Session = Depends(get_db)):
         port=body.port,
         username=body.username,
         password_encrypted=encrypted_pwd,
+        protected_interfaces=json.dumps(body.protected_interfaces or []),
     )
     db.add(device)
     db.commit()
@@ -102,11 +104,13 @@ def update_device(device_id: int, body: DeviceUpdate, db: Session = Depends(get_
             device.password_encrypted = encrypt_password(body.password)
         except ValueError as e:
             return APIResponse(success=False, error=str(e))
+    if body.protected_interfaces is not None:
+        device.protected_interfaces = json.dumps(body.protected_interfaces)
 
     db.commit()
     db.refresh(device)
 
-    logger.info(f"设备更新成功: id={device.id}, name={device.name}, host={device.host}")
+    logger.info(f"设备更新成功: id={device.id}, name={device.name}, host={device.host}, protected={body.protected_interfaces}")
     resp = DeviceResponse.model_validate(device)
     return APIResponse(success=True, data=resp.model_dump())
 

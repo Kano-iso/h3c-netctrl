@@ -1,14 +1,15 @@
+import json
 import logging
 import xml.etree.ElementTree as ET
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import Device
-from app.netconf_client import NetconfClient, classify_connection_error
+from app.netconf_client import NetconfClient, classify_netconf_error
 from app.schemas import APIResponse
 from app.utils.crypto import decrypt_password
 from app.utils.log_recorder import record_log
@@ -31,6 +32,7 @@ class InterfaceConfig(BaseModel):
     access_vlan: Optional[int] = None
     allowed_vlans: Optional[List[int]] = None
     pvid: Optional[int] = None
+    force: bool = Field(default=False, description="强制配置被保护的接口（高风险，需明确知道后果）")
 
 
 def _get_device_and_password(db: Session, device_id: int):
@@ -158,28 +160,55 @@ def _build_interface_config_xml(if_index: int, mode: str, access_vlan: Optional[
 
 def _classify_interface_error(error: Exception) -> str:
     """将接口操作异常分类为可读的中文错误信息"""
-    from ncclient.operations.rpc import RPCError
+    return classify_netconf_error(error)
 
-    error_str = str(error)
 
-    # 设备连接类错误
-    conn_msg = classify_connection_error(error)
-    if conn_msg != f"连接失败: {error_str}":
-        return f"设备连接失败: {conn_msg}"
+def _build_vlan_filter() -> str:
+    """构造 H3C VLAN get-config filter XML（与 vlan.py 一致）"""
+    return f'<top xmlns="{H3C_CONFIG_NS}"><VLAN></VLAN></top>'
 
-    # NETCONF RPC 错误
-    if isinstance(error, RPCError):
-        msg = str(error.message) if hasattr(error, "message") else str(error)
-        if "not support" in msg.lower():
-            return f"设备不支持此操作: {msg}"
-        if "denied" in msg.lower():
-            return "操作被拒绝"
-        return f"设备返回错误: {msg}"
 
-    if "timeout" in error_str.lower():
-        return "设备响应超时，请检查网络连接或设备状态"
+def _parse_vlans_from_xml(xml_str: str) -> set:
+    """从 VLAN get-config 响应中提取所有 VLAN ID 集合"""
+    import xml.etree.ElementTree as ET
+    vlan_ids = set()
+    try:
+        root = ET.fromstring(xml_str)
+        for elem in root.iter():
+            tag = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
+            if tag == "VLANID":
+                for child in elem:
+                    child_tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+                    if child_tag == "ID" and child.text:
+                        try:
+                            vlan_ids.add(int(child.text))
+                        except ValueError:
+                            pass
+    except ET.ParseError:
+        pass
+    return vlan_ids
 
-    return f"操作失败: {error_str}"
+
+def _check_vlans_exist(client: NetconfClient, vlan_ids: list) -> tuple[bool, str]:
+    """检查 VLAN 是否都存在
+
+    Returns: (all_exist, error_msg)
+    - all_exist=True: 所有 VLAN 都存在
+    - all_exist=False: 缺失的 VLAN 列表（error_msg 含详情）
+    """
+    if not vlan_ids:
+        return True, ""
+    try:
+        xml_str = client.get_config(_build_vlan_filter())
+        existing = _parse_vlans_from_xml(xml_str)
+        missing = [v for v in vlan_ids if v not in existing]
+        if missing:
+            return False, f"VLAN {','.join(str(v) for v in missing)} 不存在，请先创建"
+        return True, ""
+    except Exception as e:
+        # VLAN 查询失败不阻塞主流程，让设备返回更具体的错误
+        logger.warning(f"VLAN 预校验失败，跳过校验: {e}")
+        return True, ""
 
 
 @router.get("/devices/{device_id}/interfaces", response_model=APIResponse)
@@ -216,19 +245,56 @@ def configure_interface(device_id: int, body: InterfaceConfig, db: Session = Dep
     if body.mode not in ("access", "trunk"):
         return APIResponse(success=False, error="模式必须是 access 或 trunk")
 
+    # 安全护栏：检查 if_index 是否在保护列表中
     try:
-        config_xml = _build_interface_config_xml(
-            if_index=body.if_index,
-            mode=body.mode,
-            access_vlan=body.access_vlan,
-            allowed_vlans=body.allowed_vlans,
-            pvid=body.pvid,
-        )
+        protected = json.loads(device.protected_interfaces or "[]")
+    except (json.JSONDecodeError, TypeError):
+        protected = []
+    if not isinstance(protected, list):
+        protected = []
+    protected = [int(x) for x in protected if isinstance(x, (int, str)) and str(x).isdigit()]
 
+    if body.if_index in protected and not body.force:
+        msg = (f"接口 if_index={body.if_index} 在保护列表中，禁止配置。"
+               f"如需配置请加 force=true 或先在设备管理中解除保护")
+        logger.warning(f"接口配置被保护拦截: device_id={device_id}, if_index={body.if_index}, 保护列表={protected}")
+        record_log(db, device.id, device.name, "interface_config",
+                   f"配置接口 if_index={body.if_index} 被保护拦截", "failed", error_message=msg)
+        return APIResponse(success=False, error=msg)
+
+    if body.if_index in protected and body.force:
+        logger.warning(f"接口配置 force=true 强制通过保护: device_id={device_id}, if_index={body.if_index}")
+
+    # 收集需要校验的 VLAN（access 用 access_vlan，trunk 用 pvid + allowed_vlans）
+    vlans_to_check = []
+    if body.mode == "access" and body.access_vlan:
+        vlans_to_check.append(body.access_vlan)
+    elif body.mode == "trunk":
+        if body.pvid:
+            vlans_to_check.append(body.pvid)
+        if body.allowed_vlans:
+            vlans_to_check.extend(body.allowed_vlans)
+
+    try:
+        # 一次性连接，同时做 VLAN 预校验和接口配置
         with NetconfClient(
             host=device.host, port=device.port,
             username=device.username, password=password,
         ) as client:
+            # VLAN 预校验
+            ok, vlan_err = _check_vlans_exist(client, vlans_to_check)
+            if not ok:
+                logger.warning(f"接口配置前置校验失败: device_id={device_id}, {vlan_err}")
+                return APIResponse(success=False, error=vlan_err)
+
+            # 校验通过，下发配置
+            config_xml = _build_interface_config_xml(
+                if_index=body.if_index,
+                mode=body.mode,
+                access_vlan=body.access_vlan,
+                allowed_vlans=body.allowed_vlans,
+                pvid=body.pvid,
+            )
             client.edit_config(config_xml)
 
         logger.info(f"接口配置成功: device_id={device_id}, if_index={body.if_index}, mode={body.mode}")

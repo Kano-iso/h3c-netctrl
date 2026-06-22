@@ -160,6 +160,17 @@
                   <input type="number" class="form-control" v-model.number="ifaceConfigForm.pvid" min="1" max="4094">
                 </div>
               </template>
+              <!-- 受保护接口提示 -->
+              <div v-if="isIfaceProtected" class="alert alert-warning py-2 mb-3">
+                <i class="bi bi-shield-exclamation"></i>
+                此接口在保护列表中
+                <div class="form-check mt-2">
+                  <input class="form-check-input" type="checkbox" id="forceCheck" v-model="ifaceConfigForm.force">
+                  <label class="form-check-label small" for="forceCheck">
+                    强制配置（已知风险）
+                  </label>
+                </div>
+              </div>
             </div>
             <div class="modal-footer">
               <button class="btn btn-secondary" @click="showIfaceConfig = false">取消</button>
@@ -337,7 +348,11 @@ const interfaces = ref([])
 const ifaceLoading = ref(false)
 const showIfaceConfig = ref(false)
 const ifaceConfigTarget = ref({})
-const ifaceConfigForm = ref({ mode: 'access', access_vlan: 1, allowed_vlans_str: '', pvid: 1 })
+const ifaceConfigForm = ref({ mode: 'access', access_vlan: 1, allowed_vlans_str: '', pvid: 1, force: false })
+const isIfaceProtected = computed(() => {
+  if (!ifaceConfigTarget.value || !device.value?.protected_interfaces) return false
+  return device.value.protected_interfaces.includes(ifaceConfigTarget.value.if_index)
+})
 
 async function loadDevice() {
   loading.value = true
@@ -485,7 +500,7 @@ async function loadInterfaces() {
 
 function openIfaceConfig(iface) {
   ifaceConfigTarget.value = iface
-  ifaceConfigForm.value = { mode: iface.mode === 'trunk' ? 'trunk' : 'access', access_vlan: iface.access_vlan || 1, allowed_vlans_str: (iface.allowed_vlans || []).join(','), pvid: iface.pvid || 1 }
+  ifaceConfigForm.value = { mode: iface.mode === 'trunk' ? 'trunk' : 'access', access_vlan: iface.access_vlan || 1, allowed_vlans_str: (iface.allowed_vlans || []).join(','), pvid: iface.pvid || 1, force: false }
   showIfaceConfig.value = true
 }
 
@@ -498,6 +513,9 @@ async function saveIfaceConfig() {
   } else {
     body.allowed_vlans = ifaceConfigForm.value.allowed_vlans_str.split(',').map(Number).filter(n => n > 0)
     body.pvid = ifaceConfigForm.value.pvid
+  }
+  if (ifaceConfigForm.value.force) {
+    body.force = true
   }
   const res = await apiCall(`/devices/${deviceId}/interfaces/config`, {
     method: 'POST',
