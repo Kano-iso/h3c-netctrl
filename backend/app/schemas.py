@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional, List
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # --- Device 请求/响应模型 ---
@@ -34,17 +34,23 @@ class DeviceResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+    @field_validator("protected_interfaces", mode="before")
     @classmethod
-    def model_validate(cls, obj, *args, **kwargs):
-        instance = super().model_validate(obj, *args, **kwargs)
-        # 把存储的 JSON 字符串解析为 list
+    def _parse_protected_interfaces(cls, v):
+        """数据库里存的是 JSON 字符串，这里解析为 list"""
         import json
-        if isinstance(getattr(obj, "protected_interfaces", None), str):
+        if isinstance(v, str):
             try:
-                instance.protected_interfaces = json.loads(obj.protected_interfaces or "[]")
-            except (json.JSONDecodeError, TypeError):
-                instance.protected_interfaces = []
-        return instance
+                parsed = json.loads(v or "[]")
+                if not isinstance(parsed, list):
+                    return []
+                # 强制 int 转换，过滤无效值
+                return [int(x) for x in parsed if isinstance(x, (int, str)) and str(x).lstrip("-").isdigit()]
+            except (json.JSONDecodeError, TypeError, ValueError):
+                return []
+        if isinstance(v, list):
+            return v
+        return []
 
     model_config = {"from_attributes": True}
 
