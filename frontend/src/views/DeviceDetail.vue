@@ -492,7 +492,7 @@ function openIfaceConfig(iface) {
 async function saveIfaceConfig() {
   saving.value = true
   error.value = ''
-  const body = { interface_name: ifaceConfigTarget.value.name, mode: ifaceConfigForm.value.mode }
+  const body = { if_index: ifaceConfigTarget.value.if_index, mode: ifaceConfigForm.value.mode }
   if (body.mode === 'access') {
     body.access_vlan = ifaceConfigForm.value.access_vlan
   } else {
@@ -515,7 +515,5 @@ async function saveIfaceConfig() {
 onMounted(async () => {
   await loadDevice()
   await loadVlans()
-  await loadAssetInfo()
-  await loadInterfaces()
 })
 </script>
