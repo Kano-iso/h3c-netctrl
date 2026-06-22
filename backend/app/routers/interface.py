@@ -54,19 +54,8 @@ def _build_interface_filter_xml() -> str:
 def _parse_interface_response(xml_str: str) -> list[dict]:
     """解析 H3C Ifmgr get-config 响应 XML
 
-    响应结构:
-    <Ifmgr>
-      <Interfaces>
-        <Interface>
-          <IfIndex>1</IfIndex>
-          <Name>GigabitEthernet1/0/1</Name>
-          <LinkType>1</LinkType>
-          <PVID>1</PVID>
-          <TrunkVLANs>1-4094</TrunkVLANs>
-          ...
-        </Interface>
-      </Interfaces>
-    </Ifmgr>
+    H3C Ifmgr 按需返回字段，部分接口可能只有 IfIndex，没有 Name/LinkType。
+    只要 IfIndex 存在就保留，缺失字段用合理默认值填充。
     """
     interfaces = []
     try:
@@ -83,23 +72,27 @@ def _parse_interface_response(xml_str: str) -> list[dict]:
                         iface["name"] = child.text or ""
                     elif child_tag == "LinkType":
                         link_type = int(child.text) if child.text else 1
-                        iface["mode"] = LINK_TYPE_REVERSE.get(link_type, "unknown")
+                        iface["mode"] = LINK_TYPE_REVERSE.get(link_type, "access")
                     elif child_tag == "PVID":
                         iface["pvid"] = int(child.text) if child.text else None
                     elif child_tag == "TrunkVLANs":
                         iface["allowed_vlans"] = _parse_vlan_range(child.text or "")
                     elif child_tag == "AdminStatus":
                         iface["status"] = "up" if child.text == "1" else "down"
-                if iface.get("name") and iface.get("if_index"):
-                    # 补充 access_vlan 字段
+                # 只检查 if_index，缺失字段用默认值
+                if iface.get("if_index"):
+                    # Name 缺失时用 IfIndex 生成
+                    if not iface.get("name"):
+                        iface["name"] = f"If-{iface['if_index']}"
+                    # LinkType 缺失时默认 access
+                    iface.setdefault("mode", "access")
+                    # access_vlan 字段
                     if iface.get("mode") == "access" and iface.get("pvid"):
                         iface["access_vlan"] = iface["pvid"]
                     else:
                         iface["access_vlan"] = None
-                    if "status" not in iface:
-                        iface["status"] = "unknown"
-                    if "allowed_vlans" not in iface:
-                        iface["allowed_vlans"] = []
+                    iface.setdefault("status", "unknown")
+                    iface.setdefault("allowed_vlans", [])
                     interfaces.append(iface)
     except ET.ParseError as e:
         logger.error(f"接口 XML 解析失败: {e}")
