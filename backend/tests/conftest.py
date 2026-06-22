@@ -1,5 +1,6 @@
 import os
 import pytest
+from unittest.mock import MagicMock, patch
 from fastapi.testclient import TestClient
 
 # 设置测试环境变量
@@ -32,3 +33,153 @@ def db():
         yield db
     finally:
         db.close()
+
+
+# === NETCONF 模拟 ===
+
+# 默认 fixture 的 NETCONF XML 响应
+DEFAULT_NETCONF_INTERFACE_XML = """<?xml version="1.0" encoding="UTF-8"?>
+<data>
+<top xmlns="http://www.h3c.com/netconf/config:1.0">
+<Ifmgr>
+<Interfaces>
+<Interface><IfIndex>100</IfIndex><Name>GigabitEthernet1/0/1</Name><PVID>1</PVID></Interface>
+<Interface><IfIndex>101</IfIndex><Name>GigabitEthernet1/0/2</Name><PVID>1</PVID></Interface>
+</Interfaces>
+</Ifmgr>
+</top>
+</data>"""
+
+DEFAULT_NETCONF_VLAN_XML = """<?xml version="1.0" encoding="UTF-8"?>
+<data>
+<top xmlns="http://www.h3c.com/netconf/config:1.0">
+<VLAN>
+<VLANs>
+<VLANID><ID>1</ID></VLANID>
+<VLANID><ID>100</ID></VLANID>
+</VLANs>
+</VLAN>
+</top>
+</data>"""
+
+
+def _make_mock_netconf(ifmgr_xml: str = None, vlan_xml: str = None):
+    """构造一个 mock NetconfClient，get_config 返回 XML 字符串"""
+    mgr = MagicMock()
+    if ifmgr_xml is None:
+        ifmgr_xml = DEFAULT_NETCONF_INTERFACE_XML
+    if vlan_xml is None:
+        vlan_xml = DEFAULT_NETCONF_VLAN_XML
+    # get_config 直接返回 XML 字符串（不是 MagicMock）
+    def fake_get_config(filter_tuple):
+        filter_xml = filter_tuple[1] if isinstance(filter_tuple, tuple) else filter_tuple
+        if "Ifmgr" in filter_xml or "Interface" in filter_xml:
+            return ifmgr_xml
+        if "VLAN" in filter_xml:
+            return vlan_xml
+        # 默认返回空 data
+        return "<data/>"
+    mgr.get_config.side_effect = fake_get_config
+    mgr.edit_config.return_value = "<ok/>"
+    mgr.close_session.return_value = None
+    return mgr
+
+
+@pytest.fixture
+def mock_netconf():
+    """自动 patch NetconfClient，使其走 mock 实现（不连真实设备）"""
+    # 必须 patch 所有引用 NetconfClient 的位置（路由模块）
+    with patch("app.routers.interface.NetconfClient") as mock_cls, \
+         patch("app.routers.vlan.NetconfClient") as mock_cls_v, \
+         patch("app.routers.device.NetconfClient") as mock_cls_d:
+        mock_instance = MagicMock()
+        mock_instance.__enter__ = MagicMock(return_value=mock_instance)
+        mock_instance.__exit__ = MagicMock(return_value=False)
+        for mc in (mock_cls, mock_cls_v, mock_cls_d):
+            mc.return_value = mock_instance
+        yield mock_instance
+
+
+# === 真实 H3C Ifmgr 响应样本（来自 192.168.100.100 真实探测） ===
+
+H3C_IFMGR_REAL_RESPONSE = """<?xml version="1.0" encoding="UTF-8"?>
+<rpc-reply xmlns="urn:ietf:params:xml:ns:netconf:base:1.0" message-id="1">
+<data>
+<top xmlns="http://www.h3c.com/netconf/config:1.0">
+<Ifmgr>
+<Interfaces>
+<Interface><IfIndex>2</IfIndex><PVID>100</PVID></Interface>
+<Interface><IfIndex>3</IfIndex><PVID>100</PVID></Interface>
+<Interface><IfIndex>4</IfIndex><PVID>100</PVID></Interface>
+<Interface><IfIndex>5</IfIndex><PVID>100</PVID></Interface>
+<Interface><IfIndex>6</IfIndex><PVID>100</PVID></Interface>
+<Interface><IfIndex>7</IfIndex><PVID>100</PVID></Interface>
+<Interface><IfIndex>8</IfIndex><PVID>100</PVID></Interface>
+<Interface><IfIndex>9</IfIndex><PVID>100</PVID></Interface>
+<Interface><IfIndex>10</IfIndex><PVID>100</PVID></Interface>
+<Interface><IfIndex>11</IfIndex><PVID>100</PVID></Interface>
+<Interface><IfIndex>12</IfIndex><PVID>200</PVID></Interface>
+<Interface><IfIndex>13</IfIndex><PVID>100</PVID></Interface>
+<Interface><IfIndex>14</IfIndex><PVID>100</PVID></Interface>
+<Interface><IfIndex>15</IfIndex><PVID>100</PVID></Interface>
+<Interface><IfIndex>16</IfIndex><PVID>100</PVID></Interface>
+<Interface><IfIndex>17</IfIndex><PVID>100</PVID></Interface>
+<Interface><IfIndex>18</IfIndex><PVID>100</PVID></Interface>
+<Interface><IfIndex>19</IfIndex><PVID>100</PVID></Interface>
+<Interface><IfIndex>20</IfIndex><PVID>100</PVID></Interface>
+<Interface><IfIndex>21</IfIndex><PVID>100</PVID></Interface>
+<Interface><IfIndex>5123</IfIndex><MAC>00-00-00-00-00-00</MAC></Interface>
+<Interface><IfIndex>5124</IfIndex><MAC>00-00-00-00-00-01</MAC></Interface>
+<Interface><IfIndex>5125</IfIndex><MAC>00-00-00-00-00-02</MAC></Interface>
+</Interfaces>
+</Ifmgr>
+</top>
+</data>
+</rpc-reply>"""
+
+H3C_VLAN_REAL_RESPONSE = """<?xml version="1.0" encoding="UTF-8"?>
+<rpc-reply xmlns="urn:ietf:params:xml:ns:netconf:base:1.0" message-id="1">
+<data>
+<top xmlns="http://www.h3c.com/netconf/config:1.0">
+<VLAN>
+<VLANs>
+<VLANID><ID>1</ID></VLANID>
+<VLANID><ID>100</ID></VLANID>
+<VLANID><ID>200</ID></VLANID>
+</VLANs>
+</VLAN>
+</top>
+</data>
+</rpc-reply>"""
+
+
+@pytest.fixture
+def real_device_netconf():
+    """Mock NetconfClient 返回真实设备的 H3C 响应样本"""
+    mock_instance = _make_mock_netconf(
+        ifmgr_xml=H3C_IFMGR_REAL_RESPONSE,
+        vlan_xml=H3C_VLAN_REAL_RESPONSE,
+    )
+    mock_instance.__enter__ = MagicMock(return_value=mock_instance)
+    mock_instance.__exit__ = MagicMock(return_value=False)
+    with patch("app.routers.interface.NetconfClient") as mock_cls, \
+         patch("app.routers.vlan.NetconfClient") as mock_cls_v, \
+         patch("app.routers.device.NetconfClient") as mock_cls_d:
+        for mc in (mock_cls, mock_cls_v, mock_cls_d):
+            mc.return_value = mock_instance
+        yield mock_instance
+
+
+@pytest.fixture
+def created_device(client):
+    """创建一个测试设备，返回 device dict"""
+    resp = client.post("/api/devices", json={
+        "name": "Test-Device",
+        "host": "192.168.100.100",
+        "port": 830,
+        "username": "admin",
+        "password": "TestPass123!",
+        "protected_interfaces": [2],
+    })
+    assert resp.status_code == 200, resp.text
+    return resp.json()["data"]

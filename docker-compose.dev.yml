@@ -32,6 +32,30 @@ services:
     networks:
       - h3c-net
 
+  # QA 容器：跑测试，默认不起，需要时 docker compose --profile qa up qa
+  qa-backend:
+    profiles: ["qa"]
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.qa
+    container_name: h3c-netctrl-qa-backend
+    volumes:
+      - ./backend:/app
+    networks:
+      - h3c-net
+
+  qa-frontend:
+    profiles: ["qa"]
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.qa
+    container_name: h3c-netctrl-qa-frontend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    networks:
+      - h3c-net
+
 networks:
   h3c-net:
     driver: bridge
