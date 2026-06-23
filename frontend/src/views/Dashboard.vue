@@ -2,7 +2,7 @@
 import { ref, onMounted } from 'vue'
 import PageHeader from '../components/PageHeader.vue'
 import { dashboardApi, assetApi, deviceApi } from '../api/index.js'
-import { getStatusInfo, getStatusDot } from '../utils/status.js'
+import { getStatusInfo, getStatusDot, getStatusLabel } from '../utils/status.js'
 
 const loading = ref(true)
 const error = ref('')
@@ -80,6 +80,7 @@ async function loadDashboard() {
 onMounted(loadDashboard)
 
 const statusChip = (s) => s === 'online' ? 'chip-good' : s === 'warning' || s === 'maintenance' ? 'chip-warn' : s === 'offline' ? 'chip-bad' : 'chip-mute'
+const statusLabel = (s) => getStatusLabel(s)
 const roleChip = () => 'chip-mute'
 </script>
 

@@ -77,19 +77,20 @@ onBeforeUnmount(() => { document.removeEventListener('mousedown', onDocClick) })
       type="button"
       :disabled="disabled"
       @click="toggle"
-      class="w-full h-9 px-3.5 text-sm text-left rounded-xl bg-white ring-1 ring-canvas-400
+      class="w-full h-9 pl-3 pr-2 text-sm text-left rounded-xl bg-white ring-1 ring-canvas-400
              text-ink-900 transition flex items-center gap-2
              hover:ring-ink-400 focus:outline-none focus:ring-2 focus:ring-accent/40
              disabled:opacity-50 disabled:cursor-not-allowed"
     >
-      <span v-if="selected" class="flex-1 min-w-0 flex items-center gap-2 truncate">
-        <span class="truncate">{{ getLabel(selected) }}</span>
-        <span v-if="getSub(selected)" class="text-ink-500 text-[10px] num-mono shrink-0">{{ getSub(selected) }}</span>
-        <span v-if="statusText" :class="['chip text-[9px] !px-1.5 !py-0 shrink-0', statusClass(selected)]">
+      <span v-if="selected" class="flex-1 min-w-0 flex items-center gap-2">
+        <span class="truncate min-w-0">{{ getLabel(selected) }}</span>
+        <span v-if="getSub(selected)" class="text-ink-500 text-[10px] num-mono truncate max-w-[8rem] shrink">{{ getSub(selected) }}</span>
+        <span v-if="statusText" :class="['chip text-[9px] !px-1.5 !py-0 shrink-0 ml-auto', statusClass(selected)]">
           {{ statusText(selected) }}
         </span>
       </span>
-      <span v-else class="flex-1 text-ink-500">{{ placeholder }}</span>
+      <span v-else class="flex-1 text-ink-500 truncate">{{ placeholder }}</span>
+      <span class="h-5 w-px bg-canvas-300 shrink-0"></span>
       <svg class="size-3.5 text-ink-500 shrink-0 transition-transform" :class="{ 'rotate-180': open }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round" />
       </svg>
@@ -111,13 +112,13 @@ onBeforeUnmount(() => { document.removeEventListener('mousedown', onDocClick) })
           :key="getValue(opt)"
           type="button"
           @click="choose(opt)"
-          class="w-full text-left px-3.5 py-2 text-sm flex items-center gap-2 transition
+          class="w-full text-left pl-3 pr-2 py-2 text-sm flex items-center gap-2 transition
                  hover:bg-canvas-100"
           :class="modelValue === getValue(opt) ? 'bg-accent/5 text-accent' : 'text-ink-900'"
         >
-          <span class="flex-1 min-w-0 flex items-center gap-2 truncate">
-            <span class="truncate">{{ getLabel(opt) }}</span>
-            <span v-if="getSub(opt)" class="text-ink-500 text-[10px] num-mono shrink-0">{{ getSub(opt) }}</span>
+          <span class="flex-1 min-w-0 flex items-center gap-2">
+            <span class="truncate min-w-0">{{ getLabel(opt) }}</span>
+            <span v-if="getSub(opt)" class="text-ink-500 text-[10px] num-mono truncate max-w-[8rem] shrink">{{ getSub(opt) }}</span>
           </span>
           <span v-if="statusText" :class="['chip text-[9px] !px-1.5 !py-0 shrink-0', statusClass(opt)]">
             {{ statusText(opt) }}

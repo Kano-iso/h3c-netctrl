@@ -6,13 +6,14 @@
   html, body, #app { min-height: 100%; }
   /* 背景渐变：3 个超大柔光晕铺满 body，像"晨雾"一样有氛围但不抢戏 */
   body {
-    /* 中英文混排：中文用苹方/思源，英文/数字用 SF Pro / Inter */
+    /* 中英文混排：中文用苹方/思源兜底，英文/数字/IP 走 Menlo/JetBrains/Cascadia 系（与运维终端同栈） */
     font-family:
+      "Menlo", "Consolas", "Cascadia Code", "JetBrains Mono", "Fira Code",
       "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
       "Noto Sans CJK SC", "Noto Sans SC", "Source Han Sans SC",
       -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
       "Helvetica Neue", "Inter", "Segoe UI Variable", "Segoe UI",
-      system-ui, Roboto, Arial, sans-serif;
+      system-ui, Roboto, Arial, monospace;
     color: #1d1d1f;
     background-color: #fbfbfd;
     background-image:

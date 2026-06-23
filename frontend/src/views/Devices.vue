@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import PageHeader from '../components/PageHeader.vue'
 import { deviceApi, assetApi } from '../api/index.js'
+import { getStatusChip, getStatusLabel } from '../utils/status.js'
 
 const loading = ref(true)
 const error = ref('')
@@ -83,7 +84,8 @@ async function testConnection(id) {
   await loadDevices()
 }
 
-const statusChip = (s) => s === 'online' ? 'chip-good' : s === 'maintenance' ? 'chip-warn' : s === 'offline' ? 'chip-bad' : 'chip-mute'
+const statusChip = (s) => getStatusChip(s)
+const statusLabel = (s) => getStatusLabel(s)
 </script>
 
 <template>

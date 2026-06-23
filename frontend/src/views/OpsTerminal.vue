@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted, nextTick, watch } from 'vue'
 import PageHeader from '../components/PageHeader.vue'
+import Select from '../components/Select.vue'
 import { deviceApi, executeApi } from '../api/index.js'
 
 const loading = ref(true)
