@@ -29,5 +29,5 @@
 
 ## 5. 收尾
 
-- [ ] 5.1 提交代码 `feat(crud-ui): 设备 CRUD 界面 + 资产编辑 Modal`
-- [ ] 5.2 archive change
+- [x] 5.1 提交代码 `feat(crud-ui): 设备 CRUD 界面 + 资产编辑 Modal`（commit c1c41e0）
+- [x] 5.2 archive change
