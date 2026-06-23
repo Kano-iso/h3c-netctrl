@@ -31,5 +31,5 @@
 
 ## 5. 收尾
 
-- [x] 5.1 提交代码 `feat(ops-terminal): 多命令输入与顺序执行（含可配间隔）`
-- [ ] 5.2 archive change
+- [x] 5.1 提交代码 `feat(ops-terminal): 多命令输入与顺序执行（含可配间隔）`（commit c06fbcd）
+- [x] 5.2 archive change
