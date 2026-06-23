@@ -117,8 +117,17 @@ class SSHExecutor:
             if client:
                 client.close()
 
-    def execute_commands(self, commands: list) -> dict:
-        """执行多条配置命令（如 system-view → interface → 配置），逐条发送"""
+    def execute_commands(self, commands: list, delay_ms: int = 1000) -> list:
+        """执行多条配置命令（如 system-view → interface → 配置），逐条发送，遇错继续
+
+        Args:
+            commands: 命令列表
+            delay_ms: 每条命令之间的间隔毫秒数（默认 1000）
+
+        Returns:
+            list[dict]: 每条命令的执行结果
+                [{cmd, output, success, error, execution_time}, ...]
+        """
         start_time = time.time()
         client = None
         try:
@@ -131,30 +140,64 @@ class SSHExecutor:
                 channel.recv(65535)
                 time.sleep(0.3)
 
-            full_output = ""
+            results = []
+            delay_sec = max(0, delay_ms) / 1000.0
+
             for cmd in commands:
-                channel.send(cmd.strip() + '\n')
-                time.sleep(0.8)
-                output = self._read_with_pagination(channel, max_wait=10)
-                full_output += output + '\n'
+                cmd_strip = cmd.strip()
+                if not cmd_strip:
+                    continue
+                cmd_start = time.time()
+                try:
+                    channel.send(cmd_strip + '\n')
+                    time.sleep(max(delay_sec, 0.5))
+                    output = self._read_with_pagination(channel, max_wait=10)
 
-            execution_time = round(time.time() - start_time, 2)
+                    # 清理 ANSI 和分页
+                    output_clean = re.sub(r'\x1b\[[^m]*m', '', output)
+                    output_clean = re.sub(r'\x1b\[K', '', output_clean)
+                    output_clean = re.sub(r'\x1b\[24;1H', '', output_clean)
+                    output_clean = re.sub(r'----\s*More\s*----', '', output_clean)
+                    output_clean = re.sub(r'--More--', '', output_clean)
+                    output_clean = output_clean.replace('\r\n', '\n').replace('\r', '').strip()
 
-            # 清理 ANSI 和分页
-            full_output = re.sub(r'\x1b\[[^m]*m', '', full_output)
-            full_output = re.sub(r'\x1b\[K', '', full_output)
-            full_output = full_output.replace('\r\n', '\n').replace('\r', '')
+                    # 错误指示符检测
+                    error_indicators = ['Error:', 'Error :', 'Incomplete command', 'Unrecognized command',
+                                        'Wrong parameter', 'Too many parameters', '% Unknown command',
+                                        'Invalid input detected', 'Command rejected']
+                    has_error = any(ind in output_clean for ind in error_indicators)
 
-            # 检查是否有错误提示
-            error_indicators = ['Error:', 'Error :', 'Incomplete command', 'Unrecognized command',
-                                'Wrong parameter', 'Too many parameters']
-            has_error = any(indicator in full_output for indicator in error_indicators)
+                    results.append({
+                        "cmd": cmd_strip,
+                        "output": output_clean,
+                        "success": not has_error,
+                        "error": (output_clean.split('\n')[0] if has_error else None),
+                        "execution_time": round(time.time() - cmd_start, 2),
+                    })
+                except Exception as e:
+                    logger.error(f"SSH 单命令执行失败: cmd={cmd_strip}, err={e}", exc_info=True)
+                    results.append({
+                        "cmd": cmd_strip,
+                        "output": "",
+                        "success": False,
+                        "error": str(e),
+                        "execution_time": round(time.time() - cmd_start, 2),
+                    })
 
-            return {"success": not has_error, "output": full_output.strip(), "execution_time": execution_time}
+            return results
         except Exception as e:
-            execution_time = round(time.time() - start_time, 2)
             logger.error(f"SSH 多命令执行失败: {e}", exc_info=True)
-            return {"success": False, "output": str(e), "execution_time": execution_time}
+            # SSH 连接失败时所有命令标为失败
+            return [
+                {
+                    "cmd": c.strip(),
+                    "output": "",
+                    "success": False,
+                    "error": str(e),
+                    "execution_time": 0,
+                }
+                for c in commands if c and c.strip()
+            ]
         finally:
             if client:
                 client.close()

@@ -34,11 +34,14 @@ export const deviceApi = {
 }
 
 // 运维终端 —— 在设备上执行命令
+// run(deviceId, payload) 接受：
+//   - { command: "display version" }                单命令（向后兼容）
+//   - { commands: ["cmd1", "cmd2"], delay_ms: 1000 } 多命令顺序执行
 export const executeApi = {
-  run: (deviceId, command) =>
+  run: (deviceId, payload) =>
     apiCall(`/devices/${deviceId}/execute`, {
       method: 'POST',
-      body: JSON.stringify({ command }),
+      body: JSON.stringify(payload),
     }),
 }
 
