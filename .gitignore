@@ -22,4 +22,5 @@ backups/
 # Node.js
 node_modules/
 frontend/dist/
-frontend-poc/dist/
+frontend.bak/dist/
+frontend-poc/
