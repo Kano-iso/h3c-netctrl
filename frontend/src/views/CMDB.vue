@@ -167,7 +167,7 @@ const onEditAsset = (d) => {
               <th class="px-4 py-3 text-left font-medium">软件包</th>
               <th class="px-4 py-3 text-left font-medium">位置</th>
               <th class="px-4 py-3 text-left font-medium">状态</th>
-              <th class="px-4 py-3 text-right font-medium w-24">操作</th>
+              <th class="px-4 py-3 text-right font-medium w-32">操作</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-canvas-300">

@@ -101,6 +101,9 @@ def refresh_asset(device_id: int, db: Session = Depends(get_db)):
         )
         # 采集硬件信息
         info = executor.collect_hardware_info()
+        # 防御性兜底：info 全空时（即便 collect_hardware_info 行为变化）也视为采集失败
+        if not any(info.values()):
+            raise Exception(f"采集结果为空（model/serial/firmware/software 均无），SSH 可能未正确连接: {device.host}")
         asset.model = info.get("model", asset.model)
         asset.serial_number = info.get("serial_number", asset.serial_number)
         asset.firmware_version = info.get("firmware_version", asset.firmware_version)

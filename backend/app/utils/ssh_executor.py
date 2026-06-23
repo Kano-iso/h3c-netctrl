@@ -203,21 +203,31 @@ class SSHExecutor:
                 client.close()
 
     def collect_hardware_info(self) -> dict:
-        """采集设备硬件信息（型号、SN、固件版本、软件包版本）"""
+        """采集设备硬件信息（型号、SN、固件版本、软件包版本）
+
+        当 SSH 连接失败（第一条 execute 返回 success=false）时主动抛 ConnectionError，
+        让调用方（如 asset.py::refresh_asset）能进入 except 分支正确设置 status='offline'。
+        之前是静默返回空 dict，导致 status 被错误设为 'online'。
+        """
         info = {}
 
         # display device → 型号、SN
         result = self.execute("display device")
-        if result["success"]:
-            output = result["output"]
-            # 解析型号: H3C S6850 等
-            model_match = re.search(r'(H3C\s+\S+)', output)
-            if model_match:
-                info["model"] = model_match.group(1)
-            # 解析 SN
-            sn_match = re.search(r'(CNE\w+)', output)
-            if sn_match:
-                info["serial_number"] = sn_match.group(1)
+        if not result["success"]:
+            # SSH 连接失败 / 认证失败 / 命令无输出 → 主动抛异常
+            raise ConnectionError(
+                f"SSH 连接失败或命令无输出: {self.host}（第一条命令 'display device' 失败，"
+                f"output={result.get('output', '')[:100]!r}）"
+            )
+        output = result["output"]
+        # 解析型号: H3C S6850 等
+        model_match = re.search(r'(H3C\s+\S+)', output)
+        if model_match:
+            info["model"] = model_match.group(1)
+        # 解析 SN
+        sn_match = re.search(r'(CNE\w+)', output)
+        if sn_match:
+            info["serial_number"] = sn_match.group(1)
 
         # display version → 固件版本、软件包版本
         result = self.execute("display version")
