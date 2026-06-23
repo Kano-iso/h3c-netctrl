@@ -169,9 +169,7 @@ const Icons = {
     <!-- Main -->
     <main class="flex-1 relative">
       <RouterView v-slot="{ Component, route: r }">
-        <transition name="page" mode="out-in">
-          <component :is="Component" :key="r.fullPath" />
-        </transition>
+        <component :is="Component" :key="r.fullPath" />
       </RouterView>
     </main>
 
@@ -181,9 +179,9 @@ const Icons = {
 </template>
 
 <style>
-.page-enter-active, .page-leave-active { transition: opacity .18s ease, transform .22s cubic-bezier(.2,.8,.2,1); }
-.page-enter-from { opacity: 0; transform: translateY(6px); }
-.page-leave-to { opacity: 0; transform: translateY(-4px); }
+/* 页面切换淡入淡出（快速、避免卡顿） */
+.fade-enter-active, .fade-leave-active { transition: opacity .12s ease; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
 
 .dropdown-enter-active, .dropdown-leave-active { transition: opacity .15s ease, transform .18s cubic-bezier(.2,.8,.2,1); }
 .dropdown-enter-from, .dropdown-leave-to { opacity: 0; transform: translateY(-4px); }
