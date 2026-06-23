@@ -9,5 +9,5 @@
 
 ## 2. 收尾
 
-- [ ] 2.1 提交代码 `fix: trunk 模式接口带 allowed_vlans 时显式拒绝（NETCONF 设备能力限制）`
-- [ ] 2.2 archive change
+- [x] 2.1 提交代码 `fix: trunk 模式接口带 allowed_vlans 时显式拒绝（NETCONF 设备能力限制）`（commit f914a74）
+- [x] 2.2 archive change

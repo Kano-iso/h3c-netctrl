@@ -1,10 +1,13 @@
-## ADDED Requirements
+# interface-trunk-deploy Specification
 
+## Purpose
+TBD - created by archiving change fix-interface-trunk-deploy. Update Purpose after archive.
+## Requirements
 ### Requirement: 后端显式拒绝 trunk 模式 + allowed_vlans 的接口配置
 
-当后端收到 `POST /api/devices/{id}/interfaces/config` 请求中 `mode=trunk` 且 `allowed_vlans` 非空时，必须直接返回明确的中文错误，**不向设备发送任何 edit-config**。access 模式（`mode=access` 或 `mode=trunk` 但 `allowed_vlans` 为空/None）行为保持不变。
+当后端收到 `POST /api/devices/{id}/interfaces/config` 请求中 `mode=trunk` 且 `allowed_vlans` 非空时，系统 MUST 直接返回明确的中文错误，**不向设备发送任何 edit-config**。access 模式（`mode=access` 或 `mode=trunk` 但 `allowed_vlans` 为空/None）行为保持不变。
 
-错误信息必须包含：
+错误信息 MUST 包含：
 1. 设备不支持该操作的明确说明
 2. CLI 手工配置命令样例（`port trunk permit vlan <vlan-list>`）
 
@@ -19,3 +22,4 @@
 #### Scenario: 下发 trunk 接口（不带 allowed_vlans）— 行为不变
 - **WHEN** 调用 `POST /api/devices/{id}/interfaces/config`，`mode=trunk`，`allowed_vlans=null` 或 `[]`
 - **THEN** 后端正常下发 LinkType=2，不输出 TrunkVLANs 元素（与原代码一致）
+
