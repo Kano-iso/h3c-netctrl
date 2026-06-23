@@ -25,5 +25,5 @@
 
 ## 3. 收尾
 
-- [ ] 3.1 提交代码 `feat(cmdb): 单设备资产采集入口`
-- [ ] 3.2 archive change
+- [x] 3.1 提交代码 `feat(cmdb): 单设备资产采集入口`（commit e4f28ad）
+- [x] 3.2 archive change
