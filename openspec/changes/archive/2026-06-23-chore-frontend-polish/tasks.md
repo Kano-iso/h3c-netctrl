@@ -18,5 +18,5 @@
 
 ## 3. 收尾
 
-- [ ] 3.1 提交代码 `chore(frontend): 下拉菜单溢出 + Select 布局 + monospace 字体栈`
-- [ ] 3.2 archive change
+- [x] 3.1 提交代码 `chore(frontend): 下拉菜单溢出 + Select 布局 + monospace 字体栈`（commit 4690c95）
+- [x] 3.2 archive change
