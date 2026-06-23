@@ -12,6 +12,7 @@ const search = ref('')
 const view = ref('table')
 const refreshing = ref(false)
 const refreshMsg = ref('')
+const refreshingIds = ref(new Set())  // 单设备采集中跟踪
 
 // Modal state
 const assetEditOpen = ref(false)
@@ -68,6 +69,27 @@ const refresh = async () => {
   refreshing.value = false
   refreshMsg.value = '刷新完成'
   setTimeout(() => { refreshMsg.value = '' }, 2000)
+}
+
+// 单设备采集（独立于全量刷新，支持多设备并发）
+const refreshOne = async (id) => {
+  if (refreshingIds.value.has(id)) return
+  const next = new Set(refreshingIds.value)
+  next.add(id)
+  refreshingIds.value = next
+  try {
+    const r = await assetApi.refresh(id)
+    if (!r.success) {
+      alert(`采集失败：${r.error || '未知错误'}`)
+    }
+  } catch (e) {
+    alert(`采集异常：${e.message || e}`)
+  } finally {
+    const done = new Set(refreshingIds.value)
+    done.delete(id)
+    refreshingIds.value = done
+    await loadAssets()
+  }
 }
 
 const filtered = computed(() => {
@@ -159,7 +181,17 @@ const onEditAsset = (d) => {
                 <span :class="statusChip(d.status)">{{ statusLabel(d.status) }}</span>
               </td>
               <td class="px-4 py-3 text-right">
-                <button class="btn-soft !text-[11px] !px-2 !py-1" @click="onEditAsset(d)">编辑资产</button>
+                <div class="inline-flex items-center gap-1.5 justify-end">
+                  <button
+                    class="btn-soft !text-[11px] !px-2 !py-1"
+                    :disabled="refreshingIds.has(d.id)"
+                    @click="refreshOne(d.id)"
+                  >
+                    <svg v-if="refreshingIds.has(d.id)" class="size-3 animate-spin inline-block" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg>
+                    <span>{{ refreshingIds.has(d.id) ? '采集中…' : '采集' }}</span>
+                  </button>
+                  <button class="btn-soft !text-[11px] !px-2 !py-1" @click="onEditAsset(d)">编辑资产</button>
+                </div>
               </td>
             </tr>
           </tbody>
@@ -181,6 +213,15 @@ const onEditAsset = (d) => {
                 </div>
                 <div class="flex items-center gap-2">
                   <span :class="statusChip(d.status)">{{ statusLabel(d.status) }}</span>
+                  <button
+                    class="text-ink-500 hover:text-accent p-1"
+                    :disabled="refreshingIds.has(d.id)"
+                    title="采集资产"
+                    @click="refreshOne(d.id)"
+                  >
+                    <svg v-if="refreshingIds.has(d.id)" class="size-3.5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg>
+                    <svg v-else class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M21 12a9 9 0 11-9-9c2.5 0 4.7 1 6.4 2.6L21 8"/><path d="M21 3v5h-5"/></svg>
+                  </button>
                   <button class="text-ink-500 hover:text-accent p-1" title="编辑资产" @click="onEditAsset(d)">
                     <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 20h9M16.5 3.5a2.121 2.121 0 113 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
                   </button>
