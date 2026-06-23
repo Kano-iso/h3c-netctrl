@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
 import PageHeader from '../components/PageHeader.vue'
+import Select from '../components/Select.vue'
 import { deviceApi, logApi } from '../api/index.js'
 
 const loading = ref(true)
@@ -18,12 +19,18 @@ const expanded = ref(new Set())
 
 const actionOptions = [
   { value: 'all', label: '全部操作' },
-  { value: 'execute', label: 'execute' },
-  { value: 'connect', label: 'connect' },
-  { value: 'interface_config', label: 'interface_config' },
-  { value: 'asset_refresh', label: 'asset_refresh' },
-  { value: 'batch_execute', label: 'batch_execute' },
+  { value: 'execute', label: 'execute · 单设备命令' },
+  { value: 'connect', label: 'connect · 连接测试' },
+  { value: 'interface_config', label: 'interface_config · 接口配置' },
+  { value: 'asset_refresh', label: 'asset_refresh · 资产刷新' },
+  { value: 'batch_execute', label: 'batch_execute · 批量执行' },
 ]
+
+// "全部" 显式作为第一项（placeholder 也可，但放第一项更明确）
+const deviceOptions = computed(() => [
+  { id: null, label: '全部设备' },
+  ...devices.value.map(d => ({ id: d.id, label: d.name })),
+])
 
 async function loadDevices() {
   const r = await deviceApi.list()
@@ -117,14 +124,21 @@ const statusText = (s) => s === 'success' ? '成功' : s === 'warning' ? '告警
           <input v-model="search" placeholder="搜索设备 / 详情 / 操作…" class="input pl-9" />
         </div>
 
-        <select v-model="filterDeviceId" class="input !w-44">
-          <option :value="null">全部设备</option>
-          <option v-for="d in devices" :key="d.id" :value="d.id">{{ d.name }}</option>
-        </select>
+        <Select
+          v-model="filterDeviceId"
+          :options="deviceOptions"
+          :custom-label="(d) => d.label"
+          value-key="id"
+          width="w-44"
+        />
 
-        <select v-model="filterAction" class="input !w-40">
-          <option v-for="a in actionOptions" :key="a.value" :value="a.value">{{ a.label }}</option>
-        </select>
+        <Select
+          v-model="filterAction"
+          :options="actionOptions"
+          :custom-label="(a) => a.label"
+          value-key="value"
+          width="w-44"
+        />
 
         <div class="flex items-center gap-1">
           <button :class="['px-3 py-1.5 text-xs font-medium rounded-full transition', filterStatus === 'all' ? 'bg-ink-900 text-white' : 'text-ink-700 hover:bg-canvas-200']" @click="filterStatus = 'all'">全部</button>

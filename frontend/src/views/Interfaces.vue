@@ -1,6 +1,7 @@
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import PageHeader from '../components/PageHeader.vue'
+import Select from '../components/Select.vue'
 import { deviceApi, interfaceApi } from '../api/index.js'
 
 // 常用 VLAN 列表（V2.1 前端内置，后续可改为后端拉取）
@@ -142,9 +143,13 @@ const statusText = (s) => s === 'up' ? 'UP' : s === 'down' ? 'DOWN' : '—'
   <template v-else>
     <PageHeader title="接口管理" :subtitle="`${devices.length} 台设备 · Access / Trunk 联动配置 · 受保护接口需 force=true`">
       <template #actions>
-        <select v-model="selectedDeviceId" class="input !w-56">
-          <option v-for="d in devices" :key="d.id" :value="d.id">{{ d.name }} · {{ d.host }}</option>
-        </select>
+        <Select
+          v-model="selectedDeviceId"
+          :options="devices"
+          :custom-label="(d) => d.name"
+          :sub-label="(d) => d.host"
+          width="w-60"
+        />
         <button class="btn-outline" @click="refresh">
           <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
           刷新

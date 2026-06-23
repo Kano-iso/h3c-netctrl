@@ -6,11 +6,13 @@
   html, body, #app { min-height: 100%; }
   /* 背景渐变：3 个超大柔光晕铺满 body，像"晨雾"一样有氛围但不抢戏 */
   body {
+    /* 中英文混排：中文用苹方/思源，英文/数字用 SF Pro / Inter */
     font-family:
       "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
       "Noto Sans CJK SC", "Noto Sans SC", "Source Han Sans SC",
-      -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue",
-      system-ui, "Segoe UI", Roboto, Arial, sans-serif;
+      -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
+      "Helvetica Neue", "Inter", "Segoe UI Variable", "Segoe UI",
+      system-ui, Roboto, Arial, sans-serif;
     color: #1d1d1f;
     background-color: #fbfbfd;
     background-image:
@@ -32,12 +34,23 @@
   h1, h2, h3, h4 { font-feature-settings: "ss01", "ss02", "kern", "palt"; letter-spacing: -0.03em; font-weight: 600; }
   /* 强调中文字号可读：稍大一点的行高 */
   p, li { letter-spacing: -0.01em; }
-  /* 数字和英文用 tabular nums，避免抖动 */
+  /* 数字和英文用 tabular nums + 跨平台等宽栈 */
   .font-mono, code, kbd {
-    font-family: "SF Mono", "JetBrains Mono", "Cascadia Code", "Fira Code",
-                 ui-monospace, "Source Code Pro", Menlo, Consolas, monospace;
+    font-family:
+      "SF Mono", "JetBrains Mono", "Cascadia Code", "Fira Code",
+      "Menlo", "Consolas", "DejaVu Sans Mono", "Liberation Mono",
+      ui-monospace, "Source Code Pro", monospace;
     font-feature-settings: "tnum", "ss01", "calt", "liga", "kern";
     font-variant-numeric: tabular-nums;
+  }
+  /* select 元素：option 字体无法 CSS 控制，但 select 自身可以，影响部分浏览器 */
+  select, select option, select optgroup {
+    font-family:
+      "SF Mono", "JetBrains Mono", "Cascadia Code", "Fira Code",
+      "Menlo", "Consolas", "DejaVu Sans Mono", "Liberation Mono",
+      ui-monospace, "Source Code Pro", "PingFang SC", "Microsoft YaHei",
+      -apple-system, system-ui, monospace;
+    font-feature-settings: "tnum", "kern";
   }
   /* 次要 mono 文本：调色更柔和 */
   .mono-soft { @apply font-mono text-ink-600; }

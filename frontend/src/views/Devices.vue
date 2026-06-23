@@ -35,7 +35,7 @@ async function loadDevices() {
         port: d.port,
         model: a.model || '—',
         software: a.software_package || '—',
-        status: a.status || 'unknown',
+        status: a.status || null,  // null → utils 兜底为"未采集"
         location: a.location || '',
         tags: a.tags ? a.tags.split(',').map(s => s.trim()).filter(Boolean) : [],
         protected: d.protected_interfaces || [],
@@ -164,7 +164,7 @@ const statusChip = (s) => s === 'online' ? 'chip-good' : s === 'maintenance' ? '
                 <div class="text-[10px] text-ink-500 font-mono">{{ d.software }}</div>
               </td>
               <td class="px-4 py-3">
-                <span :class="statusChip(d.status)">{{ d.status }}</span>
+                <span :class="statusChip(d.status)">{{ statusLabel(d.status) }}</span>
               </td>
               <td class="px-4 py-3">
                 <span v-if="d.protected.length" class="chip-bad !text-[10px]">🛡 {{ d.protected.length }}</span>

@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue'
 import PageHeader from '../components/PageHeader.vue'
 import { dashboardApi, assetApi, deviceApi } from '../api/index.js'
+import { getStatusInfo, getStatusDot } from '../utils/status.js'
 
 const loading = ref(true)
 const error = ref('')
@@ -143,7 +144,7 @@ const roleChip = () => 'chip-mute'
               </div>
               <div class="text-right">
                 <div class="text-[13px]">
-                  <span :class="statusChip(d.status)">{{ d.status }}</span>
+                  <span :class="statusChip(d.status)">{{ statusLabel(d.status) }}</span>
                 </div>
                 <div v-if="d.location" class="text-[10px] text-ink-500 mt-0.5">{{ d.location.split('·')[0].trim() }}</div>
               </div>

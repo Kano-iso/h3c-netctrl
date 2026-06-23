@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import PageHeader from '../components/PageHeader.vue'
 import { deviceApi, assetApi } from '../api/index.js'
+import { getStatusInfo } from '../utils/status.js'
 
 const loading = ref(true)
 const error = ref('')
@@ -33,7 +34,7 @@ async function loadAssets() {
         software: a.software_package || '—',
         location: a.location || '',
         tags: a.tags ? a.tags.split(',').map(s => s.trim()).filter(Boolean) : [],
-        status: a.status || 'unknown',
+        status: a.status || null,  // null → utils 兜底为"未采集"
       }
     })
   )
@@ -72,7 +73,7 @@ const filtered = computed(() => {
 const groupBy = (key) => {
   const groups = {}
   for (const d of filtered.value) {
-    const k = d[key] || 'unknown'
+    const k = d[key] || null
     if (!groups[k]) groups[k] = []
     groups[k].push(d)
   }
@@ -81,15 +82,9 @@ const groupBy = (key) => {
 
 const byStatus = computed(() => groupBy('status'))
 
-const statusChip = (s) => s === 'online' ? 'chip-good' : s === 'warning' || s === 'maintenance' ? 'chip-warn' : s === 'offline' ? 'chip-bad' : 'chip-mute'
-const statusText = (s) => s === 'online' ? '在线' : s === 'warning' ? '告警' : s === 'maintenance' ? '维护' : s === 'offline' ? '离线' : '未知'
-const statusLabel = (s) => ({
-  online: '在线',
-  warning: '告警',
-  maintenance: '维护',
-  offline: '离线',
-  unknown: '未知',
-})[s] || s || '未知'
+// 状态显示统一用 utils 兜底
+const statusChip = (s) => getStatusInfo(s).chipClass
+const statusLabel = (s) => getStatusInfo(s).label
 </script>
 
 <template>
@@ -148,7 +143,7 @@ const statusLabel = (s) => ({
               <td class="px-4 py-3 font-mono text-[10px] text-ink-500">{{ d.software }}</td>
               <td class="px-4 py-3 text-xs text-ink-700">{{ d.location || '—' }}</td>
               <td class="px-4 py-3">
-                <span :class="statusChip(d.status)">{{ statusText(d.status) }}</span>
+                <span :class="statusChip(d.status)">{{ statusLabel(d.status) }}</span>
               </td>
             </tr>
           </tbody>
@@ -168,7 +163,7 @@ const statusLabel = (s) => ({
                   <div class="text-sm font-semibold text-ink-900">{{ d.name }}</div>
                   <div class="text-[10px] text-ink-500 font-mono">{{ d.host }}</div>
                 </div>
-                <span :class="statusChip(d.status)">{{ statusText(d.status) }}</span>
+                <span :class="statusChip(d.status)">{{ statusLabel(d.status) }}</span>
               </div>
               <div class="space-y-1.5 text-xs">
                 <div class="flex justify-between gap-2"><span class="text-ink-500 shrink-0">型号</span><span class="text-ink-900 font-mono truncate">{{ d.model }}</span></div>

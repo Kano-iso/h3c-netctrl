@@ -72,9 +72,13 @@ const clearOutput = () => { output.value = [] }
   <template v-else>
     <PageHeader title="运维终端" subtitle="命令派发式执行 · 实时回显 · 操作自动入日志">
       <template #actions>
-        <select v-model="selectedDeviceId" class="input !w-56">
-          <option v-for="d in devices" :key="d.id" :value="d.id">{{ d.name }} · {{ d.host }}</option>
-        </select>
+        <Select
+          v-model="selectedDeviceId"
+          :options="devices"
+          :custom-label="(d) => d.name"
+          :sub-label="(d) => d.host"
+          width="w-60"
+        />
       </template>
     </PageHeader>
 
