@@ -51,9 +51,3 @@
 #### Scenario: 静默修正
 - **WHEN** 用户在 CMDB 顶部点击"全量刷新"按钮
 - **THEN** 所有设备的 `status` 在采集成功后更新；不可达设备的 `status` 在采集失败后被改为 `offline`（无需手工 SQL）
-
-## MODIFIED Requirements
-
-### Requirement: cmdb-single-asset-refresh 表格行操作列宽度
-
-[cmdb-single-asset-refresh](../cmdb-single-asset-refresh/spec.md) 引入的表格行操作列 `<th class="w-24">` 改为 `<th class="w-32">`，以容纳"采集"和"编辑资产"两个 `btn-soft` 按钮。功能行为不变。
