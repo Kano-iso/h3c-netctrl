@@ -265,6 +265,19 @@ def configure_interface(device_id: int, body: InterfaceConfig, db: Session = Dep
     if body.if_index in protected and body.force:
         logger.warning(f"接口配置 force=true 强制通过保护: device_id={device_id}, if_index={body.if_index}")
 
+    # 设备能力边界：H3C V7 NETCONF edit-config 不支持配置 trunk 允许 VLAN 列表
+    # 详见 openspec/changes/fix-interface-trunk-deploy（H3C 官方命令参考 + 设备实地探测）
+    if body.mode == "trunk" and body.allowed_vlans:
+        vlan_list_str = ",".join(str(v) for v in body.allowed_vlans)
+        msg = (f"当前设备不支持通过 NETCONF 配置 trunk 允许 VLAN 列表（{vlan_list_str}）。"
+               f"请到设备 CLI 手工执行：port trunk permit vlan {vlan_list_str}")
+        logger.warning(f"接口配置被设备能力拦截: device_id={device_id}, if_index={body.if_index}, "
+                       f"mode=trunk, allowed_vlans={vlan_list_str}")
+        record_log(db, device.id, device.name, "interface_config",
+                   f"配置接口 if_index={body.if_index} 被设备能力拦截（trunk+allowed_vlans）",
+                   "failed", error_message=msg)
+        return APIResponse(success=False, error=msg)
+
     # 收集需要校验的 VLAN（access 用 access_vlan，trunk 用 pvid + allowed_vlans）
     vlans_to_check = []
     if body.mode == "access" and body.access_vlan:
