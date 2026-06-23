@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import PageHeader from '../components/PageHeader.vue'
+import AssetEditModal from '../components/AssetEditModal.vue'
 import { deviceApi, assetApi } from '../api/index.js'
 import { getStatusInfo } from '../utils/status.js'
 
@@ -11,6 +12,10 @@ const search = ref('')
 const view = ref('table')
 const refreshing = ref(false)
 const refreshMsg = ref('')
+
+// Modal state
+const assetEditOpen = ref(false)
+const editingAsset = ref({ deviceId: null, deviceName: '', asset: {} })
 
 async function loadAssets() {
   loading.value = true
@@ -35,6 +40,7 @@ async function loadAssets() {
         location: a.location || '',
         tags: a.tags ? a.tags.split(',').map(s => s.trim()).filter(Boolean) : [],
         status: a.status || null,  // null → utils 兜底为"未采集"
+        asset: a,
       }
     })
   )
@@ -85,6 +91,12 @@ const byStatus = computed(() => groupBy('status'))
 // 状态显示统一用 utils 兜底
 const statusChip = (s) => getStatusInfo(s).chipClass
 const statusLabel = (s) => getStatusInfo(s).label
+
+// 编辑资产
+const onEditAsset = (d) => {
+  editingAsset.value = { deviceId: d.id, deviceName: d.name, asset: d.asset || {} }
+  assetEditOpen.value = true
+}
 </script>
 
 <template>
@@ -133,6 +145,7 @@ const statusLabel = (s) => getStatusInfo(s).label
               <th class="px-4 py-3 text-left font-medium">软件包</th>
               <th class="px-4 py-3 text-left font-medium">位置</th>
               <th class="px-4 py-3 text-left font-medium">状态</th>
+              <th class="px-4 py-3 text-right font-medium w-24">操作</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-canvas-300">
@@ -144,6 +157,9 @@ const statusLabel = (s) => getStatusInfo(s).label
               <td class="px-4 py-3 text-xs text-ink-700">{{ d.location || '—' }}</td>
               <td class="px-4 py-3">
                 <span :class="statusChip(d.status)">{{ statusLabel(d.status) }}</span>
+              </td>
+              <td class="px-4 py-3 text-right">
+                <button class="btn-soft !text-[11px] !px-2 !py-1" @click="onEditAsset(d)">编辑资产</button>
               </td>
             </tr>
           </tbody>
@@ -163,7 +179,12 @@ const statusLabel = (s) => getStatusInfo(s).label
                   <div class="text-sm font-semibold text-ink-900">{{ d.name }}</div>
                   <div class="text-[10px] text-ink-500 font-mono">{{ d.host }}</div>
                 </div>
-                <span :class="statusChip(d.status)">{{ statusLabel(d.status) }}</span>
+                <div class="flex items-center gap-2">
+                  <span :class="statusChip(d.status)">{{ statusLabel(d.status) }}</span>
+                  <button class="text-ink-500 hover:text-accent p-1" title="编辑资产" @click="onEditAsset(d)">
+                    <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 20h9M16.5 3.5a2.121 2.121 0 113 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                  </button>
+                </div>
               </div>
               <div class="space-y-1.5 text-xs">
                 <div class="flex justify-between gap-2"><span class="text-ink-500 shrink-0">型号</span><span class="text-ink-900 font-mono truncate">{{ d.model }}</span></div>
@@ -178,5 +199,14 @@ const statusLabel = (s) => getStatusInfo(s).label
         </div>
       </div>
     </div>
+
+    <!-- Modals -->
+    <AssetEditModal
+      v-model:open="assetEditOpen"
+      :device-id="editingAsset.deviceId"
+      :device-name="editingAsset.deviceName"
+      :asset="editingAsset.asset"
+      @updated="loadAssets"
+    />
   </template>
 </template>

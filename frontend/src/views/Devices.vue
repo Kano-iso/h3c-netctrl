@@ -1,6 +1,9 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import PageHeader from '../components/PageHeader.vue'
+import DeviceFormModal from '../components/DeviceFormModal.vue'
+import AssetEditModal from '../components/AssetEditModal.vue'
+import ConfirmModal from '../components/ConfirmModal.vue'
 import { deviceApi, assetApi } from '../api/index.js'
 import { getStatusChip, getStatusLabel } from '../utils/status.js'
 
@@ -14,6 +17,18 @@ const filterRole = ref('all')
 const selected = ref(new Set())
 const testing = ref(new Set())
 
+// Modal state
+const deviceFormOpen = ref(false)
+const deviceFormMode = ref('create') // 'create' | 'edit'
+const editingDevice = ref(null)
+
+const deleteConfirmOpen = ref(false)
+const deletingDevice = ref(null)
+const deleteBusy = ref(false)
+
+const assetEditOpen = ref(false)
+const editingAsset = ref({ deviceId: null, deviceName: '', asset: {} })
+
 async function loadDevices() {
   loading.value = true
   error.value = ''
@@ -23,7 +38,6 @@ async function loadDevices() {
     loading.value = false
     return
   }
-  // 拼装：device 基础信息 + asset 详情
   const list = r.data || []
   const enriched = await Promise.all(
     list.map(async (d) => {
@@ -36,10 +50,11 @@ async function loadDevices() {
         port: d.port,
         model: a.model || '—',
         software: a.software_package || '—',
-        status: a.status || null,  // null → utils 兜底为"未采集"
+        status: a.status || null,
         location: a.location || '',
         tags: a.tags ? a.tags.split(',').map(s => s.trim()).filter(Boolean) : [],
         protected: d.protected_interfaces || [],
+        asset: a,
       }
     })
   )
@@ -86,6 +101,45 @@ async function testConnection(id) {
 
 const statusChip = (s) => getStatusChip(s)
 const statusLabel = (s) => getStatusLabel(s)
+
+// 新增设备
+const onCreate = () => {
+  deviceFormMode.value = 'create'
+  editingDevice.value = null
+  deviceFormOpen.value = true
+}
+
+// 编辑设备
+const onEdit = (d) => {
+  deviceFormMode.value = 'edit'
+  editingDevice.value = d
+  deviceFormOpen.value = true
+}
+
+// 删除设备
+const onDeleteClick = (d) => {
+  deletingDevice.value = d
+  deleteConfirmOpen.value = true
+}
+const onDeleteConfirm = async () => {
+  if (!deletingDevice.value) return
+  deleteBusy.value = true
+  const r = await deviceApi.delete(deletingDevice.value.id)
+  deleteBusy.value = false
+  if (r.success) {
+    deleteConfirmOpen.value = false
+    deletingDevice.value = null
+    await loadDevices()
+  } else {
+    alert(`删除失败：${r.error || '未知错误'}`)
+  }
+}
+
+// 编辑资产
+const onEditAsset = (d) => {
+  editingAsset.value = { deviceId: d.id, deviceName: d.name, asset: d.asset || {} }
+  assetEditOpen.value = true
+}
 </script>
 
 <template>
@@ -104,7 +158,10 @@ const statusLabel = (s) => getStatusLabel(s)
     >
       <template #actions>
         <button v-if="selected.size > 0" class="btn-outline" @click="$router.push({ name: 'batch' })">批量执行 ({{ selected.size }})</button>
-        <button class="btn-primary" @click="alert('新增设备功能待实现（V2.2）')">新增设备</button>
+        <button class="btn-primary" @click="onCreate">
+          <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+          新增设备
+        </button>
       </template>
     </PageHeader>
 
@@ -138,12 +195,14 @@ const statusLabel = (s) => getStatusLabel(s)
               <th class="px-4 py-3 text-left font-medium">型号 / 软件</th>
               <th class="px-4 py-3 text-left font-medium">状态</th>
               <th class="px-4 py-3 text-left font-medium">保护口</th>
-              <th class="px-4 py-3 text-right font-medium w-32">操作</th>
+              <th class="px-4 py-3 text-right font-medium w-72">操作</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-canvas-300">
             <tr v-if="filtered.length === 0">
-              <td colspan="7" class="px-4 py-12 text-center text-ink-500 text-sm">暂无设备，请先添加设备</td>
+              <td colspan="7" class="px-4 py-12 text-center text-ink-500 text-sm">
+                暂无设备，请先 <button class="text-accent hover:underline" @click="onCreate">添加设备</button>
+              </td>
             </tr>
             <tr v-for="d in filtered" :key="d.id" class="hover:bg-canvas-100 transition">
               <td class="px-4 py-3">
@@ -173,14 +232,44 @@ const statusLabel = (s) => getStatusLabel(s)
                 <span v-else class="text-[10px] text-ink-500">—</span>
               </td>
               <td class="px-4 py-3 text-right">
-                <button class="btn-soft !text-xs !px-3 !py-1" :disabled="testing.has(d.id)" @click="testConnection(d.id)">
-                  {{ testing.has(d.id) ? '测试中…' : '连接测试' }}
-                </button>
+                <div class="inline-flex items-center gap-1.5">
+                  <button class="btn-soft !text-[11px] !px-2 !py-1" :disabled="testing.has(d.id)" @click="testConnection(d.id)">
+                    {{ testing.has(d.id) ? '测试中…' : '连接测试' }}
+                  </button>
+                  <button class="btn-soft !text-[11px] !px-2 !py-1" @click="onEditAsset(d)">资产</button>
+                  <button class="btn-soft !text-[11px] !px-2 !py-1" @click="onEdit(d)">编辑</button>
+                  <button class="btn-soft !text-[11px] !px-2 !py-1 hover:!text-bad" @click="onDeleteClick(d)">删除</button>
+                </div>
               </td>
             </tr>
           </tbody>
         </table>
       </div>
     </div>
+
+    <!-- Modals -->
+    <DeviceFormModal
+      v-model:open="deviceFormOpen"
+      :mode="deviceFormMode"
+      :device="editingDevice"
+      @saved="loadDevices"
+    />
+    <AssetEditModal
+      v-model:open="assetEditOpen"
+      :device-id="editingAsset.deviceId"
+      :device-name="editingAsset.deviceName"
+      :asset="editingAsset.asset"
+      @updated="loadDevices"
+    />
+    <ConfirmModal
+      v-model:open="deleteConfirmOpen"
+      title="删除设备"
+      :message="deletingDevice ? `确定要删除设备 ${deletingDevice.name}（${deletingDevice.host}）吗？\n该操作不可恢复，关联的资产信息将一并删除。` : ''"
+      confirm-text="确定删除"
+      cancel-text="取消"
+      variant="danger"
+      :busy="deleteBusy"
+      @confirm="onDeleteConfirm"
+    />
   </template>
 </template>
