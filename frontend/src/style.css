@@ -1,0 +1,136 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body, #app { min-height: 100%; }
+  /* 背景渐变：3 个超大柔光晕铺满 body，像"晨雾"一样有氛围但不抢戏 */
+  body {
+    font-family:
+      "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
+      "Noto Sans CJK SC", "Noto Sans SC", "Source Han Sans SC",
+      -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue",
+      system-ui, "Segoe UI", Roboto, Arial, sans-serif;
+    color: #1d1d1f;
+    background-color: #fbfbfd;
+    background-image:
+      radial-gradient(ellipse 95% 55% at 28% 18%,  rgba(0, 113, 227, 0.06), transparent 75%),
+      radial-gradient(ellipse 85% 50% at 72% 52%,  rgba(99, 102, 241, 0.05), transparent 75%),
+      radial-gradient(ellipse 100% 60% at 35% 85%, rgba(0, 113, 227, 0.04), transparent 75%);
+    background-repeat: no-repeat;
+    background-attachment: scroll;
+    font-feature-settings: "ss01", "cv11", "kern", "palt";
+    letter-spacing: -0.005em;
+  }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.12); border-radius: 999px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.20); }
+  ::-webkit-scrollbar-track { background: transparent; }
+  /* 字体平滑：让中文在高分屏更"灵动" */
+  body { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-rendering: optimizeLegibility; }
+  /* 标题收紧字距 + 启用苹方字形变体 */
+  h1, h2, h3, h4 { font-feature-settings: "ss01", "ss02", "kern", "palt"; letter-spacing: -0.03em; font-weight: 600; }
+  /* 强调中文字号可读：稍大一点的行高 */
+  p, li { letter-spacing: -0.01em; }
+  /* 数字和英文用 tabular nums，避免抖动 */
+  .font-mono, code, kbd {
+    font-family: "SF Mono", "JetBrains Mono", "Cascadia Code", "Fira Code",
+                 ui-monospace, "Source Code Pro", Menlo, Consolas, monospace;
+    font-feature-settings: "tnum", "ss01", "calt", "liga", "kern";
+    font-variant-numeric: tabular-nums;
+  }
+  /* 次要 mono 文本：调色更柔和 */
+  .mono-soft { @apply font-mono text-ink-600; }
+  .mono-mute { @apply font-mono text-ink-500; }
+}
+
+@layer components {
+  /* 卡片 (Apple-style 浮起) */
+  .panel {
+    @apply rounded-3xl bg-white shadow-card ring-1 ring-black/[0.05];
+    /* 多层阴影：近场 + 远场，做"飘起来"的感觉 */
+    box-shadow:
+      0 1px 2px rgba(15, 23, 42, 0.04),
+      0 4px 12px rgba(15, 23, 42, 0.05),
+      0 12px 32px -8px rgba(15, 23, 42, 0.06);
+  }
+  .panel-hover {
+    @apply transition-all duration-300 hover:ring-black/[0.08] hover:-translate-y-[2px];
+  }
+
+  /* Chip 状态 */
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium;
+  }
+  .chip-good { @apply chip bg-good/10 text-good; }
+  .chip-warn { @apply chip bg-warn/10 text-warn; }
+  .chip-bad  { @apply chip bg-bad/10 text-bad; }
+  .chip-info { @apply chip bg-accent/10 text-accent; }
+  .chip-mute { @apply chip bg-canvas-200 text-ink-700; }
+
+  /* 按钮 */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-full px-4 py-2 text-sm font-medium
+           transition-all duration-150 active:scale-[0.98] focus:outline-none
+           focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-offset-2;
+  }
+  .btn-primary {
+    @apply btn bg-accent text-white hover:bg-accent-600 shadow-sm;
+  }
+  .btn-ghost {
+    @apply btn bg-canvas-200 text-ink-900 hover:bg-canvas-300;
+  }
+  .btn-soft {
+    @apply btn text-ink-700 hover:text-ink-900 hover:bg-canvas-200;
+  }
+  .btn-outline {
+    @apply btn bg-white text-ink-900 ring-1 ring-canvas-400 hover:ring-ink-400 hover:bg-canvas-100;
+  }
+
+  /* 输入框 */
+  .input {
+    @apply w-full rounded-xl bg-white ring-1 ring-canvas-400 px-3.5 py-2 text-sm
+           text-ink-900 placeholder:text-ink-500
+           focus:ring-2 focus:ring-accent/40 focus:outline-none
+           transition;
+  }
+
+  /* 顶部 nav */
+  .nav-item {
+    @apply flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] text-ink-700
+           transition-all duration-150 hover:bg-canvas-200/70 hover:text-ink-900;
+  }
+  .nav-item.active {
+    @apply text-ink-900 font-medium bg-canvas-200/90;
+  }
+
+  /* KPI 数字：渐变 + 等宽数字 + 紧凑字距，更精致 */
+  .kpi-num {
+    @apply font-mono text-3xl font-semibold tracking-[-0.04em] text-ink-900 tabular-nums;
+    font-variant-numeric: lining-nums slashed-zero;
+    background: linear-gradient(180deg, #1d1d1f 0%, #424245 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  /* mono 数字小字：精致等宽 + 略大字号 + 字体变体 */
+  .num-mono {
+    @apply font-mono tabular-nums;
+    font-variant-numeric: lining-nums slashed-zero;
+    font-feature-settings: "tnum", "ss01", "kern";
+    letter-spacing: -0.02em;
+  }
+  .section-title {
+    @apply text-xs font-medium uppercase tracking-[0.14em] text-ink-500;
+  }
+
+  /* 文字链（查看全部）：默认就有 pill 背景，hover 加深 */
+  .link-pill {
+    @apply inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium
+           text-accent bg-accent/10 transition-all duration-150
+           hover:bg-accent/20 hover:gap-1.5 active:scale-[0.97];
+    font-feature-settings: "kern", "palt";
+    letter-spacing: -0.01em;
+  }
+}
