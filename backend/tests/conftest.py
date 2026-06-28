@@ -11,6 +11,29 @@ from app.main import app
 from app.database import Base, engine, SessionLocal
 
 
+# ======================== integration marker（v2.3 QA 规范化） ========================
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers", "integration: 真实设备集成测试，默认 skip，需 --integration 显式开启"
+    )
+
+
+def pytest_addoption(parser):
+    parser.addoption(
+        "--integration", action="store_true", default=False,
+        help="跑真实设备集成测试（需 SSH 通 192.168.100.4 / .5）"
+    )
+
+
+def pytest_collection_modifyitems(config, items):
+    if not config.getoption("--integration"):
+        skip_integration = pytest.mark.skip(reason="需 --integration 才跑")
+        for item in items:
+            if "integration" in item.keywords:
+                item.add_marker(skip_integration)
+
+
 @pytest.fixture(autouse=True)
 def setup_db():
     """每个测试前重建数据库表"""

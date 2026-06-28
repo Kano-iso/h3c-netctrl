@@ -347,7 +347,7 @@ def test_vpn_bind_endpoint_exists(client, created_device, real_device_netconf):
     """POST /api/devices/{id}/interfaces/{if_index}/vpn-instance — 绑定 VPN"""
     resp = client.post(
         f"/api/devices/{created_device['id']}/interfaces/100/vpn-instance",
-        json={"vpn_name": "test_vpn"}
+        json={"name": "test_vpn"}
     )
     assert resp.status_code in (200, 422, 500)
 
@@ -377,7 +377,7 @@ def test_ipv4_address_post_endpoint_exists(client, created_device, real_device_n
     """POST /api/devices/{id}/interfaces/{if_index}/ipv4-address — 配 IPv4"""
     resp = client.post(
         f"/api/devices/{created_device['id']}/interfaces/100/ipv4-address",
-        json={"address": "10.0.0.1", "mask": "255.255.255.0"}
+        json={"ip": "10.0.0.1", "mask": "255.255.255.0"}
     )
     assert resp.status_code in (200, 422, 500)
 
