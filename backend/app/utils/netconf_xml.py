@@ -156,6 +156,125 @@ def build_interface_unbind_vpn_xml(if_index: int, vpn_name: str) -> str:
     """
 
 
+# ============ 接口 link type 调整（v2.2.2 patch） ============
+
+
+# H3C V7 LinkType 字段值映射（待真机确认，v2.2.2 范围只支持 access/trunk）
+LINK_TYPE_VALUES = {
+    "access": 1,
+    "trunk": 2,
+    "hybrid": 3,  # H3C 特有；v2.2.2 暂不开放，仅在 XML 构造层支持
+}
+
+
+def build_link_type_change_xml(if_index: int, new_mode: str, force: bool = False) -> str:
+    """调整接口 link type (mode)
+
+    H3C V7 模型：
+    <Ifmgr>
+      <Interfaces>
+        <Interface>
+          <IfIndex>5123</IfIndex>
+          <LinkType>1|2|3</LinkType>  <!-- 1=access 2=trunk 3=hybrid -->
+        </Interface>
+      </Interfaces>
+    </Ifmgr>
+
+    Args:
+        if_index: 接口索引
+        new_mode: "access" | "trunk" | "hybrid"
+        force: 受保护接口护栏（保留参数，与 v2.2 第一项护栏一致；
+              实际 force 校验在路由层做，XML 构造层不感知）
+
+    Raises:
+        ValueError: new_mode 非法
+    """
+    if new_mode not in LINK_TYPE_VALUES:
+        raise ValueError(f"mode 必须是 {list(LINK_TYPE_VALUES.keys())} 之一，得到 {new_mode!r}")
+    link_type_value = LINK_TYPE_VALUES[new_mode]
+    return f"""
+    <config>
+        <top xmlns="{H3C_CONFIG_NS}">
+            <Ifmgr>
+                <Interfaces>
+                    <Interface>
+                        <IfIndex>{if_index}</IfIndex>
+                        <LinkType>{link_type_value}</LinkType>
+                    </Interface>
+                </Interfaces>
+            </Ifmgr>
+        </top>
+    </config>
+    """
+
+
+# ============ IPV4ADDRESS 增/改/删（v2.2.2 patch） ============
+
+
+def build_ipv4_address_set_xml(if_index: int, ip: str, mask: str) -> str:
+    """设置/替换 L3 接口的 IPv4 地址（H3C V7：edit-config 单条目会替换原条目，
+    但**不会**自动删除同 IfIndex 的其他条目 → 后端路由必须先发 clear 再发 set）
+
+    H3C V7 模型：
+    <IPV4ADDRESS>
+      <Ipv4Addresses>
+        <Ipv4Address>
+          <IfIndex>5121</IfIndex>
+          <Ipv4Address>192.168.1.1</Ipv4Address>
+          <Ipv4Mask>255.255.255.0</Ipv4Mask>
+          <AddressOrigin>1</AddressOrigin>  <!-- 1=manual, 缺了这个 key 设备报 indexical column missed -->
+        </Ipv4Address>
+      </Ipv4Addresses>
+    </IPV4ADDRESS>
+
+    Args:
+        if_index: 接口索引
+        ip: 点分十进制 IPv4，如 "192.168.1.1"
+        mask: 点分十进制 mask，如 "255.255.255.0"（路由层负责格式校验）
+    """
+    return f"""
+    <config>
+        <top xmlns="{H3C_CONFIG_NS}">
+            <IPV4ADDRESS>
+                <Ipv4Addresses>
+                    <Ipv4Address>
+                        <IfIndex>{if_index}</IfIndex>
+                        <Ipv4Address>{ip}</Ipv4Address>
+                        <Ipv4Mask>{mask}</Ipv4Mask>
+                        <AddressOrigin>1</AddressOrigin>
+                    </Ipv4Address>
+                </Ipv4Addresses>
+            </IPV4ADDRESS>
+        </top>
+    </config>
+    """
+
+
+def build_ipv4_address_clear_xml(if_index: int) -> str:
+    """清空 L3 接口的所有 IPv4 地址（v2.2.2 范围：清空而非单删）
+
+    H3C V7 模型：key 是复合 (IfIndex, AddressOrigin)。
+    xc:operation="delete" 必须带完整 key 才能唯一定位条目，否则设备报
+    "An indexical column or data of some indexical columns is missed."。
+
+    注：手动配置 IP 的 AddressOrigin=1。
+    """
+    return f"""
+    <config>
+        <top xmlns="{H3C_CONFIG_NS}">
+            <IPV4ADDRESS>
+                <Ipv4Addresses>
+                    <Ipv4Address xmlns:xc="{NETCONF_BASE_NS}" xc:operation="delete">
+                        <IfIndex>{if_index}</IfIndex>
+                        <AddressOrigin>1</AddressOrigin>
+                    </Ipv4Address>
+                </Ipv4Addresses>
+            </IPV4ADDRESS>
+        </top>
+    </config>
+    """
+
+
 # ============ XML 解析辅助 ============
 
 

@@ -6,6 +6,7 @@ import xml.etree.ElementTree as ET
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from typing import Optional, List
+from typing_extensions import Literal
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -18,6 +19,9 @@ from app.utils.netconf_xml import (
     build_interface_bind_vpn_xml,
     build_interface_extended_filter_xml,
     build_interface_unbind_vpn_xml,
+    build_ipv4_address_clear_xml,
+    build_ipv4_address_set_xml,
+    build_link_type_change_xml,
     build_vpn_instance_create_xml,
     build_vpn_instance_delete_xml,
     build_vpn_instance_filter_xml,
@@ -765,4 +769,351 @@ def unbind_interface_vpn(device_id: int, if_index: int, db: Session = Depends(ge
         logger.error(f"接口解绑 VPN 失败: device_id={device_id}, if_index={if_index}, 原因={error_msg}", exc_info=True)
         record_log(db, device.id, device.name, "vpn_instance_unbind",
                    f"接口 if_index={if_index} 解绑 VPN 失败", "failed", error_message=error_msg)
+        return APIResponse(success=False, error=error_msg)
+
+
+# ============================================================
+# v2.2.2 patch: 调整 link type + 配 IP
+# ============================================================
+
+
+class LinkTypeChange(BaseModel):
+    """调整接口 link type (mode)"""
+    mode: Literal["access", "trunk"] = Field(..., description="新 mode：access 或 trunk")
+    force: bool = Field(default=False, description="强制配置被保护接口（高风险）")
+
+
+class Ipv4AddressSet(BaseModel):
+    """给 L3 接口设置/替换 IPv4 地址"""
+    ip: str = Field(..., description="点分十进制 IPv4，如 192.168.1.1")
+    mask: str = Field(..., description="点分十进制 mask，如 255.255.255.0")
+
+
+def _is_valid_ipv4(ip: str) -> bool:
+    """校验 IPv4 格式：4 段 0-255"""
+    if not ip:
+        return False
+    parts = ip.split(".")
+    if len(parts) != 4:
+        return False
+    for p in parts:
+        if not p.isdigit():
+            return False
+        n = int(p)
+        if n < 0 or n > 255:
+            return False
+    return True
+
+
+def _is_valid_mask(mask: str) -> bool:
+    """校验 mask 格式：连续 1 后跟连续 0（如 255.255.255.0 合法，255.0.255.0 非法）"""
+    if not _is_valid_ipv4(mask):
+        return False
+    parts = [int(p) for p in mask.split(".")]
+    n = 0
+    for p in parts:
+        n = (n << 8) | p
+    # 计算 1 的个数 + 0 的个数
+    bit_str = format(n, "032b")
+    if "01" in bit_str:
+        return False  # 出现 0 后又有 1，非法
+    return True
+
+
+def _query_current_mode(client: NetconfClient, if_index: int) -> str | None:
+    """查接口当前 link type（access/trunk/hybrid），不存在返回 None
+
+    重要（H3C V7 实际行为）：
+    - L2 接口（Ifmgr 返回 + IPV4ADDRESS 无）：如果有 LinkType 字段就用，没有就**默认 access**（多数 L2 access 不显式设）
+    - L3 接口（Ifmgr 可能不返回 / 或返回但绑了 VPN）：L3 接口无 mode 概念，**返回 None**
+    - 接口完全不存在：返回 None
+
+    用 Ifmgr + IPV4ADDRESS 合并查询判断接口是 L2 还是 L3。
+    """
+    combined_filter = (
+        f'<top xmlns="{H3C_CONFIG_NS}">'
+        '<Ifmgr><Interfaces/></Ifmgr>'
+        '<IPV4ADDRESS></IPV4ADDRESS>'
+        '</top>'
+    )
+    response_xml = client.get_config(combined_filter)
+    root = ET.fromstring(response_xml)
+
+    # 1) 扫 Ifmgr 找 LinkType（如果存在）
+    found_in_ifmgr = False
+    current_mode: str | None = None
+    for elem in root.iter():
+        tag = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
+        if tag != "Interface":
+            continue
+        cur_idx = None
+        link_type_raw = None
+        for child in elem:
+            ct = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+            if ct == "IfIndex" and child.text:
+                try:
+                    cur_idx = int(child.text)
+                except ValueError:
+                    cur_idx = None
+            elif ct == "LinkType" and child.text:
+                link_type_raw = child.text
+        if cur_idx == if_index:
+            found_in_ifmgr = True
+            if link_type_raw is not None:
+                try:
+                    current_mode = LINK_TYPE_REVERSE.get(int(link_type_raw))
+                except ValueError:
+                    current_mode = None
+            break
+
+    # 2) 扫 IPV4ADDRESS 判断是否 L3-only（L3 接口 ifmgr 可能不返回）
+    found_in_ipv4 = False
+    for elem in root.iter():
+        tag = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
+        if tag != "Ipv4Address":
+            continue
+        for child in elem:
+            ct = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+            if ct == "IfIndex" and child.text:
+                try:
+                    if int(child.text) == if_index:
+                        found_in_ipv4 = True
+                except ValueError:
+                    pass
+
+    if not found_in_ifmgr and not found_in_ipv4:
+        return None  # 接口不存在
+
+    # Ifmgr 有 + IPV4ADDRESS 无 → L2 接口
+    if found_in_ifmgr and not found_in_ipv4:
+        return current_mode if current_mode is not None else "access"  # 缺省为 access
+
+    # Ifmgr 无 + IPV4ADDRESS 有 → L3-only 接口（无 mode 概念，不能切 link type）
+    if not found_in_ifmgr and found_in_ipv4:
+        return None
+
+    # Ifmgr 有 + IPV4ADDRESS 也有 → 这是 L3 接口在 Ifmgr 里也返回了（如某些三层物理口）
+    # 比如 192.168.100.5 上的 5129 物理口（绑 Vlan12），但 LinkType 字段可能存在
+    # 这种接口切 link type 也是有意义的，按 L2 处理（如果 LinkType 字段存在）
+    if found_in_ifmgr and found_in_ipv4:
+        return current_mode  # None 表示"无 mode" / L3-only 语义上不能切
+
+
+def _check_l3_interface(client: NetconfClient, if_index: int) -> tuple[bool, str]:
+    """校验接口是否为 L3（H3C V7 三模块合并：IPV4ADDRESS / L3vpn / Vlan-interface 名称）
+
+    Returns: (is_l3, error_msg)
+    - is_l3=True: 是 L3 接口
+    - is_l3=False: 不是 L3 接口（error_msg 含原因）
+    """
+    # 一次查三模块
+    combined_filter = (
+        f'<top xmlns="{H3C_CONFIG_NS}">'
+        '<Ifmgr><Interfaces/></Ifmgr>'
+        '<IPV4ADDRESS></IPV4ADDRESS>'
+        '<L3vpn></L3vpn>'
+        '</top>'
+    )
+    response_xml = client.get_config(combined_filter)
+    ifaces = _parse_interface_response(response_xml)
+    target = next((i for i in ifaces if i["if_index"] == if_index), None)
+    if not target:
+        return False, f"接口 if_index={if_index} 不存在"
+    if target.get("layer") != "L3":
+        return False, f"接口 if_index={if_index} 不是 L3 接口，无法配置 IP"
+    return True, ""
+
+
+# ============ 调整 link type (mode) ============
+
+
+@router.patch("/devices/{device_id}/interfaces/{if_index}/link-type", response_model=APIResponse)
+def change_link_type(device_id: int, if_index: int, body: LinkTypeChange,
+                     db: Session = Depends(get_db)):
+    """调整接口 link type (access/trunk)
+
+    v2.2.2 patch (fix-vpn-edit-capabilities)：
+    - 受保护接口护栏：device.protected_interfaces 中的接口默认拒绝，force=true 时允许
+    - 预校验：当前 mode == new_mode 直接 400（无需切换）
+    - H3C V7 行为：mode 切换会清空该接口已有配置（access_vlan / pvid / allowed_vlans），
+      后端**不**做"会清空什么"的预测，由前端 modal 提示用户
+    """
+    device, password, error = _get_device_and_password(db, device_id)
+    if error:
+        return error
+
+    # 受保护接口护栏
+    protected = _get_protected_interfaces(device)
+    if if_index in protected and not body.force:
+        msg = f"接口 if_index={if_index} 是受保护口，需要 force=true 才能继续"
+        logger.warning(f"改 link type 被保护拦截: device_id={device_id}, if_index={if_index}")
+        record_log(db, device.id, device.name, "link_type_change",
+                   f"改 link type if_index={if_index} -> {body.mode} 被保护拦截",
+                   "failed", error_message=msg)
+        return APIResponse(success=False, error=msg)
+    if if_index in protected and body.force:
+        logger.warning(f"改 link type force=true 强制通过保护: device_id={device_id}, if_index={if_index}")
+
+    try:
+        with NetconfClient(
+            host=device.host, port=device.port,
+            username=device.username, password=password,
+        ) as client:
+            # 预校验：当前 mode
+            current_mode = _query_current_mode(client, if_index)
+            if current_mode is None:
+                # 区分 L3 接口（不能切 link type） vs 接口不存在
+                # 复用 _check_l3_interface 判定
+                is_l3, l3_err = _check_l3_interface(client, if_index)
+                if is_l3:
+                    return APIResponse(
+                        success=False,
+                        error=f"接口 if_index={if_index} 是 L3 接口，无 link type 概念，无法切换 mode",
+                    )
+                return APIResponse(success=False, error=f"接口 if_index={if_index} 不存在")
+            if current_mode == body.mode:
+                return APIResponse(
+                    success=False,
+                    error=f"接口 if_index={if_index} 当前 mode 已经是 {body.mode}，无需切换",
+                )
+
+            # 下发配置
+            config_xml = build_link_type_change_xml(if_index, body.mode, force=body.force)
+            client.edit_config(config_xml)
+
+        logger.info(f"改 link type 成功: device_id={device_id}, if_index={if_index}, "
+                    f"{current_mode} -> {body.mode}")
+        record_log(db, device.id, device.name, "link_type_change",
+                   f"改 link type if_index={if_index}: {current_mode} -> {body.mode}", "success")
+        return APIResponse(
+            success=True,
+            data={"if_index": if_index, "old_mode": current_mode, "new_mode": body.mode},
+        )
+    except Exception as e:
+        error_msg = _classify_interface_error(e)
+        logger.error(f"改 link type 失败: device_id={device_id}, if_index={if_index}, 原因={error_msg}",
+                     exc_info=True)
+        record_log(db, device.id, device.name, "link_type_change",
+                   f"改 link type if_index={if_index} -> {body.mode} 失败",
+                   "failed", error_message=error_msg)
+        return APIResponse(success=False, error=error_msg)
+
+
+# ============ 设置/替换 IPv4 地址 ============
+
+
+@router.post("/devices/{device_id}/interfaces/{if_index}/ipv4-address", response_model=APIResponse)
+def set_interface_ipv4(device_id: int, if_index: int, body: Ipv4AddressSet,
+                       db: Session = Depends(get_db)):
+    """给 L3 接口设置/替换 IPv4 地址（clear + set 两步 edit-config）
+
+    v2.2.2 patch (fix-vpn-edit-capabilities)：
+    - layer=L3 校验：不是 L3 → 400
+    - 受保护接口护栏：device.protected_interfaces 中的接口默认拒绝
+    - IP/mask 格式校验
+    - clear + set 模式：H3C V7 IPV4ADDRESS 模型下，set 不会自动清空原条目
+    """
+    device, password, error = _get_device_and_password(db, device_id)
+    if error:
+        return error
+
+    # IP/mask 格式校验
+    if not _is_valid_ipv4(body.ip):
+        return APIResponse(success=False, error=f"IP 格式非法: {body.ip!r}（必须 4 段 0-255）")
+    if not _is_valid_mask(body.mask):
+        return APIResponse(
+            success=False,
+            error=f"mask 格式非法: {body.mask!r}（必须是连续 1 后跟连续 0，如 255.255.255.0）",
+        )
+
+    # 受保护接口护栏
+    protected = _get_protected_interfaces(device)
+    if if_index in protected:
+        msg = f"接口 if_index={if_index} 是受保护口，禁止配置 IP"
+        logger.warning(f"配 IP 被保护拦截: device_id={device_id}, if_index={if_index}")
+        record_log(db, device.id, device.name, "ipv4_address_set",
+                   f"接口 if_index={if_index} 配 IP 被保护拦截", "failed", error_message=msg)
+        return APIResponse(success=False, error=msg)
+
+    try:
+        with NetconfClient(
+            host=device.host, port=device.port,
+            username=device.username, password=password,
+        ) as client:
+            # L3 校验
+            is_l3, l3_err = _check_l3_interface(client, if_index)
+            if not is_l3:
+                return APIResponse(success=False, error=l3_err)
+
+            # clear + set 两步 edit-config
+            clear_xml = build_ipv4_address_clear_xml(if_index)
+            client.edit_config(clear_xml)
+
+            set_xml = build_ipv4_address_set_xml(if_index, body.ip, body.mask)
+            client.edit_config(set_xml)
+
+        logger.info(f"配 IP 成功: device_id={device_id}, if_index={if_index}, ip={body.ip}/{body.mask}")
+        record_log(db, device.id, device.name, "ipv4_address_set",
+                   f"接口 if_index={if_index} 配 IP {body.ip}/{body.mask}", "success")
+        return APIResponse(
+            success=True,
+            data={"if_index": if_index, "ip": body.ip, "mask": body.mask},
+        )
+    except Exception as e:
+        error_msg = _classify_interface_error(e)
+        logger.error(f"配 IP 失败: device_id={device_id}, if_index={if_index}, 原因={error_msg}",
+                     exc_info=True)
+        record_log(db, device.id, device.name, "ipv4_address_set",
+                   f"接口 if_index={if_index} 配 IP 失败", "failed", error_message=error_msg)
+        return APIResponse(success=False, error=error_msg)
+
+
+# ============ 清空 IPv4 地址 ============
+
+
+@router.delete("/devices/{device_id}/interfaces/{if_index}/ipv4-address", response_model=APIResponse)
+def clear_interface_ipv4(device_id: int, if_index: int, db: Session = Depends(get_db)):
+    """清空 L3 接口的所有 IPv4 地址
+
+    v2.2.2 patch (fix-vpn-edit-capabilities)：
+    - layer=L3 校验：不是 L3 → 400
+    - 受保护接口护栏：device.protected_interfaces 中的接口默认拒绝
+    """
+    device, password, error = _get_device_and_password(db, device_id)
+    if error:
+        return error
+
+    # 受保护接口护栏
+    protected = _get_protected_interfaces(device)
+    if if_index in protected:
+        msg = f"接口 if_index={if_index} 是受保护口，禁止清空 IP"
+        logger.warning(f"清空 IP 被保护拦截: device_id={device_id}, if_index={if_index}")
+        record_log(db, device.id, device.name, "ipv4_address_clear",
+                   f"接口 if_index={if_index} 清空 IP 被保护拦截", "failed", error_message=msg)
+        return APIResponse(success=False, error=msg)
+
+    try:
+        with NetconfClient(
+            host=device.host, port=device.port,
+            username=device.username, password=password,
+        ) as client:
+            # L3 校验
+            is_l3, l3_err = _check_l3_interface(client, if_index)
+            if not is_l3:
+                return APIResponse(success=False, error=l3_err)
+
+            # 清空
+            clear_xml = build_ipv4_address_clear_xml(if_index)
+            client.edit_config(clear_xml)
+
+        logger.info(f"清空 IP 成功: device_id={device_id}, if_index={if_index}")
+        record_log(db, device.id, device.name, "ipv4_address_clear",
+                   f"接口 if_index={if_index} 清空 IP", "success")
+        return APIResponse(success=True, data={"if_index": if_index})
+    except Exception as e:
+        error_msg = _classify_interface_error(e)
+        logger.error(f"清空 IP 失败: device_id={device_id}, if_index={if_index}, 原因={error_msg}",
+                     exc_info=True)
+        record_log(db, device.id, device.name, "ipv4_address_clear",
+                   f"接口 if_index={if_index} 清空 IP 失败", "failed", error_message=error_msg)
         return APIResponse(success=False, error=error_msg)

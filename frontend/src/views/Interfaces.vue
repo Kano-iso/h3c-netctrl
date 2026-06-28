@@ -4,6 +4,7 @@ import PageHeader from '../components/PageHeader.vue'
 import Select from '../components/Select.vue'
 import ConfirmModal from '../components/ConfirmModal.vue'
 import VpnInstanceBindModal from '../components/VpnInstanceBindModal.vue'
+import Ipv4AddressEditModal from '../components/Ipv4AddressEditModal.vue'
 import { deviceApi, interfaceApi, vpnApi } from '../api/index.js'
 
 // 常用 VLAN 列表（V2.1 前端内置，后续可改为后端拉取）
@@ -212,6 +213,62 @@ function cancelUnbind() {
 }
 
 const layerChip = (l) => l === 'L3' ? 'chip-info' : 'chip-mute'
+
+// ============ v2.2.2 patch (fix-vpn-edit-capabilities) ============
+// 改 link type (mode)：弹 ConfirmModal 二次确认
+const showLinkTypeConfirm = ref(false)
+const linkTypeChange = ref({ iface: null, newMode: '', force: false })
+const linkTypeSubmitting = ref(false)
+const linkTypeErr = ref('')
+
+// 改 IP：弹 Ipv4AddressEditModal
+const showIpModal = ref(false)
+const ipTargetIface = ref(null)
+
+function requestChangeLinkType(iface, newMode) {
+  // 预校验：当前 mode == newMode 直接跳过二次确认
+  if ((iface.mode || 'access') === newMode) {
+    alert(`接口 ${iface.name} 当前 mode 已经是 ${newMode}，无需切换`)
+    return
+  }
+  linkTypeChange.value = { iface, newMode, force: !!iface.protected }
+  linkTypeErr.value = ''
+  showLinkTypeConfirm.value = true
+}
+
+async function confirmChangeLinkType() {
+  const { iface, newMode, force } = linkTypeChange.value
+  if (!iface || !selectedDeviceId.value) return
+  linkTypeSubmitting.value = true
+  linkTypeErr.value = ''
+  const r = await interfaceApi.changeLinkType(
+    selectedDeviceId.value, iface.if_index, newMode, force
+  )
+  linkTypeSubmitting.value = false
+  if (!r.success) {
+    linkTypeErr.value = r.error || '改 link type 失败'
+    return
+  }
+  showLinkTypeConfirm.value = false
+  await loadInterfaces()
+}
+
+function cancelChangeLinkType() {
+  if (linkTypeSubmitting.value) return
+  showLinkTypeConfirm.value = false
+  linkTypeChange.value = { iface: null, newMode: '', force: false }
+  linkTypeErr.value = ''
+}
+
+function openIpModal(iface) {
+  ipTargetIface.value = iface
+  showIpModal.value = true
+}
+
+async function onIpModalConfirm() {
+  showIpModal.value = false
+  await loadInterfaces()
+}
 </script>
 
 <template>
@@ -273,7 +330,7 @@ const layerChip = (l) => l === 'L3' ? 'chip-info' : 'chip-mute'
               <th class="px-4 py-3 text-left font-medium">PVID / 允许 VLAN</th>
               <th class="px-4 py-3 text-left font-medium">状态</th>
               <th class="px-4 py-3 text-left font-medium">保护</th>
-              <th class="px-4 py-3 text-right font-medium w-48">操作</th>
+              <th class="px-4 py-3 text-right font-medium w-64">操作</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-canvas-300">
@@ -314,6 +371,22 @@ const layerChip = (l) => l === 'L3' ? 'chip-info' : 'chip-mute'
               </td>
               <td class="px-4 py-3 text-right space-x-1">
                 <button @click="openConfig(i)" class="btn-soft !text-xs !px-2.5 !py-1">配置</button>
+                <!-- v2.2.2 patch: L2 接口才显示"改模式"按钮 -->
+                <button
+                  v-if="i.layer !== 'L3'"
+                  @click="requestChangeLinkType(i, i.mode === 'access' ? 'trunk' : 'access')"
+                  class="btn-soft !text-xs !px-2.5 !py-1"
+                >
+                  改 {{ i.mode === 'access' ? 'Trunk' : 'Access' }}
+                </button>
+                <!-- v2.2.2 patch: L3 接口才显示"改 IP"按钮 -->
+                <button
+                  v-if="i.layer === 'L3'"
+                  @click="openIpModal(i)"
+                  class="btn-soft !text-xs !px-2.5 !py-1"
+                >
+                  改 IP
+                </button>
                 <button v-if="i.vpn_instance" @click="requestUnbind(i)" class="btn-soft !text-xs !px-2.5 !py-1">解绑 VPN</button>
                 <button v-else-if="i.layer === 'L3'" @click="openBindVpn(i)" class="btn-soft !text-xs !px-2.5 !py-1">绑 VPN</button>
                 <button v-if="i.layer === 'L3' && !i.vpn_instance" @click="openCreateVpn(i)" class="btn-soft !text-xs !px-2.5 !py-1">+ VPN</button>
@@ -418,6 +491,39 @@ const layerChip = (l) => l === 'L3' ? 'chip-info' : 'chip-mute'
       variant="danger"
       @confirm="confirmUnbind"
       @cancel="cancelUnbind"
+    />
+
+    <!-- v2.2.2 patch: 改 link type 二次确认 -->
+    <ConfirmModal
+      v-if="showLinkTypeConfirm"
+      :open="showLinkTypeConfirm"
+      :title="`切换接口 mode 到 ${linkTypeChange.newMode}`"
+      :message="(linkTypeErr
+        ? linkTypeErr + '\n\n'
+        : ''
+      ) + `接口 ${linkTypeChange.iface?.name}（if_index ${linkTypeChange.iface?.if_index}）\n` +
+        `当前 mode：${linkTypeChange.iface?.mode || 'access'}\n` +
+        `目标 mode：${linkTypeChange.newMode}\n\n` +
+        `⚠️ H3C V7 行为：mode 切换会清空该接口已有配置\n` +
+        `  · access → trunk：会清空 access_vlan\n` +
+        `  · trunk → access：会清空 allowed_vlans 和 pvid\n` +
+        (linkTypeChange.force ? '\n⚠️ 该接口是受保护口，已自动启用 force=true\n' : '\n') +
+        `\n操作不可撤销，请确认。`"
+      :confirm-text="linkTypeSubmitting ? '下发中…' : '确认切换'"
+      :busy="linkTypeSubmitting"
+      variant="danger"
+      @confirm="confirmChangeLinkType"
+      @cancel="cancelChangeLinkType"
+    />
+
+    <!-- v2.2.2 patch: 改 IP modal（内部自带二次确认） -->
+    <Ipv4AddressEditModal
+      v-if="showIpModal && ipTargetIface"
+      :visible="showIpModal"
+      :device-id="selectedDeviceId"
+      :iface="ipTargetIface"
+      @confirm="onIpModalConfirm"
+      @cancel="() => { showIpModal = false }"
     />
   </template>
 </template>

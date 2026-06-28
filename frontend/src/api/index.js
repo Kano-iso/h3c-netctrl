@@ -53,6 +53,26 @@ export const interfaceApi = {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
+
+  // v2.2.2 patch (fix-vpn-edit-capabilities): 调整 link type
+  changeLinkType: (deviceId, ifIndex, mode, force = false) =>
+    apiCall(`/devices/${deviceId}/interfaces/${ifIndex}/link-type`, {
+      method: 'PATCH',
+      body: JSON.stringify({ mode, force }),
+    }),
+
+  // v2.2.2 patch (fix-vpn-edit-capabilities): 给 L3 接口设置/替换 IPv4
+  setIpv4Address: (deviceId, ifIndex, ip, mask) =>
+    apiCall(`/devices/${deviceId}/interfaces/${ifIndex}/ipv4-address`, {
+      method: 'POST',
+      body: JSON.stringify({ ip, mask }),
+    }),
+
+  // v2.2.2 patch (fix-vpn-edit-capabilities): 清空 L3 接口所有 IPv4
+  clearIpv4Address: (deviceId, ifIndex) =>
+    apiCall(`/devices/${deviceId}/interfaces/${ifIndex}/ipv4-address`, {
+      method: 'DELETE',
+    }),
 }
 
 // VPN instance + 接口绑 VPN（v2.2）
