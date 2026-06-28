@@ -63,10 +63,19 @@ def _get_device_with_password(db: Session, device_id: int):
 
 
 def _make_manager(device: Device, password: str) -> BackupManager:
+    """构造 BackupManager
+
+    全文本 + SCP 统一方案：
+    - startup 备份：paramiko SSH + scp 库拉 flash:/startup.cfg
+    - running 备份：SSHExecutor 跑 `display current-configuration`（自动关分页）
+    - 恢复：统一 SCP 推 + `startup saved-configuration`，不依赖 NETCONF
+
+    故统一用 SSH 端口 22。
+    """
     return BackupManager(
         device_id=device.id,
         host=device.host,
-        port=22,  # SSH 端口（H3C 默认为 22，与 NETCONF 端口 830 区分）
+        port=22,  # SSH 端口（startup 走 SCP，running 走 SSH CLI）
         username=device.username,
         password=password,
     )
@@ -200,18 +209,30 @@ def lock_backup(device_id: int, backup_id: int, body: BackupLockRequest, db: Ses
         return APIResponse(success=False, error=f"操作异常: {e}")
 
 
+class BackupRestoreRequest(BaseModel):
+    """回滚请求体"""
+    with_reboot: bool = False  # 是否触发设备 reboot + retry + verify（默认 False，符合业界"backup 工具不负责 reboot"边界）
+
+
 @router.post("/devices/{device_id}/backup/{backup_id}/restore", response_model=APIResponse)
-def restore_backup(device_id: int, backup_id: int, db: Session = Depends(get_db)):
-    """从指定备份回滚配置（NETCONF load-config 优先，SSH 推送 fallback）"""
+def restore_backup(device_id: int, backup_id: int, body: BackupRestoreRequest = BackupRestoreRequest(), db: Session = Depends(get_db)):
+    """从指定备份回滚配置
+
+    body.with_reboot = False（默认）：只做"推 + set as startup"，不 reboot，前端提示运维手动 reload
+    body.with_reboot = True：推 + set as startup + reboot + retry SSH + verify running-config（端到端）
+
+    业界主流（Oxidized / Ansible Network / NAPALM / H3C iMC）都是"工具不负责 reboot"，
+    但 v2.2 用户场景是"页面点一下就完成回滚"，所以 with_reboot=True 走端到端流程。
+    """
     device, password, error = _get_device_with_password(db, device_id)
     if error:
         return error
 
     mgr = _make_manager(device, password)
     try:
-        result = mgr.restore(backup_id, db=db)
+        result = mgr.restore(backup_id, with_reboot=body.with_reboot, db=db)
         if not result["success"]:
-            return APIResponse(success=False, error=result["message"])
+            return APIResponse(success=False, error=result["message"], data=result)
         return APIResponse(success=True, data=result)
     except BackupError as e:
         return APIResponse(success=False, error=str(e))

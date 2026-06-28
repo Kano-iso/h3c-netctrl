@@ -1,7 +1,7 @@
 fastapi==0.115.12
 uvicorn[standard]==0.34.2
 paramiko==2.10.3
-scp>=0.14.0  # 备份走 SCP（H3C V7 默认禁 SFTP，遵循项目 memory）
+scp>=0.14.0  # 备份走 SCP（基于 paramiko SSH 通道，H3C V7 真机验证可用，v2.2 修复）
 ncclient==0.6.16
 sqlalchemy==2.0.41
 cryptography>=41.0.0,<45.0
@@ -11,3 +11,4 @@ python-dotenv==1.1.0
 alembic==1.13.3
 pytest>=7.0.0
 httpx>=0.24.0
+# lxml 已移除：v2.2 backup 回滚改用纯文本 + SCP，不需要 XML 解析
