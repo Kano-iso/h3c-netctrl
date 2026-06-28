@@ -388,3 +388,26 @@ def test_ipv4_address_delete_endpoint_exists(client, created_device, real_device
         f"/api/devices/{created_device['id']}/interfaces/100/ipv4-address"
     )
     assert resp.status_code in (200, 422, 500)
+
+
+# ======================== v2.3 新增端点 smoke ========================
+
+def test_link_mode_switch_endpoint_exists(client, created_device, real_device_netconf):
+    """PATCH /api/devices/{id}/interfaces/{if_index}/link-mode — 切 L2/L3 层级"""
+    resp = client.patch(
+        f"/api/devices/{created_device['id']}/interfaces/100/link-mode",
+        json={"mode": "bridge", "force": False}
+    )
+    assert resp.status_code in (200, 422, 500)
+
+
+def test_link_mode_switch_device_not_found(client):
+    """PATCH /api/devices/{id}/interfaces/{if_index}/link-mode 设备不存在"""
+    resp = client.patch(
+        "/api/devices/99999/interfaces/100/link-mode",
+        json={"mode": "bridge", "force": False}
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["success"] is False
+    assert "不存在" in data["error"]

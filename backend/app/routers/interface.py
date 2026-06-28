@@ -783,6 +783,15 @@ class LinkTypeChange(BaseModel):
     force: bool = Field(default=False, description="强制配置被保护接口（高风险）")
 
 
+class LinkModeSwitch(BaseModel):
+    """切换接口 L2/L3 层级（bridge/route）
+
+    v2.3 新增：走 SSH CLI（`port link-mode` 命令），NETCONF 不支持。
+    """
+    mode: Literal["bridge", "route"] = Field(..., description="bridge=二层 / route=三层")
+    force: bool = Field(default=False, description="强制切换（跳过二次确认）")
+
+
 class Ipv4AddressSet(BaseModel):
     """给 L3 接口设置/替换 IPv4 地址"""
     ip: str = Field(..., description="点分十进制 IPv4，如 192.168.1.1")
@@ -997,6 +1006,98 @@ def change_link_type(device_id: int, if_index: int, body: LinkTypeChange,
                    f"改 link type if_index={if_index} -> {body.mode} 失败",
                    "failed", error_message=error_msg)
         return APIResponse(success=False, error=error_msg)
+
+
+# ============ 切换 L2/L3 层级（v2.3） ============
+
+
+@router.patch("/devices/{device_id}/interfaces/{if_index}/link-mode", response_model=APIResponse)
+def switch_link_mode(device_id: int, if_index: int, body: LinkModeSwitch,
+                     db: Session = Depends(get_db)):
+    """切换接口 L2/L3 层级（bridge ↔ route）
+
+    v2.3 新增：走 SSH CLI（`port link-mode` 命令），NETCONF 不支持此操作。
+    - bridge：接口工作在二层模式
+    - route：接口工作在三层模式（会清 L2 配置，如 VLAN / trunk）
+    - 受保护接口护栏：force=true 才能跳过
+    - 二次确认：force=false 时返回确认提示，前端弹 Modal 确认后 force=true 再调用
+    """
+    from app.utils.ssh_executor import SSHExecutor
+
+    device, password, error = _get_device_and_password(db, device_id)
+    if error:
+        return error
+
+    # 受保护接口护栏
+    protected = _get_protected_interfaces(device)
+    if if_index in protected and not body.force:
+        msg = f"接口 if_index={if_index} 是受保护口，需要 force=true 才能继续"
+        logger.warning(f"切 link mode 被保护拦截: device_id={device_id}, if_index={if_index}")
+        record_log(db, device.id, device.name, "link_mode_switch",
+                   f"切 link mode if_index={if_index} -> {body.mode} 被保护拦截",
+                   "failed", error_message=msg)
+        return APIResponse(success=False, error=msg)
+    if if_index in protected and body.force:
+        logger.warning(f"切 link mode force=true 强制通过保护: device_id={device_id}, if_index={if_index}")
+
+    # 二次确认（force=false 时返回确认提示，不执行）
+    if not body.force:
+        return APIResponse(
+            success=True,
+            data={
+                "if_index": if_index,
+                "mode": body.mode,
+                "confirmed": False,
+                "message": f"即将切换接口 if_index={if_index} 到 {body.mode} 模式。"
+                           f"此操作会{'清空 L2 配置（VLAN/trunk）' if body.mode == 'route' else '清空 L3 配置（IP）'}，"
+                           f"请确认后 force=true 重新调用",
+            },
+        )
+
+    # 执行 SSH CLI
+    ssh = SSHExecutor(
+        host=device.host,
+        port=22,
+        username=device.username,
+        password=password,
+        timeout=30,
+    )
+
+    # 切到 system-view → 进入接口 → 改 link-mode
+    commands = [
+        "system-view",
+        f"interface {_parse_if_name_for_cli(if_index)}",
+        f"port link-mode {body.mode}",
+    ]
+    results = ssh.execute_commands(commands, delay_ms=500)
+
+    # 检查结果
+    for r in results:
+        if not r["success"]:
+            error_msg = f"SSH CLI 失败: {r['command']} -> {r['output'][:200]}"
+            logger.error(f"切 link mode 失败: device_id={device_id}, if_index={if_index}, {error_msg}")
+            record_log(db, device.id, device.name, "link_mode_switch",
+                       f"切 link mode if_index={if_index} -> {body.mode} 失败",
+                       "failed", error_message=error_msg)
+            return APIResponse(success=False, error=error_msg)
+
+    logger.info(f"切 link mode 成功: device_id={device_id}, if_index={if_index}, -> {body.mode}")
+    record_log(db, device.id, device.name, "link_mode_switch",
+               f"切 link mode if_index={if_index} -> {body.mode}", "success")
+    return APIResponse(
+        success=True,
+        data={"if_index": if_index, "mode": body.mode, "confirmed": True},
+    )
+
+
+def _parse_if_name_for_cli(if_index: int) -> str:
+    """把 if_index 转成 H3C 接口名（如 100 -> GigabitEthernet1/0/1）
+
+    简化映射：if_index 的最后两位是端口号，前面是槽位号。
+    """
+    port = if_index % 100
+    slot = if_index // 100
+    return f"GigabitEthernet{slot}/0/{port}"
 
 
 # ============ 设置/替换 IPv4 地址 ============

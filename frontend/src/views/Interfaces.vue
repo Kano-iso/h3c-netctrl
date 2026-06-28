@@ -260,6 +260,67 @@ function cancelChangeLinkType() {
   linkTypeErr.value = ''
 }
 
+// ============ v2.3: 切换 L2/L3 层级（bridge/route） ============
+const showLinkModeConfirm = ref(false)
+const linkModeChange = ref({ iface: null, mode: '', message: '', force: false })
+const linkModeSubmitting = ref(false)
+const linkModeErr = ref('')
+
+async function requestSwitchLinkMode(iface) {
+  const targetMode = iface.layer === 'L3' ? 'bridge' : 'route'
+  linkModeErr.value = ''
+  linkModeSubmitting.value = true
+
+  // 先调用 force=false 获取确认消息
+  const r = await interfaceApi.setLinkMode(selectedDeviceId.value, iface.if_index, targetMode, false)
+  linkModeSubmitting.value = false
+
+  if (!r.success) {
+    linkModeErr.value = r.error || '切换失败'
+    return
+  }
+
+  const data = r.data
+  if (data && data.confirmed === false) {
+    // 后端返回确认提示，弹 ConfirmModal
+    linkModeChange.value = {
+      iface,
+      mode: targetMode,
+      message: data.message || `切换接口 ${iface.name} 到 ${targetMode} 模式`,
+      force: true,
+    }
+    showLinkModeConfirm.value = true
+  } else {
+    // 直接成功（force=true 路径）
+    await loadInterfaces()
+  }
+}
+
+async function confirmSwitchLinkMode() {
+  const { iface, mode } = linkModeChange.value
+  if (!iface || !selectedDeviceId.value) return
+  linkModeSubmitting.value = true
+  linkModeErr.value = ''
+
+  const r = await interfaceApi.setLinkMode(selectedDeviceId.value, iface.if_index, mode, true)
+  linkModeSubmitting.value = false
+
+  if (!r.success) {
+    linkModeErr.value = r.error || '切层级失败'
+    return
+  }
+  showLinkModeConfirm.value = false
+  linkModeChange.value = { iface: null, mode: '', message: '', force: false }
+  await loadInterfaces()
+}
+
+function cancelSwitchLinkMode() {
+  if (linkModeSubmitting.value) return
+  showLinkModeConfirm.value = false
+  linkModeChange.value = { iface: null, mode: '', message: '', force: false }
+  linkModeErr.value = ''
+}
+
 function openIpModal(iface) {
   ipTargetIface.value = iface
   showIpModal.value = true
@@ -378,6 +439,13 @@ async function onIpModalConfirm() {
                   class="btn-soft !text-xs !px-2.5 !py-1"
                 >
                   改 {{ i.mode === 'access' ? 'Trunk' : 'Access' }}
+                </button>
+                <!-- v2.3: 切换 L2/L3 层级 -->
+                <button
+                  @click="requestSwitchLinkMode(i)"
+                  class="btn-soft !text-xs !px-2.5 !py-1"
+                >
+                  {{ i.layer === 'L3' ? '改二层' : '改三层' }}
                 </button>
                 <!-- v2.2.2 patch: L3 接口才显示"改 IP"按钮 -->
                 <button
@@ -514,6 +582,29 @@ async function onIpModalConfirm() {
       variant="danger"
       @confirm="confirmChangeLinkType"
       @cancel="cancelChangeLinkType"
+    />
+
+    <!-- v2.3: 切换 L2/L3 层级 ConfirmModal -->
+    <ConfirmModal
+      v-if="showLinkModeConfirm"
+      :open="showLinkModeConfirm"
+      :title="`切换接口层级到 ${linkModeChange.mode === 'bridge' ? '二层 (bridge)' : '三层 (route)'}`"
+      :message="(linkModeErr
+        ? linkModeErr + '\n\n'
+        : ''
+      ) + `${linkModeChange.message || ''}\n\n` +
+        `接口 ${linkModeChange.iface?.name}（if_index ${linkModeChange.iface?.if_index}）\n` +
+        `当前层级：${linkModeChange.iface?.layer || 'L2'}\n` +
+        `目标层级：${linkModeChange.mode === 'bridge' ? 'L2 (bridge)' : 'L3 (route)'}\n\n` +
+        `⚠️ H3C V7 行为：\n` +
+        `  · bridge → route：会清空 L2 配置（VLAN / trunk）\n` +
+        `  · route → bridge：会清空 L3 配置（IP 地址）\n\n` +
+        `操作不可撤销，请确认。`"
+      :confirm-text="linkModeSubmitting ? '执行中…' : '确认切换'"
+      :busy="linkModeSubmitting"
+      variant="danger"
+      @confirm="confirmSwitchLinkMode"
+      @cancel="cancelSwitchLinkMode"
     />
 
     <!-- v2.2.2 patch: 改 IP modal（内部自带二次确认） -->

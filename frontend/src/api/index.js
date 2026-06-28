@@ -61,6 +61,13 @@ export const interfaceApi = {
       body: JSON.stringify({ mode, force }),
     }),
 
+  // v2.3: 切换 L2/L3 层级（bridge/route）
+  setLinkMode: (deviceId, ifIndex, mode, force = false) =>
+    apiCall(`/devices/${deviceId}/interfaces/${ifIndex}/link-mode`, {
+      method: 'PATCH',
+      body: JSON.stringify({ mode, force }),
+    }),
+
   // v2.2.2 patch (fix-vpn-edit-capabilities): 给 L3 接口设置/替换 IPv4
   setIpv4Address: (deviceId, ifIndex, ip, mask) =>
     apiCall(`/devices/${deviceId}/interfaces/${ifIndex}/ipv4-address`, {
