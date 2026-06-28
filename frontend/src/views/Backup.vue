@@ -1,141 +1,421 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import PageHeader from '../components/PageHeader.vue'
+import ConfirmModal from '../components/ConfirmModal.vue'
+import BackupListModal from '../components/BackupListModal.vue'
+import { deviceApi, backupApi } from '../api/index.js'
 
-const showDiff = ref(false)
+const loading = ref(true)
+const errMsg = ref('')
+const devices = ref([])
+const backupsByDevice = ref({})  // { device_id: [backup, ...] }
 
-// V2.1 阶段：配置备份 / 回滚尚未对接后端，预览版留作后续
-const backupHistory = []
+// 筛选
+const filterDeviceId = ref('all')
+const filterLock = ref('all')  // 'all' | 'locked' | 'unlocked'
+
+// 全量备份
+const fullBackingUp = ref(false)
+const fullResult = ref(null)  // { success: [], failed: [] }
+
+// 全量备份结果 Modal
+const fullResultOpen = ref(false)
+
+// 单设备 Modal
+const deviceModalOpen = ref(false)
+const deviceModalInfo = ref({ id: null, name: '' })
+
+// 二次确认
+const confirm = ref({
+  open: false,
+  title: '',
+  message: '',
+  confirmText: '确定',
+  variant: 'default',
+  busy: false,
+  action: null,
+  target: null,
+})
+
+// 工具
+function formatSize(bytes) {
+  if (bytes == null) return '-'
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(2)} MB`
+}
+
+function formatTime(iso) {
+  if (!iso) return '-'
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return iso
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+}
+
+function shortHash(h) {
+  if (!h) return '-'
+  return h.slice(0, 8)
+}
+
+// 加载所有数据
+async function loadAll() {
+  loading.value = true
+  errMsg.value = ''
+  const r = await deviceApi.list()
+  if (!r.success) {
+    errMsg.value = r.error || '加载设备列表失败'
+    loading.value = false
+    return
+  }
+  devices.value = r.data || []
+
+  // 并发拉每个设备的备份
+  const results = await Promise.allSettled(
+    devices.value.map((d) => backupApi.list(d.id))
+  )
+  const map = {}
+  devices.value.forEach((d, i) => {
+    const r2 = results[i]
+    if (r2.status === 'fulfilled' && r2.value.success) {
+      map[d.id] = r2.value.data || []
+    } else {
+      map[d.id] = []  // 设备不可达 → 空列表
+    }
+  })
+  backupsByDevice.value = map
+  loading.value = false
+}
+
+// 计算：所有备份摊平（用于 KPI）
+const allBackups = computed(() => {
+  const out = []
+  for (const id in backupsByDevice.value) {
+    for (const b of backupsByDevice.value[id]) out.push(b)
+  }
+  return out
+})
+
+const kpiTotal = computed(() => allBackups.value.length)
+const kpiLocked = computed(() => allBackups.value.filter((b) => b.locked).length)
+const kpiSize = computed(() => {
+  const total = allBackups.value.reduce((sum, b) => sum + (b.size || 0), 0)
+  return formatSize(total)
+})
+const kpiToday = computed(() => {
+  const today = new Date().toISOString().slice(0, 10)
+  return allBackups.value.filter((b) => b.created_at && b.created_at.startsWith(today)).length
+})
+
+// 过滤
+const visibleDevices = computed(() => {
+  if (filterDeviceId.value === 'all') return devices.value
+  return devices.value.filter((d) => d.id === Number(filterDeviceId.value))
+})
+
+function visibleBackupsFor(deviceId) {
+  const list = backupsByDevice.value[deviceId] || []
+  if (filterLock.value === 'locked') return list.filter((b) => b.locked)
+  if (filterLock.value === 'unlocked') return list.filter((b) => !b.locked)
+  return list
+}
+
+// 全量备份
+async function handleFullBackup() {
+  if (fullBackingUp.value) return
+  fullBackingUp.value = true
+  fullResult.value = null
+  const r = await backupApi.createAll()
+  fullBackingUp.value = false
+  if (!r.success) {
+    errMsg.value = r.error || '全量备份失败'
+    return
+  }
+  fullResult.value = r.data || { success: [], failed: [] }
+  fullResultOpen.value = true
+  // 刷新数据
+  await loadAll()
+}
+
+// 单设备 Modal
+function openDeviceModal(d) {
+  deviceModalInfo.value = { id: d.id, name: d.name }
+  deviceModalOpen.value = true
+}
+
+async function onDeviceModalChanged() {
+  await loadAll()
+}
+
+// 单行操作
+function askDelete(d, b) {
+  confirm.value = {
+    open: true,
+    title: '删除备份',
+    message: `确定删除设备 ${d.name} 的备份 ${b.filename}？\n此操作不可恢复。`,
+    confirmText: '删除',
+    variant: 'danger',
+    busy: false,
+    action: 'delete',
+    target: { d, b },
+  }
+}
+
+function askToggleLock(d, b) {
+  const willLock = !b.locked
+  confirm.value = {
+    open: true,
+    title: willLock ? '锁定备份' : '解锁备份',
+    message: `确定${willLock ? '锁定' : '解锁'}设备 ${d.name} 的备份 ${b.filename}？\n${willLock ? '锁定后不参与轮转，不会被自动删除。' : '解锁后将参与自动轮转。'}`,
+    confirmText: '确认',
+    variant: 'default',
+    busy: false,
+    action: willLock ? 'lock' : 'unlock',
+    target: { d, b },
+  }
+}
+
+function askRestore(d, b) {
+  confirm.value = {
+    open: true,
+    title: '回滚到该备份',
+    message: `确定回滚设备 ${d.name} 到备份 ${b.filename}？\n设备配置将被覆盖。\n\n时间：${formatTime(b.created_at)}\n大小：${formatSize(b.size)}\nHash：${shortHash(b.content_hash)}`,
+    confirmText: '回滚',
+    variant: 'danger',
+    busy: false,
+    action: 'restore',
+    target: { d, b },
+  }
+}
+
+async function onConfirmAction() {
+  const { action, target } = confirm.value
+  if (!action) return
+  confirm.value.busy = true
+
+  let r
+  if (action === 'delete') {
+    r = await backupApi.remove(target.d.id, target.b.id)
+  } else if (action === 'lock' || action === 'unlock') {
+    r = await backupApi.toggleLock(target.d.id, target.b.id, action === 'lock')
+  } else if (action === 'restore') {
+    r = await backupApi.restore(target.d.id, target.b.id)
+  }
+
+  confirm.value.busy = false
+
+  if (!r.success) {
+    confirm.value.message = `操作失败：${r.error || '未知错误'}\n\n${confirm.value.message}`
+    return
+  }
+
+  confirm.value.open = false
+  await loadAll()
+}
+
+function closeConfirm() {
+  if (confirm.value.busy) return
+  confirm.value.open = false
+}
+
+async function handleDownload(d, b) {
+  const r = await backupApi.download(d.id, b.id)
+  if (!r.success) {
+    errMsg.value = r.error || '下载失败'
+    return
+  }
+  const url = URL.createObjectURL(r.data.blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = r.data.filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
+onMounted(loadAll)
 </script>
 
 <template>
-  <PageHeader title="配置备份 / 回滚" subtitle="定时备份 · Diff 对比 · 一键回滚" badge="未来 · 预览">
+  <PageHeader
+    title="配置备份"
+    subtitle="手动备份、锁定、回滚。每设备自动保留最新 5 份未锁定备份，锁定的不参与轮转。"
+  >
     <template #actions>
-      <button class="btn-primary">
-        <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 14l-7 7-7-7M12 21V3"/></svg>
-        立即备份全部
+      <button class="btn-primary" :disabled="fullBackingUp" @click="handleFullBackup">
+        <svg v-if="fullBackingUp" class="size-3.5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg>
+        {{ fullBackingUp ? '全量备份中…' : '立即全量备份' }}
       </button>
     </template>
   </PageHeader>
 
   <div class="max-w-[1200px] mx-auto px-8 pb-16 space-y-4">
-    <div class="grid grid-cols-1 sm:grid-cols-4 gap-4">
-      <div class="panel p-5">
-        <div class="section-title">备份总数</div>
-        <div class="kpi-num mt-2">{{ backupHistory.length }}</div>
+    <!-- KPI -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div class="panel px-4 py-3">
+        <div class="text-[11px] text-ink-500 uppercase tracking-wider">备份总数</div>
+        <div class="text-2xl font-mono text-ink-900 mt-1">{{ kpiTotal }}</div>
       </div>
-      <div class="panel p-5">
-        <div class="section-title">今日备份</div>
-        <div class="kpi-num mt-2">4</div>
+      <div class="panel px-4 py-3">
+        <div class="text-[11px] text-ink-500 uppercase tracking-wider">已锁定</div>
+        <div class="text-2xl font-mono text-warn mt-1">{{ kpiLocked }}</div>
       </div>
-      <div class="panel p-5">
-        <div class="section-title">占用空间</div>
-        <div class="kpi-num mt-2">23 KB</div>
+      <div class="panel px-4 py-3">
+        <div class="text-[11px] text-ink-500 uppercase tracking-wider">总占用</div>
+        <div class="text-2xl font-mono text-ink-900 mt-1">{{ kpiSize }}</div>
       </div>
-      <div class="panel p-5">
-        <div class="section-title">下次定时</div>
-        <div class="kpi-num mt-2">02:00</div>
+      <div class="panel px-4 py-3">
+        <div class="text-[11px] text-ink-500 uppercase tracking-wider">今日新增</div>
+        <div class="text-2xl font-mono text-accent mt-1">{{ kpiToday }}</div>
       </div>
     </div>
 
-    <div class="panel">
-      <div class="px-5 py-3 border-b border-canvas-300 flex items-center justify-between">
-        <div class="text-sm font-semibold text-ink-900">备份历史</div>
-        <div class="text-xs text-ink-500">最近 6 条</div>
+    <!-- 筛选 -->
+    <div class="panel px-4 py-3 flex items-center gap-3 flex-wrap">
+      <div class="text-xs text-ink-500">设备：</div>
+      <select v-model="filterDeviceId" class="input !w-auto !text-xs">
+        <option value="all">全部 ({{ devices.length }})</option>
+        <option v-for="d in devices" :key="d.id" :value="d.id">{{ d.name }} ({{ d.host }})</option>
+      </select>
+      <div class="h-5 w-px bg-canvas-400" />
+      <div class="flex items-center gap-1">
+        <button :class="['px-3 py-1.5 text-xs font-medium rounded-full transition',
+          filterLock === 'all' ? 'bg-ink-900 text-white' : 'text-ink-700 hover:bg-canvas-200']" @click="filterLock = 'all'">全部</button>
+        <button :class="['px-3 py-1.5 text-xs font-medium rounded-full transition',
+          filterLock === 'locked' ? 'bg-ink-900 text-white' : 'text-ink-700 hover:bg-canvas-200']" @click="filterLock = 'locked'">仅锁定</button>
+        <button :class="['px-3 py-1.5 text-xs font-medium rounded-full transition',
+          filterLock === 'unlocked' ? 'bg-ink-900 text-white' : 'text-ink-700 hover:bg-canvas-200']" @click="filterLock = 'unlocked'">仅未锁定</button>
       </div>
-      <table class="w-full text-sm">
-        <thead>
-          <tr class="text-[11px] text-ink-500 uppercase tracking-wider border-b border-canvas-300">
-            <th class="px-4 py-2.5 text-left font-medium">设备</th>
-            <th class="px-4 py-2.5 text-left font-medium">备份时间</th>
-            <th class="px-4 py-2.5 text-left font-medium">大小</th>
-            <th class="px-4 py-2.5 text-left font-medium">备注</th>
-            <th class="px-4 py-2.5 text-right font-medium w-44">操作</th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-canvas-300">
-          <tr v-for="b in backupHistory" :key="b.id" class="hover:bg-canvas-100 transition">
-            <td class="px-4 py-3 text-sm text-ink-900">{{ b.device }}</td>
-            <td class="px-4 py-3 text-xs font-mono text-ink-700">{{ b.time }}</td>
-            <td class="px-4 py-3 text-xs font-mono text-ink-700">{{ b.size }}</td>
-            <td class="px-4 py-3 text-xs text-ink-700">{{ b.note }}</td>
-            <td class="px-4 py-3 text-right">
-              <button @click="showDiff = true" class="btn-soft !text-xs !px-3 !py-1">查看</button>
-              <button @click="showDiff = true" class="btn-soft !text-xs !px-3 !py-1">Diff</button>
-              <button class="btn-soft !text-xs !px-3 !py-1 text-bad">回滚</button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
     </div>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-      <div class="panel p-6">
-        <div class="text-base font-semibold text-ink-900 mb-3">实现思路</div>
-        <ul class="text-xs text-ink-700 space-y-2">
-          <li class="flex gap-2"><span class="text-accent">▸</span> 定时执行 `display current-configuration` 保存</li>
-          <li class="flex gap-2"><span class="text-accent">▸</span> SQLite 存索引，文件存原始配置</li>
-          <li class="flex gap-2"><span class="text-accent">▸</span> 变更前自动备份到 `pre-change-{timestamp}`</li>
-          <li class="flex gap-2"><span class="text-accent">▸</span> diff 算法用 `diff-match-patch` 库</li>
-        </ul>
-      </div>
-      <div class="panel p-6">
-        <div class="text-base font-semibold text-ink-900 mb-3">安全机制</div>
-        <ul class="text-xs text-ink-700 space-y-2">
-          <li class="flex gap-2"><span class="text-good">●</span> 回滚操作必须二次确认</li>
-          <li class="flex gap-2"><span class="text-good">●</span> 受保护设备回滚需 force=true</li>
-          <li class="flex gap-2"><span class="text-good">●</span> 回滚失败自动尝试回滚自身</li>
-          <li class="flex gap-2"><span class="text-good">●</span> 所有回滚操作记入审计日志</li>
-        </ul>
+    <!-- 错误提示 -->
+    <div v-if="errMsg" class="panel px-4 py-2.5 bg-bad/8 border-bad/30 text-sm text-bad">
+      {{ errMsg }}
+    </div>
+
+    <!-- 加载 -->
+    <div v-if="loading" class="panel px-4 py-12 text-center text-sm text-ink-500">加载中…</div>
+
+    <!-- 按设备分组 -->
+    <div v-else-if="visibleDevices.length === 0" class="panel px-4 py-12 text-center text-sm text-ink-500">暂无设备</div>
+    <div v-else class="space-y-3">
+      <div v-for="d in visibleDevices" :key="d.id" class="panel overflow-hidden">
+        <div class="px-4 py-2.5 border-b border-canvas-300 flex items-center justify-between bg-canvas-50">
+          <div class="flex items-center gap-2">
+            <span class="text-sm font-medium text-ink-900">{{ d.name }}</span>
+            <span class="text-[10px] text-ink-500 font-mono">{{ d.host }}:{{ d.port }}</span>
+            <span class="text-[10px] text-ink-400">·</span>
+            <span class="text-[10px] text-ink-500">共 {{ (backupsByDevice[d.id] || []).length }} 份</span>
+          </div>
+          <button class="btn-soft !text-[11px] !px-2 !py-1" @click="openDeviceModal(d)">
+            在此设备备份 →
+          </button>
+        </div>
+        <div v-if="(backupsByDevice[d.id] || []).length === 0" class="px-4 py-6 text-center text-xs text-ink-500">
+          暂无备份
+        </div>
+        <table v-else class="w-full text-sm">
+          <thead>
+            <tr class="text-[10px] text-ink-500 uppercase tracking-wider border-b border-canvas-300">
+              <th class="px-3 py-2 text-left font-medium">文件名</th>
+              <th class="px-3 py-2 text-left font-medium">时间</th>
+              <th class="px-3 py-2 text-left font-medium">类型</th>
+              <th class="px-3 py-2 text-right font-medium">大小</th>
+              <th class="px-3 py-2 text-left font-medium">Hash</th>
+              <th class="px-3 py-2 text-center font-medium w-16">状态</th>
+              <th class="px-3 py-2 text-right font-medium w-48">操作</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-canvas-300">
+            <tr v-for="b in visibleBackupsFor(d.id)" :key="b.id" class="hover:bg-canvas-50">
+              <td class="px-3 py-2 font-mono text-[11px] text-ink-900">{{ b.filename }}</td>
+              <td class="px-3 py-2 text-[11px] font-mono text-ink-700">{{ formatTime(b.created_at) }}</td>
+              <td class="px-3 py-2 text-[11px] text-ink-700">{{ b.backup_type }}</td>
+              <td class="px-3 py-2 text-[11px] font-mono text-ink-700 text-right">{{ formatSize(b.size) }}</td>
+              <td class="px-3 py-2 text-[11px] font-mono text-ink-500">{{ shortHash(b.content_hash) }}</td>
+              <td class="px-3 py-2 text-center">
+                <span v-if="b.locked" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-warn/10 text-warn" title="已锁定，不参与轮转">🔒 锁定</span>
+                <span v-else class="text-[10px] text-ink-400">-</span>
+              </td>
+              <td class="px-3 py-2 text-right">
+                <div class="inline-flex items-center gap-1">
+                  <button class="text-[11px] text-accent hover:underline" @click="handleDownload(d, b)">下载</button>
+                  <span class="text-canvas-300">|</span>
+                  <button :class="['text-[11px] hover:underline', b.locked ? 'text-warn' : 'text-ink-700']" @click="askToggleLock(d, b)">{{ b.locked ? '解锁' : '锁定' }}</button>
+                  <span class="text-canvas-300">|</span>
+                  <button :class="['text-[11px] hover:underline', b.locked ? 'text-canvas-300 cursor-not-allowed' : 'text-bad']" :disabled="b.locked" :title="b.locked ? '已锁定，禁止删除' : '删除此备份'" @click="askDelete(d, b)">删除</button>
+                  <span class="text-canvas-300">|</span>
+                  <button class="text-[11px] text-bad hover:underline" @click="askRestore(d, b)">回滚</button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
   </div>
 
+  <!-- 全量备份结果 Modal -->
   <Teleport to="body">
-    <Transition name="modal">
-      <div v-if="showDiff" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-ink-950/40 backdrop-blur-sm" @click.self="showDiff = false">
-        <div class="panel w-full max-w-5xl p-6 max-h-[85vh] flex flex-col">
-          <div class="flex items-center justify-between mb-4">
-            <div>
-              <div class="text-base font-semibold text-ink-900">配置 Diff</div>
-              <div class="text-xs text-ink-500 font-mono">Spine-01 · 2026-06-21 16:42:11 vs 当前</div>
-            </div>
-            <button @click="showDiff = false" class="btn-soft !p-1.5">✕</button>
+    <Transition name="fade">
+      <div v-if="fullResultOpen" class="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div class="absolute inset-0 bg-ink-950/40 backdrop-blur-sm" @click="fullResultOpen = false"></div>
+        <div class="relative panel w-full max-w-lg shadow-2xl">
+          <div class="px-5 py-4 border-b border-canvas-300 flex items-center justify-between">
+            <h3 class="text-base font-semibold text-ink-900">全量备份结果</h3>
+            <button class="btn-soft !text-xs" @click="fullResultOpen = false">关闭</button>
           </div>
-
-          <div class="grid grid-cols-2 gap-3 flex-1 overflow-hidden">
-            <div class="flex flex-col rounded-xl bg-canvas-200 ring-1 ring-canvas-300 overflow-hidden">
-              <div class="px-3 py-2 text-[10px] text-ink-500 uppercase tracking-wider border-b border-canvas-300 font-medium">备份版本</div>
-              <pre class="flex-1 overflow-auto p-4 text-[11px] font-mono text-ink-900 whitespace-pre">interface GigabitEthernet1/0/1
-  port link-mode bridge
-  port link-type trunk
-  port trunk permit vlan 1 10 20 30 100 200</pre>
+          <div class="px-5 py-4 space-y-3">
+            <div v-if="fullResult" class="text-sm space-y-2">
+              <div class="flex items-center gap-2 text-good">
+                <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 13l4 4L19 7"/></svg>
+                <span>成功 <b>{{ fullResult.success.length }}</b> 台</span>
+              </div>
+              <div v-if="fullResult.failed.length > 0" class="flex items-start gap-2 text-bad">
+                <svg class="size-4 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+                <div>
+                  <div>失败 <b>{{ fullResult.failed.length }}</b> 台</div>
+                  <ul class="mt-1 ml-4 text-[11px] space-y-0.5 list-disc">
+                    <li v-for="(f, i) in fullResult.failed" :key="i">
+                      设备 ID {{ f.device_id }} — {{ f.error }}
+                    </li>
+                  </ul>
+                </div>
+              </div>
+              <div v-if="fullResult.success.length > 0" class="text-[11px] text-ink-500">
+                备份详情：{{ fullResult.success.length }} 份新备份已入库
+              </div>
             </div>
-            <div class="flex flex-col rounded-xl bg-canvas-200 ring-1 ring-canvas-300 overflow-hidden">
-              <div class="px-3 py-2 text-[10px] text-ink-500 uppercase tracking-wider border-b border-canvas-300 font-medium">当前配置</div>
-              <pre class="flex-1 overflow-auto p-4 text-[11px] font-mono whitespace-pre text-ink-900">interface GigabitEthernet1/0/1
-  port link-mode bridge
-  port link-type trunk
-<span class="text-good">+ port trunk permit vlan 1 10 20 30 100 200 300</span>
-<span class="text-good">+</span>
-<span class="text-good">+interface GigabitEthernet1/0/12</span>
-<span class="text-good">+ port link-mode bridge</span>
-<span class="text-good">+ port link-type access</span>
-<span class="text-good">+ port access vlan 200</span></pre>
-            </div>
-          </div>
-
-          <div class="flex justify-end gap-2 mt-5">
-            <button @click="showDiff = false" class="btn-ghost">关闭</button>
-            <button class="btn-primary !bg-bad hover:!bg-red-600">回滚到该备份</button>
           </div>
         </div>
       </div>
     </Transition>
   </Teleport>
+
+  <!-- 二次确认 Modal -->
+  <ConfirmModal
+    :open="confirm.open"
+    :title="confirm.title"
+    :message="confirm.message"
+    :confirm-text="confirm.confirmText"
+    :variant="confirm.variant"
+    :busy="confirm.busy"
+    @update:open="(v) => v || closeConfirm()"
+    @confirm="onConfirmAction"
+    @cancel="closeConfirm"
+  />
+
+  <!-- 单设备详细 Modal -->
+  <BackupListModal
+    v-model:visible="deviceModalOpen"
+    :device-id="deviceModalInfo.id"
+    :device-name="deviceModalInfo.name"
+    @changed="onDeviceModalChanged"
+  />
 </template>
 
-<style>
-.modal-enter-active, .modal-leave-active { transition: opacity .2s; }
-.modal-enter-from, .modal-leave-to { opacity: 0; }
+<style scoped>
+.fade-enter-active, .fade-leave-active { transition: opacity .2s; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
 </style>
