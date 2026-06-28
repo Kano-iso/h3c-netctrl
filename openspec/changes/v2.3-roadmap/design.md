@@ -46,7 +46,7 @@ v2.3 整体
 
 ### 2.2 弱依赖（自动化测试覆盖新功能）
 
-- `add-interface-l2-l3-switch` 完成后，`add-backup-e2e-and-integration-tests` 可新增 `interface-link-mode.spec.js` + `test_link_mode_real_device.py` 覆盖
+- `add-interface-l2-l3-switch` 完成后，`add-backup-e2e-and-integration-tests` 可在 `backend/tests/` 加 link mode 切换的真机集成用例
 - 时序：link mode 切换先 apply → 自动化测试 add link mode 用例
 
 ### 2.3 强依赖（拆容器前置）
@@ -68,16 +68,23 @@ v2.3 整体
 - 业界标准：H3C 官方 CLI 走 `interface { name }` → `port link-mode { bridge | route }`
 - SSH CLI 是 v2.2.2 patch 的"link type 调整"无法覆盖的场景，必须走 SSH
 
-### 3.3 自动化测试为什么双层
+### 3.3 自动化测试为什么"轻量 + 复用 qa-backend"（不引入 Playwright）
 
-| 层 | 框架 | 跑什么 | 是否需设备 |
-|---|---|---|---|
-| E2E | Playwright | 前端 UI 路径 | ❌ |
-| Integration | pytest + paramiko + ncclient | 真实 SSH / NETCONF / 备份文件 | ✅ 192.168.100.4 / .5 |
+| 层 | 框架 | 跑什么 | 是否需设备 | 装包 |
+|---|---|---|---|---|
+| API 单元 / 集成 | FastAPI TestClient + pytest | backup 7 个 API + 错误码 | ❌ | 0（已装） |
+| 设备集成 | pytest + paramiko + ncclient | 真实 SSH / NETCONF / backup 端到端 | ✅ 192.168.100.4 / .5 | 0（已装） |
 
-- E2E 跑得勤（PR 每次），验证 UI 流程
-- Integration 跑得少（每天 / 每周），验证设备交互
-- 双层覆盖：UI bug 不漏（E2E）+ 设备协议变更不漏（Integration）
+**为什么不去 Playwright**：
+- 项目已有 `qa-backend` 容器（profile: qa）跑 pytest + paramiko
+- `backend/tests/` 已有 7 个测试文件
+- `requirements.txt` 已含 `pytest>=7.0.0` + `paramiko==2.10.3`
+- 新引入 Playwright = 300MB 浏览器二进制 + 高维护 + 个人项目 ROI 低
+- 真正有价值的回归 = API 层 + 设备协议层，不是 UI 模拟点击
+
+**双层覆盖**：
+- API 跑得勤（PR 每次）—— 验证 API 协议、错误码、中文错误信息
+- 设备集成跑得少（每天 / 每周）—— 验证真实设备交互（含 reboot verify）
 
 ### 3.4 拆 asset 容器为什么"评估中"
 

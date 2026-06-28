@@ -48,8 +48,8 @@ v2.2.0 发版后留下 3 类遗留项需要在 v2.3 收尾：
 - **新增容器**：`docker-compose.dev.yml` 加 `ops-toolkit` service（profile: ops），按需启动不污染日常
 - **新增后端**：`backend/app/routers/interface.py` 加 `PATCH /link-mode`；`backend/app/utils/ssh_executor.py` 可能加 link-mode 专用方法
 - **新增前端**：`frontend/src/views/Interfaces.vue` 加"改层级"按钮 + `LinkModeSwitchModal.vue` 二次确认弹窗
-- **新增测试**：`tests/e2e/`（Playwright）+ `tests/integration/`（pytest + paramiko）；`package.json` / `pyproject.toml` 加依赖
-- **CI**：`.github/workflows/` 加 E2E workflow（Playwright 跑 GitHub Actions runner）
+- **新增测试**：`backend/tests/test_backup_api.py` + `test_backup_integration.py` + `test_vpn_integration.py`（**复用 `qa-backend` 容器 + `requirements.txt` 已含 pytest + paramiko，0 装包消耗**）
+- **CI**：`.github/workflows/qa.yml` 加 `docker compose --profile qa up qa-backend --abort-on-container-exit` 一行
 - **不破坏**：v2.2.0 backup-frontend / interface-vpn-instance-and-l2-l3 / fix-vpn-edit-capabilities 端点
 - **可回退**：每个 sub-change 独立 revert
 

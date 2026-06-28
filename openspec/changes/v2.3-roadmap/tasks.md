@@ -65,17 +65,15 @@
 - [ ] C.7 真机验证：192.168.100.5 找一个 access 接口 → bridge（force=False 路径，先清配置）→ 改回 access → 改 route → 验证 running-config
 - [ ] C.8 Archive
 
-### add-backup-e2e-and-integration-tests
+### add-backup-e2e-and-integration-tests（**轻量化：不引入新框架**）
 
-- [ ] D.1 `package.json` 加 `@playwright/test` 依赖
-- [ ] D.2 `tests/e2e/backup.spec.js` —— 跑 backup-frontend 6.1-6.11 UI 路径（无需设备）
-- [ ] D.3 `tests/e2e/interface-vpn.spec.js` —— 跑 interface-vpn-instance-and-l2-l3 UI 路径
-- [ ] D.4 `pyproject.toml` / `requirements-dev.txt` 加 `pytest` `paramiko` `ncclient`
-- [ ] D.5 `tests/integration/test_backup_real_device.py` —— 跑 192.168.100.4 backup + restore 端到端（含 reboot 验证）
-- [ ] D.6 `tests/integration/test_vpn_real_device.py` —— 跑 192.168.100.5 VPN + link type + IP 真机
-- [ ] D.7 `.github/workflows/e2e.yml` —— Playwright CI
-- [ ] D.8 `.github/workflows/integration.yml` —— pytest 真机（需 secrets）
-- [ ] D.9 Archive
+> **关键决策**：复用项目已有 `qa-backend` 容器（profile: qa）跑 pytest + paramiko，不引入 Playwright / httpx / Cypress 等新框架。理由：项目已有 QA 基础设施（`backend/tests/` 7 个测试 + `qa-backend` 容器 + `requirements.txt` 已含 `paramiko` + `pytest`），新引入是 over-engineering。
+
+- [ ] D.1 `backend/tests/test_backup_api.py` —— FastAPI TestClient 跑 backup 7 个 API（POST backup / GET list / GET download / DELETE / POST lock / POST restore / POST /backups 全量）
+- [ ] D.2 `backend/tests/test_backup_integration.py` —— pytest + paramiko 跑 192.168.100.4 backup + restore 端到端（含 reboot 60-120s verify）
+- [ ] D.3 `backend/tests/test_vpn_integration.py` —— pytest + paramiko + ncclient 跑 192.168.100.5 VPN + link type + IP 真机
+- [ ] D.4 `.github/workflows/qa.yml` —— `docker compose --profile qa up qa-backend --abort-on-container-exit`
+- [ ] D.5 Archive
 
 ### v2.3-container-decoupling-asset（评估中）
 
