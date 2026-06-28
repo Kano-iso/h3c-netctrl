@@ -13,8 +13,9 @@
 | v1.0 MVP | ✅ 2026-06-13 | 基础 CRUD + NETCONF VLAN/接口 | [archive/2026-06-13-v1-mvp-foundation](openspec/changes/archive/2026-06-13-v1-mvp-foundation/) |
 | v2.0 平台化 | ✅ 2026-06-22 | 8 项：NETCONF 重构 / QA 测试套件 / bugfix 轮次 / Schemas v2 | [archive 目录](openspec/changes/archive/) |
 | v2.1 前端重构 | ✅ 2026-06-23 | 7 项：多命令终端 / 设备 CRUD UI / 资产编辑 / 单设备采集 / 状态判定修复 | [archive 目录](openspec/changes/archive/) |
-| **v2.1.x patch 灰度** | 🚧 当前 | 手动备份后端能力（前端延后到 v2.2，**本次不发版**） | [backup-manual-with-rollback](openspec/changes/backup-manual-with-rollback/) |
-| v2.2 网控增强 | ⏳ 规划 | 备份前端 / 接口 VPN / 接口 L2-L3 / 联动配置 | 待开 3 个 change |
+| v2.1.x patch 灰度 | ✅ 2026-06-29 并入 v2.2.0 | 手动备份后端能力（前端在 v2.2 backup-frontend 补齐） | [v21x-patch-backup-backend](openspec/changes/archive/2026-06-28-v21x-patch-backup-backend/) |
+| **v2.2.0 网控增强** | ✅ **2026-06-29 (tag: v2.2.0)** | 备份前端 / 接口 VPN / 接口 L2-L3 + link type + IP / 联动配置 / 4 收尾 bug fix | [**RELEASE-NOTES-v2.2.0.md**](RELEASE-NOTES-v2.2.0.md) · [archive 目录](openspec/changes/archive/2026-06-28-*) |
+| v2.3 运维增强 | ⏳ 规划 | ops-toolkit 容器 / link mode 切换 / 自动化测试 / asset 容器拆分 | [VERSION-ROADMAP.md § 7](VERSION-ROADMAP.md) |
 | v3.0 VPC | ⏳ 规划 | VPC 能力（SDN）+ etcd 协调 | 延后 |
 
 详细进度、约束、决策记录见 [VERSION-ROADMAP.md](VERSION-ROADMAP.md)。
@@ -40,10 +41,11 @@
 | 设备管理 | 多设备 CRUD、连接测试、密码加密存储 |
 | VLAN 管理 | 通过 NETCONF 协议增删改查 VLAN |
 | 网络运维 | 命令派发式终端（SSH 执行，返回输出，支持多命令） |
-| 接口管理 | 接口列表查看、Access/Trunk 联动配置下发、trunk 允许 VLAN 列表显式拒绝 |
+| 接口管理 | 接口列表查看、Access/Trunk 联动配置下发、trunk 允许 VLAN 列表显式拒绝、L2/L3 link type 调整、L3 接口配 IPv4 address |
 | CMDB | 设备资产台账、硬件信息自动采集（SSH）、位置/标签/状态手动编辑、单设备采集 |
 | 批量操作 | 多设备勾选、批量执行命令、结果汇总 |
 | 操作日志 | 全操作自动记录、按类型/状态筛选 |
+| **备份 / 回滚**（v2.2 新增） | **3 个入口**（全局 Backup 页 / 设备行 / CMDB 顶部）+ **1 个 Modal**，拉取 startup.cfg + running-config（SCP + SSH CLI），回滚（全文本 + SCP 文件级替换 + reboot + verify），每设备保留最新 5 份非锁定备份 |
 
 ## 快速启动
 
@@ -156,8 +158,10 @@ h3c-netctrl/
 
 ## 版本历史
 
-| 版本 | 主要功能 |
-|------|---------|
-| V1.0 | 设备管理、VLAN CRUD、NETCONF 交互、操作日志 |
-| V1.1 | Vue 3 前端重构、多设备管理、日志查看页面 |
-| V2.0 | 侧边栏导航、Dashboard、运维终端、接口管理、CMDB、批量操作、Alembic 迁移、GitHub Actions CI |
+| 版本 | 主要功能 | 发版说明 |
+|------|---------|---------|
+| V1.0 | 设备管理、VLAN CRUD、NETCONF 交互、操作日志 | - |
+| V1.1 | Vue 3 前端重构、多设备管理、日志查看页面 | ⚠️ 弃用，被 v2.1 替代 |
+| V2.0 | 侧边栏导航、Dashboard、运维终端、接口管理、CMDB、批量操作、Alembic 迁移、GitHub Actions CI | - |
+| V2.1 | 多命令终端、设备 CRUD UI、资产编辑、单设备采集、状态判定修复 | - |
+| **V2.2.0** | **备份前端（3 入口 + 1 Modal）、接口 VPN 联动 + L2/L3 + link type + IP 编辑能力、4 收尾 bug fix** | [**RELEASE-NOTES-v2.2.0.md**](RELEASE-NOTES-v2.2.0.md) |
