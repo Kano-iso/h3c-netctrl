@@ -17,6 +17,7 @@
 | **v2.1 前端重构** | ✅ 2026-06-23 | 7 项：多命令终端 / 设备 CRUD UI / 资产编辑 / 单设备采集 / 状态判定修复 / 容器解耦预留 | archive 目录下 `2026-06-23-v21-frontend-refactor` / `2026-06-23-*` / `2026-06-28-container-decoupling` |
 | **v2.1.x patch 灰度** | ✅ 2026-06-29 (并入 v2.2.0 发版) | 手动备份后端能力（前端在 v2.2 backup-frontend 补齐） | [archive/2026-06-28-v21x-patch-backup-backend](openspec/changes/archive/2026-06-28-v21x-patch-backup-backend/) |
 | **v2.2 网控增强** | ✅ 2026-06-29 (tag: v2.2.0) | 备份前端 / 接口 VPN / 接口 L2-L3 / 联动配置 | [archive/2026-06-28-interface-vpn-instance-and-l2-l3](openspec/changes/archive/2026-06-28-interface-vpn-instance-and-l2-l3/)（VPN + L2/L3 ✅ + **v2.2.1 patch** unbind 预校验 + Modal UX 修复 [archive/2026-06-28-fix-vpn-and-l2l3-ux-bugs](openspec/changes/archive/2026-06-28-fix-vpn-and-l2l3-ux-bugs/) + **v2.2.2 patch** link type + IP 编辑能力 [archive/2026-06-28-fix-vpn-edit-capabilities](openspec/changes/archive/2026-06-28-fix-vpn-edit-capabilities/) + [archive/2026-06-28-backup-frontend](openspec/changes/archive/2026-06-28-backup-frontend/)） |
+| **v2.3 修 bug + 健壮性补全** | ⏳ 规划（v2.2.0 收尾起项） | v2.2.0 漏的 14 API 补测 / ops-toolkit / link mode 切换 / vitest / QA 规范化 / asset 容器拆（评估） | [v2.3-roadmap PRD](openspec/changes/v2.3-roadmap/proposal.md) |
 | **v3.0 VPC** | ⏳ 规划 | VPC + etcd（SDN 起步） | 暂未起 spec |
 | **monitor** | ⏳ 远期 | 监控 / 告警 / dashboard 独立化 | 暂未起 spec |
 
@@ -244,14 +245,23 @@
 
 ---
 
-## 7. v2.3 backlog（暂存）
+## 7. v2.3 修 bug + 健壮性补全（⏳ 规划，2026-06-29 v2.2.0 收尾起项）
 
-**目标**：补齐 v2.2.0 遗留 UI 验证 + 容器化运维工具 + L2/L3 切换能力。
+**目标**：把 v2.2.0 漏的（14 个新 API 0 覆盖 / 4 bug 全靠用户实测）+ 长期遗留（ops-toolkit / link mode / vitest）+ QA 规范 集中发版。**不是新功能大版本，是修 bug + 健壮性补全小版本**。
 
-| change-id | 主题 | 备注 |
-|---|---|---|
-| `v2.2.1-followup-backup-frontend-ui-tests` | 补 backup-frontend 6.3-6.8/6.10/6.11 浏览器 UI 逐一验证（功能代码 OK，未逐一测） | follow-up |
-| `add-ops-toolkit-container` | docker-compose 新增 ops-toolkit service（profile: ops），预装 ping/nc/SSH client/ncclient + 一组预制脚本（check-host.sh / check-netconf.sh / ssh-test.sh），后端无侵入 | 用户原话："我们应该有一个专门的容器吧，每一次我们限错命令有点蠢...有的时候还有会有一个环境问题" |
-| `add-interface-l2-l3-switch` | 后端 PATCH /devices/{id}/interfaces/{if_index}/link-mode（mode=bridge|route, force=bool），走 SSH CLI（NETCONF 不支持），受保护护栏+二次确认+设备验证，UI 加"改层级"按钮 | 覆盖 v2.2.2 patch 没做的 L2↔L3 切换 |
-| `add-backup-e2e-and-integration-tests` | Playwright (UI 自动化) + pytest + paramiko (设备集成) | v2.2 收尾时的自动化测试建议 |
-| `interface-linked-config` | 接口联动配置（其他维度） | 用户原话"顺便再加一个能力"（需求未具体化） |
+**包含 9 个 sub-change**：
+
+| change-id | 主题 | 状态 | 备注 |
+|---|---|---|---|
+| `add-v22-qa-repair` | **v2.2.0 QA 漏项补齐**（P0） | ⏳ 实施 | 14 个新 API smoke + 错误码 + 192.168.100.4 backup 集成 + 192.168.100.5 VPN 集成 |
+| `qa-template-mandatory` | QA 模板强制 | ✅ PRD 阶段已落地 | 每个 change proposal.md 必含 "QA 验证计划" 段 |
+| `add-qa-guide` | QA 容器使用文档 | ✅ 已完成 | [docs/QA-GUIDE.md](docs/QA-GUIDE.md) |
+| `add-v22-backup-frontend-ui-tests` | backup-frontend UI 验证补 | ⏳ 实施 | 6.3-6.8/6.10/6.11 浏览器 UI 端到端 |
+| `add-ops-toolkit-container` | 容器化运维工具 | ⏳ 实施 | docker-compose 加 ops-toolkit service，profile: ops，5 预制脚本 |
+| `add-interface-l2-l3-switch` | link mode 切换（L2↔L3） | ⏳ 实施 | SSH CLI 走 `port link-mode { bridge \| route }` + 二次确认护栏 |
+| `add-backup-e2e-and-integration-tests` | 自动化测试架构（轻量） | ⏳ 实施 | FastAPI TestClient (API) + pytest + paramiko (设备集成) |
+| `add-vitest-component-tests` | QA 前端规范化 | ⏳ 实施 | vitest + @vue/test-utils 跑组件测试 |
+| `v2.3-container-decoupling-asset` | 拆 asset 容器（评估中） | ⏳ 评估 | cmdb + 备份独立容器 |
+| `interface-linked-config` | 接口联动配置（待具体化） | ⏳ 评估 | 需求待用户确认 |
+
+详见 [openspec/changes/v2.3-roadmap/](openspec/changes/v2.3-roadmap/)。
