@@ -182,7 +182,13 @@ export const backupApi = {
       body: JSON.stringify({ locked }),
     }),
 
-  // 回滚
-  restore: (deviceId, backupId) =>
-    apiCall(`/devices/${deviceId}/backup/${backupId}/restore`, { method: 'POST' }),
+  // 回滚：默认 with_reboot=true 走端到端（推 + set as startup + reboot + retry SSH + verify）
+  // v2.2 用户场景是"页面点一下就完成回滚"，不 reboot 设备 running-config 不变
+  // → 用户看到"没效果"（实测反馈，见 backup-frontend 任务 6）
+  // with_reboot=false 仍可显式传，但 UI 默认按钮走 true
+  restore: (deviceId, backupId, with_reboot = true) =>
+    apiCall(`/devices/${deviceId}/backup/${backupId}/restore`, {
+      method: 'POST',
+      body: JSON.stringify({ with_reboot }),
+    }),
 }

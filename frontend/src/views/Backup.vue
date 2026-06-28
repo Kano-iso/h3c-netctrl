@@ -182,8 +182,8 @@ function askRestore(d, b) {
   confirm.value = {
     open: true,
     title: '回滚到该备份',
-    message: `确定回滚设备 ${d.name} 到备份 ${b.filename}？\n设备配置将被覆盖。\n\n时间：${formatTime(b.created_at)}\n大小：${formatSize(b.size)}\nHash：${shortHash(b.content_hash)}`,
-    confirmText: '回滚',
+    message: `确定回滚设备 ${d.name} 到备份 ${b.filename}？\n设备配置将被覆盖，并触发 reboot（60-120s SSH 重连 + 验证生效）。\n\n时间：${formatTime(b.created_at)}\n大小：${formatSize(b.size)}\nHash：${shortHash(b.content_hash)}\n\n⚠️ 设备将重启，请确认维护窗口。`,
+    confirmText: '回滚并重启',
     variant: 'danger',
     busy: false,
     action: 'restore',
