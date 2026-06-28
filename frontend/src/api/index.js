@@ -106,3 +106,58 @@ export const logApi = {
     return apiCall(`/logs${qs ? '?' + qs : ''}`)
   },
 }
+
+// 配置备份 / 回滚（v2.2）
+// 7 个方法对应后端 routers/backup.py：
+//   list / create / createAll / download / remove / toggleLock / restore
+// 错误处理：apiCall 已统一 try/catch 返回 { success:false, error: "..." }，中文透传
+export const backupApi = {
+  // 列表
+  list: (deviceId) => apiCall(`/devices/${deviceId}/backup`),
+
+  // 单设备备份（POST 不带 body，默认 startup + running）
+  create: (deviceId) =>
+    apiCall(`/devices/${deviceId}/backup`, { method: 'POST' }),
+
+  // 全量备份（POST /api/backups，并发对所有设备，结果聚合）
+  createAll: () => apiCall('/backups', { method: 'POST' }),
+
+  // 下载（返回 Blob，不走 apiCall 因为它走 .json()）
+  download: async (deviceId, backupId) => {
+    try {
+      const res = await fetch(`${API_BASE}/devices/${deviceId}/backup/${backupId}`)
+      if (!res.ok) {
+        // 尝试读 error body（如果后端返回 JSON 错误）
+        try {
+          const data = await res.json()
+          return { success: false, error: data.error || `下载失败: HTTP ${res.status}` }
+        } catch {
+          return { success: false, error: `下载失败: HTTP ${res.status}` }
+        }
+      }
+      const blob = await res.blob()
+      // 从 Content-Disposition 取文件名（后端已设 attachment; filename=...）
+      const cd = res.headers.get('Content-Disposition') || ''
+      const m = cd.match(/filename\*?=(?:UTF-8'')?["']?([^;"']+)/i)
+      const filename = m ? decodeURIComponent(m[1]) : `backup-${backupId}.cfg`
+      return { success: true, data: { blob, filename } }
+    } catch (e) {
+      return { success: false, error: '下载失败，请检查后端服务是否运行' }
+    }
+  },
+
+  // 删除（锁定 → 后端返回 403 + error）
+  remove: (deviceId, backupId) =>
+    apiCall(`/devices/${deviceId}/backup/${backupId}`, { method: 'DELETE' }),
+
+  // 锁切换（body: { locked: true | false }）
+  toggleLock: (deviceId, backupId, locked) =>
+    apiCall(`/devices/${deviceId}/backup/${backupId}/lock`, {
+      method: 'POST',
+      body: JSON.stringify({ locked }),
+    }),
+
+  // 回滚
+  restore: (deviceId, backupId) =>
+    apiCall(`/devices/${deviceId}/backup/${backupId}/restore`, { method: 'POST' }),
+}

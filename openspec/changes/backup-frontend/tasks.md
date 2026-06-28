@@ -1,7 +1,7 @@
 ## 1. 前端 API 客户端
 
-- [ ] 1.1 `frontend/src/api/index.js` 新增 `backupApi`：7 个方法（list / create / createAll / download / remove / toggleLock / restore）
-- [ ] 1.2 错误处理：统一 try/catch，错误信息中文透传
+- [x] 1.1 `frontend/src/api/index.js` 新增 `backupApi`：7 个方法（list / create / createAll / download / remove / toggleLock / restore）
+- [x] 1.2 错误处理：统一 try/catch，错误信息中文透传
 
 ## 2. 前端 BackupListModal 组件
 
