@@ -2,7 +2,9 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import PageHeader from '../components/PageHeader.vue'
 import Select from '../components/Select.vue'
-import { deviceApi, interfaceApi } from '../api/index.js'
+import ConfirmModal from '../components/ConfirmModal.vue'
+import VpnInstanceBindModal from '../components/VpnInstanceBindModal.vue'
+import { deviceApi, interfaceApi, vpnApi } from '../api/index.js'
 
 // 常用 VLAN 列表（V2.1 前端内置，后续可改为后端拉取）
 const vlans = [
@@ -129,6 +131,82 @@ const refresh = () => loadInterfaces()
 
 const statusChip = (s) => s === 'up' ? 'chip-good' : s === 'down' ? 'chip-bad' : 'chip-mute'
 const statusText = (s) => s === 'up' ? 'UP' : s === 'down' ? 'DOWN' : '—'
+
+// ============ v2.2 VPN instance 联动配置 ============
+
+const vpnInstances = ref([])
+const vpnLoading = ref(false)
+const showVpnModal = ref(false)
+const vpnTargetIface = ref(null)  // 当前操作的接口
+const vpnModalMode = ref('create')  // 'create' | 'bind' | 'unbind'
+
+async function loadVpnInstances() {
+  if (!selectedDeviceId.value) {
+    vpnInstances.value = []
+    return
+  }
+  vpnLoading.value = true
+  const r = await vpnApi.list(selectedDeviceId.value)
+  vpnLoading.value = false
+  if (r.success) {
+    vpnInstances.value = r.data?.vpn_instances || []
+  } else {
+    vpnInstances.value = []
+  }
+}
+
+watch(selectedDeviceId, () => {
+  loadVpnInstances()
+})
+
+function openCreateVpn(iface) {
+  vpnTargetIface.value = iface
+  vpnModalMode.value = 'create'
+  showVpnModal.value = true
+}
+
+function openBindVpn(iface) {
+  vpnTargetIface.value = iface
+  vpnModalMode.value = 'bind'
+  showVpnModal.value = true
+}
+
+async function onVpnModalConfirm(payload) {
+  showVpnModal.value = false
+  await loadInterfaces()
+  await loadVpnInstances()
+}
+
+function closeVpnModal() {
+  showVpnModal.value = false
+  vpnTargetIface.value = null
+}
+
+// 解绑流程：先弹 ConfirmModal 二次确认
+const showUnbindConfirm = ref(false)
+const unbindTarget = ref(null)
+function requestUnbind(iface) {
+  unbindTarget.value = iface
+  showUnbindConfirm.value = true
+}
+async function confirmUnbind() {
+  const iface = unbindTarget.value
+  if (!iface || !selectedDeviceId.value) return
+  showUnbindConfirm.value = false
+  const r = await vpnApi.unbindInterface(selectedDeviceId.value, iface.if_index)
+  if (r.success) {
+    await loadInterfaces()
+    await loadVpnInstances()
+  } else {
+    alert(r.error || '解绑失败')
+  }
+}
+function cancelUnbind() {
+  showUnbindConfirm.value = false
+  unbindTarget.value = null
+}
+
+const layerChip = (l) => l === 'L3' ? 'chip-info' : 'chip-mute'
 </script>
 
 <template>
@@ -184,11 +262,13 @@ const statusText = (s) => s === 'up' ? 'UP' : s === 'down' ? 'DOWN' : '—'
           <thead>
             <tr class="text-[11px] text-ink-500 uppercase tracking-wider border-b border-canvas-300">
               <th class="px-4 py-3 text-left font-medium">接口</th>
+              <th class="px-4 py-3 text-left font-medium">层级</th>
               <th class="px-4 py-3 text-left font-medium">模式</th>
+              <th class="px-4 py-3 text-left font-medium">IP / VPN</th>
               <th class="px-4 py-3 text-left font-medium">PVID / 允许 VLAN</th>
               <th class="px-4 py-3 text-left font-medium">状态</th>
               <th class="px-4 py-3 text-left font-medium">保护</th>
-              <th class="px-4 py-3 text-right font-medium w-24">操作</th>
+              <th class="px-4 py-3 text-right font-medium w-48">操作</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-canvas-300">
@@ -198,7 +278,20 @@ const statusText = (s) => s === 'up' ? 'UP' : s === 'down' ? 'DOWN' : '—'
                 <span class="text-ink-500 ml-2">#{{ i.if_index }}</span>
               </td>
               <td class="px-4 py-3">
+                <span :class="layerChip(i.layer)">{{ i.layer || 'L2' }}</span>
+              </td>
+              <td class="px-4 py-3">
                 <span :class="i.mode === 'trunk' ? 'chip-info' : 'chip-mute'">{{ i.mode }}</span>
+              </td>
+              <td class="px-4 py-3 font-mono text-xs">
+                <div v-if="i.layer === 'L3' && i.ip_addresses && i.ip_addresses.length" class="text-ink-900">
+                  {{ i.ip_addresses.join(', ') }}
+                </div>
+                <div v-else class="text-ink-500">—</div>
+                <div v-if="i.vpn_instance" class="text-accent mt-0.5">
+                  🔒 {{ i.vpn_instance }}
+                </div>
+                <div v-else-if="i.layer === 'L3'" class="text-ink-500 mt-0.5">无 VPN</div>
               </td>
               <td class="px-4 py-3 font-mono text-xs">
                 <span class="text-ink-900">PVID {{ i.pvid }}</span>
@@ -214,8 +307,11 @@ const statusText = (s) => s === 'up' ? 'UP' : s === 'down' ? 'DOWN' : '—'
                 <span v-if="i.protected" class="chip-bad !text-[10px]">🛡 受保护</span>
                 <span v-else class="text-[10px] text-ink-500">—</span>
               </td>
-              <td class="px-4 py-3 text-right">
-                <button @click="openConfig(i)" class="btn-soft !text-xs !px-3 !py-1">配置</button>
+              <td class="px-4 py-3 text-right space-x-1">
+                <button @click="openConfig(i)" class="btn-soft !text-xs !px-2.5 !py-1">配置</button>
+                <button v-if="i.vpn_instance" @click="requestUnbind(i)" class="btn-soft !text-xs !px-2.5 !py-1">解绑 VPN</button>
+                <button v-else-if="i.layer === 'L3'" @click="openBindVpn(i)" class="btn-soft !text-xs !px-2.5 !py-1">绑 VPN</button>
+                <button v-if="i.layer === 'L3' && !i.vpn_instance" @click="openCreateVpn(i)" class="btn-soft !text-xs !px-2.5 !py-1">+ VPN</button>
               </td>
             </tr>
           </tbody>
@@ -294,6 +390,30 @@ const statusText = (s) => s === 'up' ? 'UP' : s === 'down' ? 'DOWN' : '—'
         </div>
       </Transition>
     </Teleport>
+
+    <!-- v2.2 VPN instance 创建/绑定 Modal -->
+    <VpnInstanceBindModal
+      v-if="showVpnModal"
+      :visible="showVpnModal"
+      :device-id="selectedDeviceId"
+      :mode="vpnModalMode"
+      :target-iface="vpnTargetIface"
+      :existing-vpns="vpnInstances"
+      @confirm="onVpnModalConfirm"
+      @cancel="closeVpnModal"
+    />
+
+    <!-- v2.2 VPN 解绑二次确认 -->
+    <ConfirmModal
+      v-if="showUnbindConfirm"
+      :open="showUnbindConfirm"
+      title="解绑 VPN instance"
+      :message="`确认要解绑接口 ${unbindTarget?.name} 的 VPN instance ${unbindTarget?.vpn_instance} 吗？`"
+      confirm-text="确认解绑"
+      variant="danger"
+      @confirm="confirmUnbind"
+      @cancel="cancelUnbind"
+    />
   </template>
 </template>
 

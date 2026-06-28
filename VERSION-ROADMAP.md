@@ -118,17 +118,17 @@
 
 ---
 
-### v2.2 网控增强（⏳ 规划）
+### v2.2 网控增强（🚧 进行中）
 
 **目标**：把 v2.1.x 灰度的备份前端补齐，新增接口 VPN 联动 + L2/L3 状态展示。
 
 **预计包含 3 个 change**：
 
-| change-id | 主题 | 备注 |
-|---|---|---|
-| `backup-ui` | 备份前端 UI（Devices.vue 表格行 + BackupListModal + CMDB 全量按钮） | v2.1.x 灰度的前端延后部分 |
-| `interface-vpn-instance-and-l2-l3` | 接口 VPN 实例创建 / 接口绑 VPN 实例 / 接口 L2-L3 状态展示 | 参考设备 192.168.100.4 (Leaf-03) 的现网配置 |
-| `interface-linked-config` | 接口联动配置（其他联动维度） | 用户提出 "顺便再加一个能力" |
+| change-id | 主题 | 状态 | 备注 |
+|---|---|---|---|
+| `interface-vpn-instance-and-l2-l3` | 接口 L2/L3 展示 + IP + VPN instance 联动（创建/绑定/解绑/删除） | 🚧 后端+前端已就位，等真机验证 | [openspec/changes/interface-vpn-instance-and-l2-l3](openspec/changes/interface-vpn-instance-and-l2-l3/) |
+| `backup-ui` | 备份前端 UI（Devices.vue 表格行 + BackupListModal + CMDB 全量按钮） | ⏳ 未起 | v2.1.x 灰度的前端延后部分 |
+| `interface-linked-config` | 接口联动配置（其他维度） | ⏳ 未起 | 用户原话"顺便再加一个能力" |
 
 **功能边界**（用户已确认）：
 - ✅ 手动备份（单设备 + 全量）

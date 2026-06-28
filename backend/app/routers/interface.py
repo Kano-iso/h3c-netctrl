@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 import xml.etree.ElementTree as ET
 
 from fastapi import APIRouter, Depends
@@ -13,6 +14,15 @@ from app.netconf_client import NetconfClient, classify_netconf_error
 from app.schemas import APIResponse
 from app.utils.crypto import decrypt_password
 from app.utils.log_recorder import record_log
+from app.utils.netconf_xml import (
+    build_interface_bind_vpn_xml,
+    build_interface_extended_filter_xml,
+    build_interface_unbind_vpn_xml,
+    build_vpn_instance_create_xml,
+    build_vpn_instance_delete_xml,
+    build_vpn_instance_filter_xml,
+    parse_vpn_instances,
+)
 
 logger = logging.getLogger("app")
 
@@ -24,6 +34,11 @@ H3C_CONFIG_NS = "http://www.h3c.com/netconf/config:1.0"
 # LinkType 映射
 LINK_TYPE_MAP = {"access": 1, "trunk": 2, "hybrid": 3}
 LINK_TYPE_REVERSE = {1: "access", 2: "trunk", 3: "hybrid"}
+
+# L3 接口命名约定（H3C 官方）
+L3_NAME_PATTERN = re.compile(r"^Vlan-interface\d+", re.IGNORECASE)
+# 子接口命名约定（如 GigabitEthernet0/0/0.100）
+SUB_IF_PATTERN = re.compile(r"^.+\.\d+$")
 
 
 class InterfaceConfig(BaseModel):
@@ -54,10 +69,15 @@ def _build_interface_filter_xml() -> str:
 
 
 def _parse_interface_response(xml_str: str) -> list[dict]:
-    """解析 H3C Ifmgr get-config 响应 XML
+    """解析 H3C Ifmgr get-config 响应 XML（v2.2 扩展）
 
     H3C Ifmgr 按需返回字段，部分接口可能只有 IfIndex，没有 Name/LinkType。
     只要 IfIndex 存在就保留，缺失字段用合理默认值填充。
+
+    v2.2 扩展：
+    - `Ipv4Address` 子元素 → `ip_addresses` 列表
+    - `IpBindVrfInstance` 子元素 → `vpn_instance`（string | null）
+    - `layer` 判定：L3_NAME_PATTERN / SUB_IF_PATTERN / Ipv4Address 存在
     """
     interfaces = []
     try:
@@ -66,6 +86,7 @@ def _parse_interface_response(xml_str: str) -> list[dict]:
             tag = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
             if tag == "Interface":
                 iface = {}
+                ip_addresses = []
                 for child in elem:
                     child_tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
                     if child_tag == "IfIndex":
@@ -81,6 +102,14 @@ def _parse_interface_response(xml_str: str) -> list[dict]:
                         iface["allowed_vlans"] = _parse_vlan_range(child.text or "")
                     elif child_tag == "AdminStatus":
                         iface["status"] = "up" if child.text == "1" else "down"
+                    elif child_tag == "Ipv4Address":
+                        # H3C 格式：<Ipv4Address>192.168.100.4</Ipv4Address>
+                        # 或带掩码：<Ipv4Address>192.168.100.4/24</Ipv4Address>
+                        if child.text and child.text.strip():
+                            ip_addresses.append(child.text.strip())
+                    elif child_tag == "IpBindVrfInstance":
+                        if child.text and child.text.strip():
+                            iface["vpn_instance"] = child.text.strip()
                 # 只检查 if_index，缺失字段用默认值
                 if iface.get("if_index"):
                     # Name 缺失时用 IfIndex 生成
@@ -95,10 +124,32 @@ def _parse_interface_response(xml_str: str) -> list[dict]:
                         iface["access_vlan"] = None
                     iface.setdefault("status", "unknown")
                     iface.setdefault("allowed_vlans", [])
+                    # v2.2 新增字段
+                    iface["ip_addresses"] = ip_addresses
+                    iface.setdefault("vpn_instance", None)
+                    iface["layer"] = _detect_layer(iface.get("name", ""), ip_addresses)
                     interfaces.append(iface)
     except ET.ParseError as e:
         logger.error(f"接口 XML 解析失败: {e}")
     return interfaces
+
+
+def _detect_layer(name: str, ip_addresses: list[str]) -> str:
+    """根据接口名 + IP 地址判定 L2 / L3
+
+    判定规则（v2.2 spec REQ-1）：
+    1. 名称以 Vlan-interface 开头 → L3
+    2. 有 Ipv4Address 且非空 → L3
+    3. 名称匹配子接口正则（X.Y） → L3
+    4. 其余 → L2
+    """
+    if L3_NAME_PATTERN.match(name):
+        return "L3"
+    if ip_addresses:
+        return "L3"
+    if SUB_IF_PATTERN.match(name):
+        return "L3"
+    return "L2"
 
 
 def _parse_vlan_range(vlan_str: str) -> list[int]:
@@ -319,4 +370,265 @@ def configure_interface(device_id: int, body: InterfaceConfig, db: Session = Dep
         logger.error(f"接口配置失败: device_id={device_id}, if_index={body.if_index}, 原因={error_msg}", exc_info=True)
         record_log(db, device.id, device.name, "interface_config",
                    f"配置接口 if_index={body.if_index} 失败", "failed", error_message=error_msg)
+        return APIResponse(success=False, error=error_msg)
+
+
+# ============================================================
+# v2.2 VPN instance + 接口绑 VPN
+# ============================================================
+
+
+class VpnInstanceCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=32, description="VPN instance 名")
+    rd: str = Field(default="auto", description="route-distinguisher，默认 auto")
+
+
+class InterfaceVpnBind(BaseModel):
+    name: str = Field(..., min_length=1, max_length=32, description="VPN instance 名")
+
+
+def _get_protected_interfaces(device: Device) -> list[int]:
+    """解析 device.protected_interfaces JSON 列表"""
+    try:
+        protected = json.loads(device.protected_interfaces or "[]")
+    except (json.JSONDecodeError, TypeError):
+        return []
+    if not isinstance(protected, list):
+        return []
+    return [int(x) for x in protected if isinstance(x, (int, str)) and str(x).isdigit()]
+
+
+def _resolve_interfaces_for_vpn(client: NetconfClient, vpn_name: str) -> list[dict]:
+    """查询 VPN instance 当前绑定的所有接口
+
+    通过 get_config `<Ipv4Vrf>` 找到该 VPN 的所有 Interface 引用。
+    """
+    response_xml = client.get_config(build_vpn_instance_filter_xml())
+    # 简化解析：遍历所有 Interface 元素，找带 IpBindVrfInstance == vpn_name 的
+    bound = []
+    try:
+        root = ET.fromstring(response_xml)
+        for elem in root.iter():
+            tag = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
+            if tag == "Interface":
+                if_index = None
+                name = None
+                bind = None
+                for child in elem:
+                    child_tag = child.tag.split("}")[-1] if "}" in child_tag else child_tag
+                    if child_tag == "IfIndex" and child.text:
+                        try:
+                            if_index = int(child.text)
+                        except ValueError:
+                            pass
+                    elif child_tag == "Name":
+                        name = child.text
+                    elif child_tag == "IpBindVrfInstance" and child.text:
+                        bind = child.text.strip()
+                if bind == vpn_name and if_index is not None:
+                    bound.append({"if_index": if_index, "name": name or f"If-{if_index}"})
+    except ET.ParseError as e:
+        logger.warning(f"解析 VPN 绑定接口失败: {e}")
+    return bound
+
+
+# ============ VPN instance 端点 ============
+
+
+@router.get("/devices/{device_id}/vpn-instances", response_model=APIResponse)
+def list_vpn_instances(device_id: int, db: Session = Depends(get_db)):
+    """列出设备上所有 VPN instance"""
+    device, password, error = _get_device_and_password(db, device_id)
+    if error:
+        return error
+
+    try:
+        with NetconfClient(
+            host=device.host, port=device.port,
+            username=device.username, password=password,
+        ) as client:
+            response_xml = client.get_config(build_vpn_instance_filter_xml())
+            vpn_list = parse_vpn_instances(response_xml)
+
+            # 附加每个 VPN instance 的绑定接口
+            result = []
+            for vpn in vpn_list:
+                bound = _resolve_interfaces_for_vpn(client, vpn["name"])
+                result.append({
+                    "name": vpn["name"],
+                    "rd": vpn.get("rd", "auto"),
+                    "interfaces": bound,
+                })
+
+        logger.info(f"VPN instance 列表: device_id={device_id}, count={len(result)}")
+        return APIResponse(
+            success=True,
+            data={"device_id": device_id, "total": len(result), "vpn_instances": result},
+        )
+    except Exception as e:
+        error_msg = _classify_interface_error(e)
+        logger.error(f"VPN instance 列表失败: device_id={device_id}, 原因={error_msg}", exc_info=True)
+        return APIResponse(success=False, error=error_msg)
+
+
+@router.post("/devices/{device_id}/vpn-instances", response_model=APIResponse)
+def create_vpn_instance(device_id: int, body: VpnInstanceCreate, db: Session = Depends(get_db)):
+    """创建 VPN instance（NETCONF 优先，失败由设备返回错误）"""
+    device, password, error = _get_device_and_password(db, device_id)
+    if error:
+        return error
+
+    # 名称校验
+    name = body.name.strip()
+    if not re.match(r"^[A-Za-z0-9_-]+$", name):
+        return APIResponse(success=False, error="VPN instance 名只能包含字母、数字、下划线、连字符")
+
+    try:
+        with NetconfClient(
+            host=device.host, port=device.port,
+            username=device.username, password=password,
+        ) as client:
+            # 预校验：是否已存在
+            existing = parse_vpn_instances(client.get_config(build_vpn_instance_filter_xml()))
+            if any(v["name"] == name for v in existing):
+                return APIResponse(success=False, error=f"VPN instance {name} 已存在")
+
+            config_xml = build_vpn_instance_create_xml(name, body.rd)
+            client.edit_config(config_xml)
+
+        logger.info(f"VPN instance 创建成功: device_id={device_id}, name={name}, rd={body.rd}")
+        record_log(db, device.id, device.name, "vpn_instance_create",
+                   f"创建 VPN instance {name} (rd={body.rd})", "success")
+        return APIResponse(success=True, data={"name": name, "rd": body.rd})
+    except Exception as e:
+        error_msg = _classify_interface_error(e)
+        logger.error(f"VPN instance 创建失败: device_id={device_id}, name={name}, 原因={error_msg}", exc_info=True)
+        record_log(db, device.id, device.name, "vpn_instance_create",
+                   f"创建 VPN instance {name} 失败", "failed", error_message=error_msg)
+        return APIResponse(success=False, error=error_msg)
+
+
+@router.delete("/devices/{device_id}/vpn-instances/{vpn_name}", response_model=APIResponse)
+def delete_vpn_instance(device_id: int, vpn_name: str, db: Session = Depends(get_db)):
+    """删除 VPN instance（前置预校验：必须有 0 个绑定）"""
+    device, password, error = _get_device_and_password(db, device_id)
+    if error:
+        return error
+
+    try:
+        with NetconfClient(
+            host=device.host, port=device.port,
+            username=device.username, password=password,
+        ) as client:
+            # 预校验：是否还存在
+            existing = parse_vpn_instances(client.get_config(build_vpn_instance_filter_xml()))
+            if not any(v["name"] == vpn_name for v in existing):
+                return APIResponse(success=False, error=f"VPN instance {vpn_name} 不存在")
+
+            # 预校验：绑定数
+            bound = _resolve_interfaces_for_vpn(client, vpn_name)
+            if bound:
+                bound_names = ", ".join(b["name"] for b in bound)
+                return APIResponse(
+                    success=False,
+                    error=f"VPN instance {vpn_name} 还有 {len(bound)} 个接口绑定（{bound_names}），请先解绑",
+                )
+
+            config_xml = build_vpn_instance_delete_xml(vpn_name)
+            client.edit_config(config_xml)
+
+        logger.info(f"VPN instance 删除成功: device_id={device_id}, name={vpn_name}")
+        record_log(db, device.id, device.name, "vpn_instance_delete",
+                   f"删除 VPN instance {vpn_name}", "success")
+        return APIResponse(success=True, data={"name": vpn_name})
+    except Exception as e:
+        error_msg = _classify_interface_error(e)
+        logger.error(f"VPN instance 删除失败: device_id={device_id}, name={vpn_name}, 原因={error_msg}", exc_info=True)
+        record_log(db, device.id, device.name, "vpn_instance_delete",
+                   f"删除 VPN instance {vpn_name} 失败", "failed", error_message=error_msg)
+        return APIResponse(success=False, error=error_msg)
+
+
+# ============ 接口 ↔ VPN instance 绑定端点 ============
+
+
+@router.post("/devices/{device_id}/interfaces/{if_index}/vpn-instance", response_model=APIResponse)
+def bind_interface_vpn(device_id: int, if_index: int, body: InterfaceVpnBind,
+                       db: Session = Depends(get_db)):
+    """接口绑 VPN instance（受保护接口拦截 + NETCONF 优先）"""
+    device, password, error = _get_device_and_password(db, device_id)
+    if error:
+        return error
+
+    # 受保护接口护栏
+    protected = _get_protected_interfaces(device)
+    if if_index in protected:
+        msg = f"接口 if_index={if_index} 在保护列表中，禁止绑定 VPN instance"
+        logger.warning(f"接口绑 VPN 被保护拦截: device_id={device_id}, if_index={if_index}")
+        record_log(db, device.id, device.name, "vpn_instance_bind",
+                   f"接口 if_index={if_index} 绑 VPN {body.name} 被保护拦截", "failed", error_message=msg)
+        return APIResponse(success=False, error=msg)
+
+    vpn_name = body.name.strip()
+    if not vpn_name:
+        return APIResponse(success=False, error="缺少必填字段: name")
+
+    try:
+        with NetconfClient(
+            host=device.host, port=device.port,
+            username=device.username, password=password,
+        ) as client:
+            # 预校验：VPN instance 是否存在
+            existing = parse_vpn_instances(client.get_config(build_vpn_instance_filter_xml()))
+            if not any(v["name"] == vpn_name for v in existing):
+                return APIResponse(success=False, error=f"VPN instance {vpn_name} 不存在，请先创建")
+
+            config_xml = build_interface_bind_vpn_xml(if_index, vpn_name)
+            client.edit_config(config_xml)
+
+        logger.info(f"接口绑 VPN 成功: device_id={device_id}, if_index={if_index}, vpn={vpn_name}")
+        record_log(db, device.id, device.name, "vpn_instance_bind",
+                   f"接口 if_index={if_index} 绑 VPN {vpn_name}", "success")
+        return APIResponse(success=True, data={"if_index": if_index, "vpn_instance": vpn_name})
+    except Exception as e:
+        error_msg = _classify_interface_error(e)
+        logger.error(f"接口绑 VPN 失败: device_id={device_id}, if_index={if_index}, vpn={vpn_name}, 原因={error_msg}", exc_info=True)
+        record_log(db, device.id, device.name, "vpn_instance_bind",
+                   f"接口 if_index={if_index} 绑 VPN {vpn_name} 失败", "failed", error_message=error_msg)
+        return APIResponse(success=False, error=error_msg)
+
+
+@router.delete("/devices/{device_id}/interfaces/{if_index}/vpn-instance", response_model=APIResponse)
+def unbind_interface_vpn(device_id: int, if_index: int, db: Session = Depends(get_db)):
+    """接口解绑 VPN instance"""
+    device, password, error = _get_device_and_password(db, device_id)
+    if error:
+        return error
+
+    try:
+        with NetconfClient(
+            host=device.host, port=device.port,
+            username=device.username, password=password,
+        ) as client:
+            # 预校验：当前是否绑了 VPN
+            response_xml = client.get_config(build_interface_extended_filter_xml())
+            current_ifaces = _parse_interface_response(response_xml)
+            target = next((i for i in current_ifaces if i["if_index"] == if_index), None)
+            if not target:
+                return APIResponse(success=False, error=f"接口 if_index={if_index} 不存在")
+            if not target.get("vpn_instance"):
+                return APIResponse(success=False, error=f"接口 if_index={if_index} 未绑定 VPN instance")
+
+            config_xml = build_interface_unbind_vpn_xml(if_index)
+            client.edit_config(config_xml)
+
+        logger.info(f"接口解绑 VPN 成功: device_id={device_id}, if_index={if_index}")
+        record_log(db, device.id, device.name, "vpn_instance_unbind",
+                   f"接口 if_index={if_index} 解绑 VPN {target.get('vpn_instance')}", "success")
+        return APIResponse(success=True, data={"if_index": if_index})
+    except Exception as e:
+        error_msg = _classify_interface_error(e)
+        logger.error(f"接口解绑 VPN 失败: device_id={device_id}, if_index={if_index}, 原因={error_msg}", exc_info=True)
+        record_log(db, device.id, device.name, "vpn_instance_unbind",
+                   f"接口 if_index={if_index} 解绑 VPN 失败", "failed", error_message=error_msg)
         return APIResponse(success=False, error=error_msg)

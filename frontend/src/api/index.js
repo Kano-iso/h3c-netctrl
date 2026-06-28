@@ -55,6 +55,29 @@ export const interfaceApi = {
     }),
 }
 
+// VPN instance + 接口绑 VPN（v2.2）
+export const vpnApi = {
+  list: (deviceId) => apiCall(`/devices/${deviceId}/vpn-instances`),
+  create: (deviceId, payload) =>
+    apiCall(`/devices/${deviceId}/vpn-instances`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  delete: (deviceId, name) =>
+    apiCall(`/devices/${deviceId}/vpn-instances/${encodeURIComponent(name)}`, {
+      method: 'DELETE',
+    }),
+  bindInterface: (deviceId, ifIndex, name) =>
+    apiCall(`/devices/${deviceId}/interfaces/${ifIndex}/vpn-instance`, {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    }),
+  unbindInterface: (deviceId, ifIndex) =>
+    apiCall(`/devices/${deviceId}/interfaces/${ifIndex}/vpn-instance`, {
+      method: 'DELETE',
+    }),
+}
+
 // 批量操作
 export const batchApi = {
   execute: (deviceIds, command) =>
