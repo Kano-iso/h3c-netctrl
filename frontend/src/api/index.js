@@ -135,9 +135,14 @@ export const backupApi = {
   // 列表
   list: (deviceId) => apiCall(`/devices/${deviceId}/backup`),
 
-  // 单设备备份（POST 不带 body，默认 startup + running）
+  // 单设备备份（POST 空 body，后端 BackupCreateRequest 必填 body 否则 422）
+  // 不能用 apiCall 默认 options —— 没 body 字段时 fetch 会发空 body + Content-Type: application/json
+  // → FastAPI 422 "Field required: body" → 前端 r.success undefined → 显示"备份失败"
   create: (deviceId) =>
-    apiCall(`/devices/${deviceId}/backup`, { method: 'POST' }),
+    apiCall(`/devices/${deviceId}/backup`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
 
   // 全量备份（POST /api/backups，并发对所有设备，结果聚合）
   createAll: () => apiCall('/backups', { method: 'POST' }),
