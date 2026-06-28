@@ -16,7 +16,7 @@
 | **v2.0 平台化** | ✅ 2026-06-22 | 8 项：NETCONF 重构 / QA / bugfix 轮 / Schemas v2 / CMDB / 终端 / 批量 / 侧边栏 | archive 目录下 `2026-06-21-v20-platform-evolution` / `2026-06-22-v20-*` |
 | **v2.1 前端重构** | ✅ 2026-06-23 | 7 项：多命令终端 / 设备 CRUD UI / 资产编辑 / 单设备采集 / 状态判定修复 / 容器解耦预留 | archive 目录下 `2026-06-23-v21-frontend-refactor` / `2026-06-23-*` / `2026-06-28-container-decoupling` |
 | **v2.1.x patch 灰度** | 🚧 进行中 | 手动备份后端能力（前端延后到 v2.2） | [archive/2026-06-28-v21x-patch-backup-backend](openspec/changes/archive/2026-06-28-v21x-patch-backup-backend/) |
-| **v2.2 网控增强** | 🚧 进行中（1/3） | 备份前端 / 接口 VPN / 接口 L2-L3 / 联动配置 | [archive/2026-06-28-interface-vpn-instance-and-l2-l3](openspec/changes/archive/2026-06-28-interface-vpn-instance-and-l2-l3/)（VPN + L2/L3 ✅ + **v2.2.1 patch 已发** unbind 预校验 + Modal UX 修复 [archive/2026-06-28-fix-vpn-and-l2l3-ux-bugs](openspec/changes/archive/2026-06-28-fix-vpn-and-l2l3-ux-bugs/)，备份前端待开） |
+| **v2.2 网控增强** | 🚧 进行中（2/3） | 备份前端 / 接口 VPN / 接口 L2-L3 / 联动配置 | [archive/2026-06-28-interface-vpn-instance-and-l2-l3](openspec/changes/archive/2026-06-28-interface-vpn-instance-and-l2-l3/)（VPN + L2/L3 ✅ + **v2.2.1 patch 已发** unbind 预校验 + Modal UX 修复 [archive/2026-06-28-fix-vpn-and-l2l3-ux-bugs](openspec/changes/archive/2026-06-28-fix-vpn-and-l2l3-ux-bugs/) + **v2.2.2 patch 已发** link type + IP 编辑能力 [archive/2026-06-28-fix-vpn-edit-capabilities](openspec/changes/archive/2026-06-28-fix-vpn-edit-capabilities/)，备份前端待开） |
 | **v3.0 VPC** | ⏳ 规划 | VPC + etcd（SDN 起步） | 暂未起 spec |
 | **monitor** | ⏳ 远期 | 监控 / 告警 / dashboard 独立化 | 暂未起 spec |
 
@@ -122,13 +122,30 @@
 
 **目标**：把 v2.1.x 灰度的备份前端补齐，新增接口 VPN 联动 + L2/L3 状态展示。
 
-**预计包含 3 个 change**：
+**预计包含 3 个 change + 2 个 patch**：
 
 | change-id | 主题 | 状态 | 备注 |
 |---|---|---|---|
-| `interface-vpn-instance-and-l2-l3` | 接口 L2/L3 展示 + IP + VPN instance 联动（创建/绑定/解绑/删除） | 🚧 后端+前端已就位，等真机验证 | [openspec/changes/interface-vpn-instance-and-l2-l3](openspec/changes/interface-vpn-instance-and-l2-l3/) |
-| `backup-ui` | 备份前端 UI（Devices.vue 表格行 + BackupListModal + CMDB 全量按钮） | ⏳ 未起 | v2.1.x 灰度的前端延后部分 |
+| `interface-vpn-instance-and-l2-l3` | 接口 L2/L3 展示 + IP + VPN instance 联动（创建/绑定/解绑/删除） | ✅ 已 archive | [archive/2026-06-28-interface-vpn-instance-and-l2-l3](openspec/changes/archive/2026-06-28-interface-vpn-instance-and-l2-l3/) |
+| **v2.2.1 patch** `fix-vpn-and-l2l3-ux-bugs` | unbind 预校验补 L3vpn 查询 + Modal 顶部加现有 VPN 列表 | ✅ 已 archive | [archive/2026-06-28-fix-vpn-and-l2l3-ux-bugs](openspec/changes/archive/2026-06-28-fix-vpn-and-l2l3-ux-bugs/) |
+| **v2.2.2 patch** `fix-vpn-edit-capabilities` | 调整接口 link type (mode) + 给 L3 接口配 IP | ✅ 已 archive | [archive/2026-06-28-fix-vpn-edit-capabilities](openspec/changes/archive/2026-06-28-fix-vpn-edit-capabilities/) |
+| `backup-ui` | 备份前端 UI（Devices.vue 表格行 + BackupListModal + CMDB 全量按钮） | ⏳ 未起 | v2.1.x 灰度的前端延后部分（已起 backup-frontend change，tasks 待 archive） |
 | `interface-linked-config` | 接口联动配置（其他维度） | ⏳ 未起 | 用户原话"顺便再加一个能力" |
+
+**v2.2.2 patch 详情（fix-vpn-edit-capabilities）**：
+- 用户在 192.168.100.5 实测时发现 2 个能力缺失 bug：
+  1. **L2/L3 link type 不可调**：前端展示 mode 字段但无入口
+  2. **三层接口不能配 IP**：前端展示 ip_addresses 字段但无入口
+- 后端新增 3 个路由：
+  - `PATCH /api/devices/{id}/interfaces/{if_index}/link-type`（受保护护栏，H3C V7 切换会清空对应字段）
+  - `POST /api/devices/{id}/interfaces/{if_index}/ipv4-address`（L3-only，IP/mask 格式校验，clear + set 模式）
+  - `DELETE /api/devices/{id}/interfaces/{if_index}/ipv4-address`（L3-only，清空）
+- 前端新增：
+  - `Ipv4AddressEditModal.vue`（显示当前 IP + 新 IP/mask + 清空按钮）
+  - Interfaces.vue 表格行 L2 加"改模式"、L3 加"改 IP"按钮
+  - 改 link type 弹 ConfirmModal 二次确认 + 提示清空行为
+  - 改 IP 内部应用/清空均经 ConfirmModal 二次确认
+- H3C V7 适配：IPV4ADDRESS 复合 key (IfIndex, AddressOrigin) 中 `AddressOrigin=1` 必填，缺了设备报"indexical column missed"
 
 **功能边界**（用户已确认）：
 - ✅ 手动备份（单设备 + 全量）
@@ -218,8 +235,8 @@
 | 日期 | 变更 | 作者 |
 |---|---|---|
 | 2026-06-28 | 初版：v1.0 → v2.1 + v2.1.x patch 灰度 + v2.2 规划 | session 续接 |
-| | | |
+| 2026-06-29 | v2.2 第 1 项 archive + v2.2.1 patch（unbind 预校验 + Modal UX）+ v2.2.2 patch（link type + IP 编辑能力）archive | session 续接 |
 
 ---
 
-**最后更新**：2026-06-28
+**最后更新**：2026-06-29
