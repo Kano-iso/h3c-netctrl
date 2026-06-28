@@ -63,7 +63,10 @@ async function loadList() {
     backups.value = []
     return
   }
-  backups.value = r.data || []
+  // v2.2 修复：后端返回 {device_id, total, backups: [...]} 嵌套结构
+  // 兼容直接返回数组的旧行为（防御性写法）
+  const data = r.data
+  backups.value = (data && Array.isArray(data.backups) ? data.backups : data) || []
 }
 
 // 立即备份（顶部按钮）
@@ -264,7 +267,7 @@ const isEmpty = computed(() => !loading.value && backups.value.length === 0)
                 <tr v-for="b in backups" :key="b.id" class="hover:bg-canvas-50 transition">
                   <td class="px-4 py-2.5 font-mono text-xs text-ink-900">{{ b.filename }}</td>
                   <td class="px-4 py-2.5 text-xs font-mono text-ink-700">{{ formatTime(b.created_at) }}</td>
-                  <td class="px-4 py-2.5 text-xs text-ink-700">{{ b.backup_type }}</td>
+                  <td class="px-4 py-2.5 text-xs text-ink-700">{{ b.type || b.backup_type }}</td>
                   <td class="px-4 py-2.5 text-xs font-mono text-ink-700 text-right">{{ formatSize(b.size) }}</td>
                   <td class="px-4 py-2.5 text-xs font-mono text-ink-500">{{ shortHash(b.content_hash) }}</td>
                   <td class="px-4 py-2.5 text-center">

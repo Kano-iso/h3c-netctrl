@@ -78,7 +78,10 @@ async function loadAll() {
   devices.value.forEach((d, i) => {
     const r2 = results[i]
     if (r2.status === 'fulfilled' && r2.value.success) {
-      map[d.id] = r2.value.data || []
+      // v2.2 修复：后端返回 {device_id, total, backups: [...]} 嵌套结构
+      // 兼容直接返回数组的旧行为（防御性写法）
+      const data = r2.value.data
+      map[d.id] = (data && Array.isArray(data.backups) ? data.backups : data) || []
     } else {
       map[d.id] = []  // 设备不可达 → 空列表
     }
@@ -331,7 +334,7 @@ onMounted(loadAll)
             <tr v-for="b in visibleBackupsFor(d.id)" :key="b.id" class="hover:bg-canvas-50">
               <td class="px-3 py-2 font-mono text-[11px] text-ink-900">{{ b.filename }}</td>
               <td class="px-3 py-2 text-[11px] font-mono text-ink-700">{{ formatTime(b.created_at) }}</td>
-              <td class="px-3 py-2 text-[11px] text-ink-700">{{ b.backup_type }}</td>
+              <td class="px-3 py-2 text-[11px] text-ink-700">{{ b.type || b.backup_type }}</td>
               <td class="px-3 py-2 text-[11px] font-mono text-ink-700 text-right">{{ formatSize(b.size) }}</td>
               <td class="px-3 py-2 text-[11px] font-mono text-ink-500">{{ shortHash(b.content_hash) }}</td>
               <td class="px-3 py-2 text-center">
@@ -408,6 +411,7 @@ onMounted(loadAll)
 
   <!-- 单设备详细 Modal -->
   <BackupListModal
+    v-if="deviceModalOpen && deviceModalInfo.id"
     v-model:visible="deviceModalOpen"
     :device-id="deviceModalInfo.id"
     :device-name="deviceModalInfo.name"

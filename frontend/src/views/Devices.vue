@@ -282,6 +282,7 @@ const onEditAsset = (d) => {
       @confirm="onDeleteConfirm"
     />
     <BackupListModal
+      v-if="backupModalOpen && backupModalInfo.id"
       v-model:visible="backupModalOpen"
       :device-id="backupModalInfo.id"
       :device-name="backupModalInfo.name"
