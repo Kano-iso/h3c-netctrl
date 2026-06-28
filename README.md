@@ -156,6 +156,32 @@ h3c-netctrl/
 | LOG_LEVEL | 否 | INFO | 日志级别（INFO/DEBUG） |
 | BACKEND_PORT | 否 | 8000 | 后端服务端口 |
 
+## 运维排查工具（ops-toolkit）
+
+v2.3 起提供独立运维容器，**按需启动**，不依赖后端：
+
+```bash
+# 构建镜像
+docker compose -f docker-compose.dev.yml --profile ops build ops-toolkit
+
+# 主机连通性检查（ping + SSH 22 + NETCONF 830）
+docker compose -f docker-compose.dev.yml --profile ops run --rm ops-toolkit /scripts/check-host.sh 192.168.100.4
+
+# NETCONF 连接测试（ncclient hello + 能力集）
+docker compose -f docker-compose.dev.yml --profile ops run --rm ops-toolkit /scripts/check-netconf.sh 192.168.100.4 admin password
+
+# SSH 交互测试（登录 + 执行命令）
+docker compose -f docker-compose.dev.yml --profile ops run --rm ops-toolkit /scripts/ssh-test.sh 192.168.100.4 admin password "display version"
+
+# 快速拉取 startup.cfg
+docker compose -f docker-compose.dev.yml --profile ops run --rm ops-toolkit /scripts/capture-config.sh 192.168.100.4 admin password
+
+# 触发 reboot + 等待 SSH 恢复（最多 120s）
+docker compose -f docker-compose.dev.yml --profile ops run --rm ops-toolkit /scripts/reboot-wait.sh 192.168.100.4 admin password
+```
+
+预装工具：ping / nc / sshpass / ncclient / netmiko / paramiko。
+
 ## QA
 
 每个版本发版前必跑：

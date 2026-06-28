@@ -78,6 +78,20 @@ services:
     networks:
       - h3c-net
 
+  # 运维排错工具包（v2.3）：按需启动，预装 ping/nc/SSH/ncclient/netmiko + 5 预制脚本
+  ops-toolkit:
+    profiles: ["ops"]
+    build:
+      context: ./ops-toolkit
+      dockerfile: Dockerfile
+    container_name: h3c-netctrl-ops-toolkit
+    volumes:
+      - ./ops-toolkit/captures:/captures
+    networks:
+      - h3c-net
+    stdin_open: true
+    tty: true
+
 networks:
   h3c-net:
     driver: bridge
