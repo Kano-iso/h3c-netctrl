@@ -1,24 +1,30 @@
 """配置备份管理器（v2.2）
 
-封装 SFTP 拉取、轮转、回滚等核心逻辑。
+封装 SCP 拉取 / 推送、轮转、回滚等核心逻辑。
 - 不直接依赖 FastAPI 路由，可在脚本中独立调用
 - 文件存储路径：{BACKUP_DIR}/{device_id}/{ISO8601}_{type}.cfg
 - 数据库 Backup 表记录元数据
 - 锁定备份不参与轮转
 
+H3C V7 适配说明：
+- SFTP 子系统默认禁用 → 走 SCP（scp 协议基于 SSH，H3C 默认支持）
+- `save force` 是交互式命令（需 Y 确认）→ 走 invoke_shell 喂 Y
+
 回滚策略：
 - 首选 NETCONF load-config（RFC 6241，H3C 支持度需探测）
-- Fallback：SSH 推送 startup.cfg 到设备 + 执行 `startup saved-configuration`
+- Fallback：SCP 推送 startup.cfg + 执行 `startup saved-configuration`
 """
 import hashlib
 import logging
 import os
 import re
 import shutil
+import time
 from datetime import datetime
 from typing import Optional
 
 import paramiko
+from scp import SCPClient
 
 from app.config import settings
 from app.models import Backup
@@ -100,24 +106,29 @@ class BackupManager:
         return client
 
     def pull_file(self, remote_path: str, local_path: str) -> int:
-        """SFTP 拉取单个文件，返回文件大小（字节）
+        """SCP 拉取单个文件，返回文件大小（字节）
+
+        为什么用 SCP 而非 SFTP：H3C V7 默认禁用 SFTP 子系统（需 `sftp server enable` 手动开启），
+        而 SCP 协议基于 SSH 自身，H3C 默认支持。遵循项目 memory「备份走 SCP」红线。
 
         Raises:
-            BackupError: SSH/SFTP 失败
+            BackupError: SSH/SCP 失败
         """
         self._ensure_dir()
         client = self._connect_ssh()
         try:
-            sftp = client.open_sftp()
+            scp = SCPClient(client.get_transport())
             try:
-                sftp.get(remote_path, local_path)
+                scp.get(remote_path, local_path)
             finally:
-                sftp.close()
+                scp.close()
         except Exception as e:
-            raise BackupError(f"SFTP 拉取失败 {self.host}:{remote_path}: {e}") from e
+            raise BackupError(f"SCP 拉取失败 {self.host}:{remote_path}: {e}") from e
         finally:
             client.close()
 
+        if not os.path.exists(local_path):
+            raise BackupError(f"SCP 拉取完成但文件未生成: {local_path}")
         return os.path.getsize(local_path)
 
     def create_backup(self, types: list[str] = None, db=None) -> list[dict]:
@@ -139,11 +150,13 @@ class BackupManager:
         self._ensure_dir()
         ts = self._timestamp()
         results = []
+        logger.info(f"开始备份 device_id={self.device_id} types={types}")
 
         # 检查设备是否强制保存（避免拉取正在写入的文件）
         try:
             self._force_save_on_device(types)
         except Exception as e:
+            # save force 失败不应阻塞备份（running 配置本身是动态的）
             logger.warning(f"强制保存失败（继续备份）: {e}")
 
         for btype in types:
@@ -189,28 +202,89 @@ class BackupManager:
                        f"备份 {btype} 成功 ({size} bytes, hash={content_hash[:8]})", "success")
 
         db.commit()
+        logger.info(f"备份完成 device_id={self.device_id} 成功 {len(results)} 份（{len(types)} 份请求）")
 
         # 轮转：每设备保留 N 份非锁定
-        self.rotate(self.device_id, keep=settings.BACKUP_KEEP, db=db)
+        rotated = self.rotate(self.device_id, keep=settings.BACKUP_KEEP, db=db)
+        if rotated > 0:
+            logger.info(f"轮转删除 device_id={self.device_id} 删除 {rotated} 份非锁定备份")
 
         return results
 
     def _force_save_on_device(self, types: list[str]):
-        """在设备上执行 `save force`，确保拉到的不是正在写入的文件"""
-        # 只有 startup 备份需要强制保存（running 是当前运行态，保存时可能锁）
+        """在设备上执行 `save force`，确保拉到的不是正在写入的文件
+
+        H3C V7 上 `save force` 是交互式命令（需 [Y/N] 确认），必须走 invoke_shell
+        喂 Y，不能用 exec_command（会 channel closed）。
+        """
         if "running" in types:
             return
         client = self._connect_ssh()
         try:
-            stdin, stdout, stderr = client.exec_command("save force", timeout=15)
-            stdout.channel.recv_exit_status()  # 等待执行完成
-            err = stderr.read().decode("utf-8", errors="ignore").strip()
-            if err and "no need to save" not in err.lower() and "same as" not in err.lower():
-                logger.debug(f"save force 输出: {err}")
+            self._send_save_force_via_shell(client)
         except Exception as e:
             raise BackupError(f"save force 失败: {e}") from e
         finally:
             client.close()
+
+    @staticmethod
+    def _send_save_force_via_shell(client: paramiko.SSHClient, timeout: int = 8) -> str:
+        """通过 invoke_shell 执行 `save force` 并自动喂 Y
+
+        流程：
+        1. 开 channel（200x1000，分页风险低）
+        2. 读欢迎信息
+        3. 发 `save force`
+        4. 等待 [Y/N] 提示
+        5. 发 `Y`
+        6. 等待 "successfully" 关键字
+
+        Returns:
+            完整输出（含 echo + 命令回显）
+        Raises:
+            BackupError: 任何环节失败
+        """
+        channel = client.invoke_shell(width=200, height=1000)
+        try:
+            time.sleep(0.3)
+            # 1. 清空欢迎信息
+            if channel.recv_ready():
+                channel.recv(65535)
+            # 2. 发命令
+            channel.send("save force\n")
+            # 3. 等 [Y/N] 提示（H3C V7 实际 1-2s）
+            output = ""
+            yn_seen_at = None
+            start = time.time()
+            while time.time() - start < timeout:
+                if channel.recv_ready():
+                    chunk = channel.recv(8192).decode("utf-8", errors="replace")
+                    output += chunk
+                    if "[Y/N]" in output or "Y/N]" in output:
+                        yn_seen_at = time.time()
+                        break
+                else:
+                    time.sleep(0.1)
+            if yn_seen_at is None:
+                raise BackupError(f"等待 [Y/N] 提示超时（{timeout}s），输出: {output[:200]}")
+            # 4. 发 Y
+            channel.send("Y\n")
+            # 5. 等 successfully（save 后 3-5s）
+            start = time.time()
+            while time.time() - start < timeout:
+                if channel.recv_ready():
+                    chunk = channel.recv(8192).decode("utf-8", errors="replace")
+                    output += chunk
+                    if "successfully" in output.lower() or "no need to save" in output.lower():
+                        return output
+                else:
+                    time.sleep(0.1)
+            raise BackupError(f"等待 'successfully' 超时（{timeout}s），输出: {output[:300]}")
+        finally:
+            try:
+                channel.close()
+            except Exception:
+                pass
 
     def rotate(self, device_id: int, keep: int, db=None):
         """轮转：保留最新 N 份非锁定备份，删除超出的最旧非锁定备份
@@ -389,32 +463,31 @@ class BackupManager:
             raise BackupError(f"NETCONF 回滚失败: {e}") from e
 
     def _restore_via_ssh(self, local_path: str, backup_type: str) -> str:
-        """SSH 推送回滚：SFTP 上传 startup.cfg + 执行 `startup saved-configuration`
+        """SSH 推送回滚：SCP 上传 startup.cfg + 执行 `startup saved-configuration`
 
-        注意：H3C 设备的 startup.cfg 是启动配置，运行时需 save 后才生效
+        注意：H3C 设备的 startup.cfg 是启动配置，运行时需 save 后才生效。
+        SFTP 改 SCP，原因同 pull_file。
         """
         client = self._connect_ssh(timeout=20)
         try:
-            sftp = client.open_sftp()
+            scp = SCPClient(client.get_transport())
             try:
                 remote_name = "startup_recover.cfg" if backup_type == "startup" else "running_recover.cfg"
-                sftp.put(local_path, remote_name)
+                scp.put(local_path, remote_name)
             finally:
-                sftp.close()
+                scp.close()
 
             # 在设备上执行：覆盖 startup.cfg 并 save
             commands = []
             if backup_type == "startup":
-                # 替换 startup.cfg
+                # 替换 startup.cfg（H3C: 复制到 flash 根目录 + 改名为 startup.cfg）
                 commands = [
                     f"copy {remote_name} startup.cfg",
                     "startup saved-configuration",
                     f"delete /unreserved file {remote_name}",
                 ]
             else:
-                # running 是动态配置，需要先备份当前 running，然后 apply 备份
-                # 简化：把 running_recover.cfg 内容通过 syslog/display 命令应用（不通用）
-                # 实际：H3C running 配置恢复需要 NETCONF load-config，SSH 不能完整覆盖
+                # running 是动态配置，需要 NETCONF load-config 路径
                 raise BackupError("running 配置回滚需要 NETCONF load-config 支持，SSH 推送仅支持 startup 类型")
 
             for cmd in commands:

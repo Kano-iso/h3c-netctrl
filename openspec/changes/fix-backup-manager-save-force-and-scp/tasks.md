@@ -1,17 +1,18 @@
 ## 1. 后端依赖
 
-- [ ] 1.1 `backend/requirements.txt` 加 `scp>=0.14.0`
-- [ ] 1.2 重新 build backend 镜像（如需要）
-- [ ] 1.3 验证 `import scp` 在容器内可用
+- [x] 1.1 `backend/requirements.txt` 加 `scp>=0.14.0`
+- [x] 1.2 重新 build backend 镜像（如需要）
+- [x] 1.3 验证 `import scp` 在容器内可用
 
 ## 2. backup_manager.py 修改
 
-- [ ] 2.1 替换 `import`：`from scp import SCPClient`
-- [ ] 2.2 新增 `_force_save_via_ssh_shell()`：invoke_shell + 发 `save force` + 检测 "Y/N" + 发 `Y` + 等待 "successfully" 或 5s 超时
-- [ ] 2.3 修改 `_force_save_on_device` 调用新方法
-- [ ] 2.4 修改 `pull_file`：`open_sftp` → `SCPClient(client.get_transport()).get(...)`
-- [ ] 2.5 增加 `logger.info` 业务日志（备份开始 / 成功 / 失败）
-- [ ] 2.6 错误处理：保存失败 / SCP 失败 → 抛 BackupError 带详细中文
+- [x] 2.1 替换 `import`：`from scp import SCPClient`
+- [x] 2.2 新增 `_force_save_via_ssh_shell()`：invoke_shell + 发 `save force` + 检测 "Y/N" + 发 `Y` + 等待 "successfully" 或 5s 超时
+- [x] 2.3 修改 `_force_save_on_device` 调用新方法
+- [x] 2.4 修改 `pull_file`：`open_sftp` → `SCPClient(client.get_transport()).get(...)`
+- [x] 2.5 增加 `logger.info` 业务日志（备份开始 / 成功 / 失败）
+- [x] 2.6 错误处理：保存失败 / SCP 失败 → 抛 BackupError 带详细中文
+- [x] 2.7 `_restore_via_ssh` 改 SCP（保持一致性）
 
 ## 3. 容器测试
 
