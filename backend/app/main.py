@@ -11,7 +11,7 @@ os.makedirs(os.path.dirname(settings.DB_PATH), exist_ok=True)
 os.makedirs("./logs", exist_ok=True)
 
 from app.database import Base, engine
-from app.routers import device, vlan, log, dashboard, asset, execute, batch, interface
+from app.routers import device, vlan, log, dashboard, asset, execute, batch, interface, backup
 from app.utils.logger import setup_logging
 
 # 初始化日志系统
@@ -48,6 +48,7 @@ app.include_router(asset.router, prefix="/api")
 app.include_router(execute.router, prefix="/api")
 app.include_router(batch.router, prefix="/api")
 app.include_router(interface.router, prefix="/api")
+app.include_router(backup.router, prefix="/api")
 
 
 @app.on_event("startup")

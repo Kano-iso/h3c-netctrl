@@ -16,6 +16,8 @@ services:
       - ./backend:/app
       - ./data:/app/data
       - ./logs:/app/logs
+      # 备份文件持久化（v2.1.x patch 灰度，对应 .env 的 BACKUP_DIR）
+      - h3c-netctrl-backups:/data/backups
     env_file:
       - .env
     environment:
@@ -79,3 +81,8 @@ services:
 networks:
   h3c-net:
     driver: bridge
+
+# 持久化卷（v2.1.x patch 灰度：备份文件）
+volumes:
+  h3c-netctrl-backups:
+    driver: local

@@ -2,17 +2,23 @@
 
 基于 NETCONF + SSH 的 H3C 交换机轻量网控平台。
 
-## 版本状态
+## 版本路线图
+
+> **统一的版本管理文档：[VERSION-ROADMAP.md](VERSION-ROADMAP.md)**
+>
+> 任何关于"当前到哪一版 / 之前完成啥 / 接下来做啥"的问题，以该文档为准。
 
 | 版本 | 状态 | 主题 | 详情 |
 |---|---|---|---|
-| v1.0 MVP | ✅ 2026-06-13 | 基础 CRUD + NETCONF VLAN/接口 | [archive/2026-06-13-v1-mvp-foundation](openspec/changes/archive/) |
+| v1.0 MVP | ✅ 2026-06-13 | 基础 CRUD + NETCONF VLAN/接口 | [archive/2026-06-13-v1-mvp-foundation](openspec/changes/archive/2026-06-13-v1-mvp-foundation/) |
 | v2.0 平台化 | ✅ 2026-06-22 | 8 项：NETCONF 重构 / QA 测试套件 / bugfix 轮次 / Schemas v2 | [archive 目录](openspec/changes/archive/) |
 | v2.1 前端重构 | ✅ 2026-06-23 | 7 项：多命令终端 / 设备 CRUD UI / 资产编辑 / 单设备采集 / 状态判定修复 | [archive 目录](openspec/changes/archive/) |
-| **v2.2 网控增强** | 🚧 进行中 | 手动备份+回滚 / 接口 VPN 能力 / 容器解耦预留 | 本次会话目标 |
-| v3.0 VPC | ⏳ 规划 | VPC 能力（SDN） | 延后 |
+| **v2.1.x patch 灰度** | 🚧 当前 | 手动备份后端能力（前端延后到 v2.2，**本次不发版**） | [backup-manual-with-rollback](openspec/changes/backup-manual-with-rollback/) |
+| v2.2 网控增强 | ⏳ 规划 | 备份前端 / 接口 VPN / 接口 L2-L3 / 联动配置 | 待开 3 个 change |
+| v3.0 VPC | ⏳ 规划 | VPC 能力（SDN）+ etcd 协调 | 延后 |
 
-详细进度与归档 change 见 [openspec/changes/archive/](openspec/changes/archive/)。
+详细进度、约束、决策记录见 [VERSION-ROADMAP.md](VERSION-ROADMAP.md)。
+已归档 change 见 [openspec/changes/archive/](openspec/changes/archive/)。
 主规格沉淀见 [openspec/specs/](openspec/specs/)。
 
 ## 未来架构

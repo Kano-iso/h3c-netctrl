@@ -94,3 +94,15 @@ v2.2 网控增强三大目标之一：**配置备份 + 回滚**。当前系统�
 1. **回滚机制**：NETCONF `load-config` (RFC 6241) 在 H3C 设备上是否完整支持？需要实地探测（192.168.100.4）。**fallback**：用 SSH 推送 startup.cfg 后执行 `startup saved-configuration` + `reboot`（不优雅但兼容）
 2. **拉取哪个文件**：`startup.cfg`（下次启动用）vs `running.cfg`（当前运行）？**默认建议**：备份两者（filename 后缀区分）
 3. **并发备份锁**：同一设备并发触发备份如何处理？**建议**：同设备短时间内互斥（5 秒内）
+
+## 状态：v2.1.x patch 灰度（不发版 v2.2）
+
+**决策记录（2026-06-28）**：本 change **只发后端能力，前端延后到 v2.2**。
+
+- **本次不发版 v2.2**，作为 v2.1.x patch 灰度发布（commit 上 main 分支，但不重打 tag）。
+- **后端能力已完成**：Backup 模型 / BackupManager / 7 个 API 端点 / Alembic 迁移 / 部署配置（volume + env）全部就绪。
+- **API 验证通过**：5 个 backup 路由全部注册（`/api/devices/{id}/backup*` + `/api/backups`），边界场景"设备不存在"返回标准 APIResponse 错误格式。
+- **真实设备验证留作 follow-up**：192.168.100.4 (Leaf-03) 验证需要用户现场配合，本 change 不阻塞 archive。
+- **前端延后部分**将在 v2.2 起新 change：
+  - `backup-ui`：Devices.vue 加"备份"按钮 + BackupListModal + CMDB 全量备份按钮
+  - 当前 task 4.1 / 5.1 / 6.1-6.3 / 7.1-7.8 留作 v2.2 跟进。

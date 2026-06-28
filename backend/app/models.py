@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, Integer, String, Text, ForeignKey, func
+from sqlalchemy import Boolean, DateTime, Index, Integer, String, Text, ForeignKey, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -26,6 +26,8 @@ class Device(Base):
 
     # 一对一关联资产信息
     asset: Mapped["Asset"] = relationship("Asset", back_populates="device", uselist=False, cascade="all, delete-orphan")
+    # 一对多关联备份（设备删除时 CASCADE 清理）
+    backups: Mapped[list["Backup"]] = relationship("Backup", back_populates="device", cascade="all, delete-orphan")
 
 
 class Log(Base):
@@ -57,3 +59,35 @@ class Asset(Base):
 
     # 反向关联设备
     device: Mapped["Device"] = relationship("Device", back_populates="asset")
+
+
+class Backup(Base):
+    """配置备份记录（v2.2）
+
+    存储设备 startup.cfg / running.cfg 备份元数据，文件本身存 /data/backups/{device_id}/。
+    - locked=True 备份不参与轮转（永久保留直到用户主动解锁/删除）
+    - 设备删除时 CASCADE 清理（连带删除磁盘文件由 backup.py 路由处理）
+    """
+    __tablename__ = "backups"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    device_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    file_path: Mapped[str] = mapped_column(String(500), nullable=False)  # 容器内绝对路径
+    backup_type: Mapped[str] = mapped_column(String(20), nullable=False)  # "startup" | "running"
+    size: Mapped[int] = mapped_column(Integer, nullable=False)  # 字节
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)  # SHA256 hex
+    locked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), nullable=False, index=True
+    )
+
+    # 反向关联设备
+    device: Mapped["Device"] = relationship("Device", back_populates="backups")
+
+    __table_args__ = (
+        # 复合索引：按设备 + 时间排序（列表/轮转查询）
+        Index("ix_backups_device_created", "device_id", "created_at"),
+    )

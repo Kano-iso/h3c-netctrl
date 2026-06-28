@@ -30,5 +30,5 @@
 
 ## 7. 收尾
 
-- [ ] 7.1 提交代码 `chore(arch): 容器解耦蓝图预留（仅注释+env，不真拆）`
-- [ ] 7.2 archive change
+- [x] 7.1 提交代码 `chore(arch): 容器解耦蓝图预留（仅注释+env，不真拆）`（commit 上面）
+- [x] 7.2 archive change（change `container-decoupling` → archive `2026-06-28-container-decoupling`）
