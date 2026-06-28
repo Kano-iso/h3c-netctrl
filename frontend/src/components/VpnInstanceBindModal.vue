@@ -13,10 +13,11 @@ const props = defineProps({
 
 const emit = defineEmits(['confirm', 'cancel'])
 
-// 'create' 模式的两步：create step → bind step
-const step = ref(1)
+// 'create' 模式的折叠区：默认收起，提示用户优先选已有
+const showCreateForm = ref(false)
 const newVpnName = ref('')
 const newVpnRd = ref('auto')
+
 const selectedVpnName = ref('')
 const submitting = ref(false)
 const errMsg = ref('')
@@ -24,10 +25,13 @@ const errMsg = ref('')
 const filteredVpns = computed(() => props.existingVpns || [])
 const canCreate = computed(() => /^[A-Za-z0-9_-]+$/.test(newVpnName.value))
 const canBind = computed(() => !!selectedVpnName.value)
+const isCreateMode = computed(() => props.mode === 'create')
 
 watch(() => props.visible, (v) => {
   if (v) {
-    step.value = props.mode === 'create' ? 1 : 1
+    // create 模式：列表优先，折叠区默认收起
+    // bind 模式：纯列表
+    showCreateForm.value = props.mode === 'create' ? filteredVpns.value.length > 0 : false
     newVpnName.value = ''
     newVpnRd.value = 'auto'
     selectedVpnName.value = ''
@@ -82,7 +86,10 @@ async function handleBindOnly() {
   emit('confirm', { action: 'bind', name: selectedVpnName.value })
 }
 
-const isCreateMode = computed(() => props.mode === 'create')
+function toggleCreateForm() {
+  showCreateForm.value = !showCreateForm.value
+  errMsg.value = ''
+}
 </script>
 
 <template>
@@ -106,45 +113,58 @@ const isCreateMode = computed(() => props.mode === 'create')
               {{ errMsg }}
             </div>
 
-            <!-- 模式 1：创建 + 绑定 -->
-            <template v-if="isCreateMode">
-              <div>
-                <label class="text-xs font-medium text-ink-700 mb-1.5 block">VPN instance 名</label>
-                <input v-model="newVpnName" placeholder="如：MGMT" class="input" :disabled="submitting" />
-                <div class="text-[10px] text-ink-500 mt-1">支持字母、数字、下划线、连字符</div>
+            <!-- v2.2.1 fix-vpn-and-l2l3-ux-bugs: 顶部展示现有 VPN instance 列表（两种模式都显示） -->
+            <div>
+              <div class="text-xs font-medium text-ink-700 mb-1.5 flex items-center justify-between">
+                <span>现有 VPN instance（{{ filteredVpns.length }}）</span>
+                <button
+                  v-if="isCreateMode"
+                  type="button"
+                  class="text-[10px] text-accent hover:underline"
+                  @click="toggleCreateForm"
+                >
+                  {{ showCreateForm ? '收起' : '或新建' }}
+                </button>
               </div>
-              <div>
-                <label class="text-xs font-medium text-ink-700 mb-1.5 block">Route-Distinguisher</label>
-                <input v-model="newVpnRd" placeholder="auto" class="input font-mono" :disabled="submitting" />
-                <div class="text-[10px] text-ink-500 mt-1">auto = 设备自动分配；自定义如 100:1</div>
+              <div v-if="filteredVpns.length === 0" class="p-3 rounded-xl bg-canvas-100 text-xs text-ink-500">
+                该设备尚无 VPN instance，请先创建
               </div>
-              <div class="p-3 rounded-xl bg-canvas-100 text-xs text-ink-700">
-                <div>创建后立即绑定到接口 <span class="font-mono text-ink-900">{{ targetIface?.name }}</span></div>
-              </div>
-            </template>
-
-            <!-- 模式 2：仅绑定 -->
-            <template v-else>
-              <div>
-                <label class="text-xs font-medium text-ink-700 mb-1.5 block">选择已存在的 VPN instance</label>
-                <div v-if="filteredVpns.length === 0" class="p-3 rounded-xl bg-canvas-100 text-xs text-ink-500">
-                  该设备尚无 VPN instance，请先创建
-                </div>
-                <div v-else class="space-y-1.5 max-h-64 overflow-y-auto">
-                  <label
-                    v-for="v in filteredVpns"
-                    :key="v.name"
-                    :class="['flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer transition',
-                             selectedVpnName === v.name ? 'border-accent bg-accent/5' : 'border-canvas-300 hover:bg-canvas-100']"
-                  >
-                    <input type="radio" :value="v.name" v-model="selectedVpnName" class="text-accent focus:ring-accent/40" />
-                    <div class="flex-1">
-                      <div class="font-mono text-ink-900">{{ v.name }}</div>
-                      <div class="text-[10px] text-ink-500 mt-0.5">
-                        RD: {{ v.rd || 'auto' }} · 绑定接口: {{ v.interfaces?.length || 0 }}
-                      </div>
+              <div v-else class="space-y-1.5 max-h-48 overflow-y-auto border border-canvas-300 rounded-lg p-1.5">
+                <label
+                  v-for="v in filteredVpns"
+                  :key="v.name"
+                  :class="['flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition',
+                           selectedVpnName === v.name ? 'border-accent bg-accent/5' : 'border-transparent hover:bg-canvas-100']"
+                >
+                  <input type="radio" :value="v.name" v-model="selectedVpnName" class="text-accent focus:ring-accent/40" />
+                  <div class="flex-1">
+                    <div class="font-mono text-ink-900 text-xs">{{ v.name }}</div>
+                    <div class="text-[10px] text-ink-500 mt-0.5">
+                      RD: {{ v.rd || 'auto' }} · 绑定接口: {{ v.interfaces?.length || 0 }}
                     </div>
-                  </label>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            <!-- 模式 1：创建 + 绑定（仅 create 模式，且折叠区展开时） -->
+            <template v-if="isCreateMode && showCreateForm">
+              <div class="border-t border-canvas-300 pt-3">
+                <div class="text-xs font-medium text-ink-700 mb-1.5">新建 VPN instance</div>
+                <div class="space-y-3">
+                  <div>
+                    <label class="text-[10px] font-medium text-ink-700 mb-1 block">VPN instance 名</label>
+                    <input v-model="newVpnName" placeholder="如：MGMT" class="input" :disabled="submitting" />
+                    <div class="text-[10px] text-ink-500 mt-1">支持字母、数字、下划线、连字符</div>
+                  </div>
+                  <div>
+                    <label class="text-[10px] font-medium text-ink-700 mb-1 block">Route-Distinguisher</label>
+                    <input v-model="newVpnRd" placeholder="auto" class="input font-mono" :disabled="submitting" />
+                    <div class="text-[10px] text-ink-500 mt-1">auto = 设备自动分配；自定义如 100:1</div>
+                  </div>
+                  <div class="p-2.5 rounded-xl bg-canvas-100 text-[10px] text-ink-700">
+                    创建后立即绑定到接口 <span class="font-mono text-ink-900">{{ targetIface?.name }}</span>
+                  </div>
                 </div>
               </div>
             </template>
@@ -152,14 +172,37 @@ const isCreateMode = computed(() => props.mode === 'create')
 
           <div class="px-5 py-3 border-t border-canvas-300 flex justify-end gap-2">
             <button class="btn-soft !text-xs" :disabled="submitting" @click="close">取消</button>
-            <button
-              v-if="isCreateMode"
-              :disabled="!canCreate || submitting"
-              class="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
-              @click="handleCreateAndBind"
-            >
-              {{ submitting ? '处理中…' : '创建 + 绑定' }}
-            </button>
+            <!-- create 模式：分两种提交 -->
+            <template v-if="isCreateMode">
+              <!-- 列表里有选中：优先"绑定已有" -->
+              <button
+                v-if="canBind && !showCreateForm"
+                :disabled="submitting"
+                class="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                @click="handleBindOnly"
+              >
+                {{ submitting ? '处理中…' : `绑定到 ${selectedVpnName}` }}
+              </button>
+              <!-- 创建区展开：用 create + bind -->
+              <button
+                v-else-if="showCreateForm"
+                :disabled="!canCreate || submitting"
+                class="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                @click="handleCreateAndBind"
+              >
+                {{ submitting ? '处理中…' : '创建 + 绑定' }}
+              </button>
+              <!-- create 模式但既没选也没展开：展开创建区 -->
+              <button
+                v-else
+                :disabled="submitting"
+                class="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                @click="toggleCreateForm"
+              >
+                创建新 VPN
+              </button>
+            </template>
+            <!-- bind 模式：纯绑 -->
             <button
               v-else
               :disabled="!canBind || submitting"

@@ -524,6 +524,27 @@ def _resolve_interfaces_for_vpn(client: NetconfClient, vpn_name: str) -> list[di
     return bound
 
 
+def _parse_vpn_bindings_by_ifindex(vpn_xml: str) -> dict[int, str]:
+    """解析 L3vpn get-config 响应，返回 {if_index: vpn_name} 映射
+
+    用于 unbind_interface_vpn 等需要把 VPN 绑定信息合并到接口列表的场景。
+    委托给 netconf_xml.parse_vpn_instances，避免重复实现。
+    """
+    parsed = parse_vpn_instances(vpn_xml)
+    return {b["if_index"]: b["vrf"] for b in parsed.get("bindings", [])
+            if b.get("if_index") is not None and b.get("vrf") is not None}
+
+
+# H3C filter 多根限制：必须分两次 get_config，再合并
+# 见 netconf_xml.py: build_interface_extended_filter_xml 的注释
+_IFACE_FILTERS_FOR_UNBIND = (
+    f'<top xmlns="{H3C_CONFIG_NS}">'
+    '<Ifmgr><Interfaces/></Ifmgr>'
+    '<IPV4ADDRESS></IPV4ADDRESS>'
+    '</top>'
+)
+
+
 # ============ VPN instance 端点 ============
 
 
@@ -693,7 +714,16 @@ def bind_interface_vpn(device_id: int, if_index: int, body: InterfaceVpnBind,
 
 @router.delete("/devices/{device_id}/interfaces/{if_index}/vpn-instance", response_model=APIResponse)
 def unbind_interface_vpn(device_id: int, if_index: int, db: Session = Depends(get_db)):
-    """接口解绑 VPN instance"""
+    """接口解绑 VPN instance
+
+    v2.2.1 修复（fix-vpn-and-l2l3-ux-bugs）：
+    预校验必须能正确读到接口的 vpn_instance。原实现调
+    build_interface_extended_filter_xml()（**只**查 Ifmgr），导致
+    _parse_interface_response 的 Pass 3 (Bind 解析) 永远拿不到数据，
+    vpn_instance 永远 None → 误判"未绑定"。
+
+    改用两次 get_config（Ifmgr+IPV4ADDRESS + L3vpn），合并 vpn_by_idx。
+    """
     device, password, error = _get_device_and_password(db, device_id)
     if error:
         return error
@@ -703,22 +733,33 @@ def unbind_interface_vpn(device_id: int, if_index: int, db: Session = Depends(ge
             host=device.host, port=device.port,
             username=device.username, password=password,
         ) as client:
-            # 预校验：当前是否绑了 VPN
-            response_xml = client.get_config(build_interface_extended_filter_xml())
-            current_ifaces = _parse_interface_response(response_xml)
+            # Pass A: 查 Ifmgr + IPV4ADDRESS（拿到接口列表 + IP）
+            iface_xml = client.get_config(_IFACE_FILTERS_FOR_UNBIND)
+            current_ifaces = _parse_interface_response(iface_xml)
             target = next((i for i in current_ifaces if i["if_index"] == if_index), None)
             if not target:
                 return APIResponse(success=False, error=f"接口 if_index={if_index} 不存在")
-            if not target.get("vpn_instance"):
+
+            # Pass B: 查 L3vpn 拿 Bind 列表（v2.2.1 修复关键点）
+            vpn_bindings = _parse_vpn_bindings_by_ifindex(
+                client.get_config(build_vpn_instance_filter_xml())
+            )
+            # 合并：把 vpn_bindings 注入 target
+            target_vpn = vpn_bindings.get(if_index)
+            if not target_vpn:
                 return APIResponse(success=False, error=f"接口 if_index={if_index} 未绑定 VPN instance")
 
-            config_xml = build_interface_unbind_vpn_xml(if_index)
+            # 同时记日志用
+            target["vpn_instance"] = target_vpn
+
+            # Pass C: 真正的 edit-config（带 vpn_name 唯一定位 Bind 条目）
+            config_xml = build_interface_unbind_vpn_xml(if_index, target_vpn)
             client.edit_config(config_xml)
 
-        logger.info(f"接口解绑 VPN 成功: device_id={device_id}, if_index={if_index}")
+        logger.info(f"接口解绑 VPN 成功: device_id={device_id}, if_index={if_index}, vpn={target_vpn}")
         record_log(db, device.id, device.name, "vpn_instance_unbind",
-                   f"接口 if_index={if_index} 解绑 VPN {target.get('vpn_instance')}", "success")
-        return APIResponse(success=True, data={"if_index": if_index})
+                   f"接口 if_index={if_index} 解绑 VPN {target_vpn}", "success")
+        return APIResponse(success=True, data={"if_index": if_index, "vpn_instance": target_vpn})
     except Exception as e:
         error_msg = _classify_interface_error(e)
         logger.error(f"接口解绑 VPN 失败: device_id={device_id}, if_index={if_index}, 原因={error_msg}", exc_info=True)

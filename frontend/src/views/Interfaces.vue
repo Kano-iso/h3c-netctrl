@@ -159,15 +159,20 @@ watch(selectedDeviceId, () => {
   loadVpnInstances()
 })
 
-function openCreateVpn(iface) {
+async function openCreateVpn(iface) {
   vpnTargetIface.value = iface
   vpnModalMode.value = 'create'
+  // v2.2.1 fix-vpn-and-l2l3-ux-bugs: 打开 modal 前确保 VPN 列表已加载
+  // 否则用户切完设备立刻点 + VPN，existingVpns 可能是空
+  await loadVpnInstances()
   showVpnModal.value = true
 }
 
-function openBindVpn(iface) {
+async function openBindVpn(iface) {
   vpnTargetIface.value = iface
   vpnModalMode.value = 'bind'
+  // v2.2.1 fix-vpn-and-l2l3-ux-bugs: 同上，bind 模式也需先加载列表
+  await loadVpnInstances()
   showVpnModal.value = true
 }
 
