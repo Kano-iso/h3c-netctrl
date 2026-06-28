@@ -69,87 +69,187 @@ def _build_interface_filter_xml() -> str:
 
 
 def _parse_interface_response(xml_str: str) -> list[dict]:
-    """解析 H3C Ifmgr get-config 响应 XML（v2.2 扩展）
+    """解析 H3C 合并响应 XML（v2.2 多模块真实模型）
 
-    H3C Ifmgr 按需返回字段，部分接口可能只有 IfIndex，没有 Name/LinkType。
-    只要 IfIndex 存在就保留，缺失字段用合理默认值填充。
+    H3C V7 实际响应（单次 get-config 多模块 filter）：
+    <Ifmgr><Interfaces>
+      <Interface><IfIndex>2</IfIndex><Description>Trunk</Description><LinkType>2</LinkType></Interface>
+      ...
+    </Interfaces></Ifmgr>
+    <IPV4ADDRESS><Ipv4Addresses>
+      <Ipv4Address><IfIndex>5121</IfIndex><Ipv4Address>192.168.100.4</Ipv4Address><Ipv4Mask>255.255.255.0</Ipv4Mask></Ipv4Address>
+    </Ipv4Addresses></IPV4ADDRESS>
+    <L3vpn>
+      <L3vpnVRF><VRF><VRF>mgt</VRF></VRF></L3vpnVRF>
+      <L3vpnIf><Bind><VRF>mgt</VRF><IfIndex>5121</IfIndex></Bind></L3vpnIf>
+    </L3vpn>
 
-    v2.2 扩展：
-    - `Ipv4Address` 子元素 → `ip_addresses` 列表
-    - `IpBindVrfInstance` 子元素 → `vpn_instance`（string | null）
-    - `layer` 判定：L3_NAME_PATTERN / SUB_IF_PATTERN / Ipv4Address 存在
+    关键发现：H3C V7 ifmgr **不返回**带 VPN 的 L3 接口（如 5121），所以要合并 IPV4ADDRESS 找 L3 接口。
+
+    字段：
+    - L2 接口（ifmgr 返回）：name, mode, pvid, allowed_vlans, status
+    - L3 接口（IPV4ADDRESS 返回）：ip_addresses
+    - VPN 绑定（L3vpnIf 返回）：vpn_instance
     """
     interfaces = []
+    if_index_to_iface: dict[int, dict] = {}
+    ip_by_idx: dict[int, list[str]] = {}
+    vpn_by_idx: dict[int, str] = {}
+
     try:
         root = ET.fromstring(xml_str)
+
+        # Pass 1: Ifmgr
         for elem in root.iter():
             tag = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
-            if tag == "Interface":
-                iface = {}
-                ip_addresses = []
-                for child in elem:
-                    child_tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
-                    if child_tag == "IfIndex":
-                        iface["if_index"] = int(child.text) if child.text else None
-                    elif child_tag == "Name":
-                        iface["name"] = child.text or ""
-                    elif child_tag == "LinkType":
-                        link_type = int(child.text) if child.text else 1
-                        iface["mode"] = LINK_TYPE_REVERSE.get(link_type, "access")
-                    elif child_tag == "PVID":
-                        iface["pvid"] = int(child.text) if child.text else None
-                    elif child_tag == "TrunkVLANs":
-                        iface["allowed_vlans"] = _parse_vlan_range(child.text or "")
-                    elif child_tag == "AdminStatus":
-                        iface["status"] = "up" if child.text == "1" else "down"
-                    elif child_tag == "Ipv4Address":
-                        # H3C 格式：<Ipv4Address>192.168.100.4</Ipv4Address>
-                        # 或带掩码：<Ipv4Address>192.168.100.4/24</Ipv4Address>
-                        if child.text and child.text.strip():
-                            ip_addresses.append(child.text.strip())
-                    elif child_tag == "IpBindVrfInstance":
-                        if child.text and child.text.strip():
-                            iface["vpn_instance"] = child.text.strip()
-                # 只检查 if_index，缺失字段用默认值
-                if iface.get("if_index"):
-                    # Name 缺失时用 IfIndex 生成
-                    if not iface.get("name"):
-                        iface["name"] = f"If-{iface['if_index']}"
-                    # LinkType 缺失时默认 access
-                    iface.setdefault("mode", "access")
-                    # access_vlan 字段
-                    if iface.get("mode") == "access" and iface.get("pvid"):
-                        iface["access_vlan"] = iface["pvid"]
-                    else:
-                        iface["access_vlan"] = None
-                    iface.setdefault("status", "unknown")
-                    iface.setdefault("allowed_vlans", [])
-                    # v2.2 新增字段
-                    iface["ip_addresses"] = ip_addresses
-                    iface.setdefault("vpn_instance", None)
-                    iface["layer"] = _detect_layer(iface.get("name", ""), ip_addresses)
-                    interfaces.append(iface)
+            if tag != "Interface":
+                continue
+            iface: dict = {"if_index": None}
+            for child in elem:
+                ct = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+                if ct == "IfIndex" and child.text:
+                    iface["if_index"] = int(child.text)
+                elif ct == "Description" and child.text:
+                    iface["name"] = child.text.strip()
+                elif ct == "LinkType" and child.text:
+                    iface["mode"] = LINK_TYPE_REVERSE.get(int(child.text), "access")
+                elif ct == "PVID" and child.text:
+                    iface["pvid"] = int(child.text)
+                elif ct == "TrunkVLANs" and child.text:
+                    iface["allowed_vlans"] = _parse_vlan_range(child.text)
+                elif ct == "AdminStatus" and child.text:
+                    iface["status"] = "up" if child.text == "1" else "down"
+            if iface.get("if_index") is not None:
+                if_index_to_iface[iface["if_index"]] = iface
+
+        # Pass 2: IPV4ADDRESS
+        for elem in root.iter():
+            tag = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
+            if tag != "Ipv4Address":
+                continue
+            if_idx = None
+            ip = None
+            mask = None
+            for child in elem:
+                ct = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+                if ct == "IfIndex" and child.text:
+                    try:
+                        if_idx = int(child.text)
+                    except ValueError:
+                        pass
+                elif ct == "Ipv4Address" and child.text:
+                    ip = child.text.strip()
+                elif ct == "Ipv4Mask" and child.text:
+                    mask = child.text.strip()
+            if if_idx is not None and ip:
+                if mask:
+                    prefix = _mask_to_prefix(mask)
+                    ip_by_idx[if_idx] = ip_by_idx.get(if_idx, []) + [f"{ip}/{prefix}"]
+                else:
+                    ip_by_idx[if_idx] = ip_by_idx.get(if_idx, []) + [ip]
+
+        # Pass 3: L3vpnIf.Bind
+        for elem in root.iter():
+            tag = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
+            if tag != "Bind":
+                continue
+            vrf = None
+            if_idx = None
+            for child in elem:
+                ct = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+                if ct == "VRF" and child.text:
+                    vrf = child.text.strip()
+                elif ct == "IfIndex" and child.text:
+                    try:
+                        if_idx = int(child.text)
+                    except ValueError:
+                        pass
+            if vrf and if_idx is not None:
+                vpn_by_idx[if_idx] = vrf
+
+        # 合并：ifmgr 接口 + 纯 L3 接口（IPV4ADDRESS 有但 ifmgr 没有）
+        for if_idx, iface in if_index_to_iface.items():
+            iface["ip_addresses"] = ip_by_idx.get(if_idx, [])
+            iface["vpn_instance"] = vpn_by_idx.get(if_idx)
+            iface["layer"] = _detect_layer(iface, ip_by_idx.get(if_idx, []), vpn_by_idx.get(if_idx))
+            interfaces.append(iface)
+
+        # 加纯 L3 接口（ifmgr 不返回的）
+        for if_idx, ips in ip_by_idx.items():
+            if if_idx in if_index_to_iface:
+                continue
+            iface = {
+                "if_index": if_idx,
+                "name": f"If-{if_idx}",  # ifmgr 没返回，兜底
+                "ip_addresses": ips,
+                "vpn_instance": vpn_by_idx.get(if_idx),
+                "layer": "L3",
+                "mode": "access",  # 占位
+                "pvid": None,
+                "allowed_vlans": [],
+                "status": "unknown",
+            }
+            interfaces.append(iface)
+
     except ET.ParseError as e:
         logger.error(f"接口 XML 解析失败: {e}")
+
+    # 兜底：fill 默认值 + 算 access_vlan
+    for iface in interfaces:
+        iface.setdefault("name", f"If-{iface.get('if_index', '?')}")
+        iface.setdefault("mode", "access")
+        iface.setdefault("status", "unknown")
+        iface.setdefault("allowed_vlans", [])
+        iface.setdefault("ip_addresses", [])
+        iface.setdefault("vpn_instance", None)
+        iface.setdefault("layer", "L2")
+        iface["access_vlan"] = iface["pvid"] if iface.get("mode") == "access" and iface.get("pvid") else None
+
+    # 按 if_index 排序
+    interfaces.sort(key=lambda x: x.get("if_index", 0))
     return interfaces
 
 
-def _detect_layer(name: str, ip_addresses: list[str]) -> str:
-    """根据接口名 + IP 地址判定 L2 / L3
+def _detect_layer(iface: dict, ip_addresses: list[str], vpn_instance: str | None) -> str:
+    """判定 L2 / L3（v2.2 H3C V7 实际模型版）
 
-    判定规则（v2.2 spec REQ-1）：
-    1. 名称以 Vlan-interface 开头 → L3
-    2. 有 Ipv4Address 且非空 → L3
-    3. 名称匹配子接口正则（X.Y） → L3
-    4. 其余 → L2
+    判定规则（H3C V7 真实情况，name 不可用）：
+    1. 有 IPv4 地址 → L3
+    2. 绑了 VPN instance → L3
+    3. 名称以 Vlan-interface 开头 → L3
+    4. 名称匹配子接口正则（X.Y） → L3
+    5. 其余 → L2
     """
-    if L3_NAME_PATTERN.match(name):
-        return "L3"
     if ip_addresses:
+        return "L3"
+    if vpn_instance:
+        return "L3"
+    name = iface.get("name", "") or ""
+    if L3_NAME_PATTERN.match(name):
         return "L3"
     if SUB_IF_PATTERN.match(name):
         return "L3"
     return "L2"
+
+
+def _mask_to_prefix(mask: str) -> int:
+    """255.255.255.0 → 24"""
+    try:
+        parts = [int(p) for p in mask.split(".")]
+        if len(parts) != 4:
+            return 32
+        n = 0
+        for p in parts:
+            n = (n << 8) | p
+        prefix = 0
+        for i in range(31, -1, -1):
+            if (n >> i) & 1:
+                prefix += 1
+            else:
+                break
+        return prefix
+    except (ValueError, AttributeError):
+        return 32
 
 
 def _parse_vlan_range(vlan_str: str) -> list[int]:
@@ -274,7 +374,15 @@ def get_interfaces(device_id: int, db: Session = Depends(get_db)):
             host=device.host, port=device.port,
             username=device.username, password=password,
         ) as client:
-            filter_xml = _build_interface_filter_xml()
+            # 一次查三模块（Ifmgr + IPV4ADDRESS + L3vpn）
+            combined_filter = (
+                f'<top xmlns="{H3C_CONFIG_NS}">'
+                '<Ifmgr><Interfaces/></Ifmgr>'
+                '<IPV4ADDRESS></IPV4ADDRESS>'
+                '<L3vpn></L3vpn>'
+                '</top>'
+            )
+            filter_xml = combined_filter
             response_xml = client.get_config(filter_xml)
 
         interfaces = _parse_interface_response(response_xml)
@@ -401,34 +509,18 @@ def _get_protected_interfaces(device: Device) -> list[int]:
 def _resolve_interfaces_for_vpn(client: NetconfClient, vpn_name: str) -> list[dict]:
     """查询 VPN instance 当前绑定的所有接口
 
-    通过 get_config `<Ipv4Vrf>` 找到该 VPN 的所有 Interface 引用。
+    通过 L3vpn get-config 找到该 VPN 的所有 Bind IfIndex。
     """
     response_xml = client.get_config(build_vpn_instance_filter_xml())
-    # 简化解析：遍历所有 Interface 元素，找带 IpBindVrfInstance == vpn_name 的
+    parsed = parse_vpn_instances(response_xml)
+    bindings = parsed.get("bindings", [])
     bound = []
-    try:
-        root = ET.fromstring(response_xml)
-        for elem in root.iter():
-            tag = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
-            if tag == "Interface":
-                if_index = None
-                name = None
-                bind = None
-                for child in elem:
-                    child_tag = child.tag.split("}")[-1] if "}" in child_tag else child_tag
-                    if child_tag == "IfIndex" and child.text:
-                        try:
-                            if_index = int(child.text)
-                        except ValueError:
-                            pass
-                    elif child_tag == "Name":
-                        name = child.text
-                    elif child_tag == "IpBindVrfInstance" and child.text:
-                        bind = child.text.strip()
-                if bind == vpn_name and if_index is not None:
-                    bound.append({"if_index": if_index, "name": name or f"If-{if_index}"})
-    except ET.ParseError as e:
-        logger.warning(f"解析 VPN 绑定接口失败: {e}")
+    for b in bindings:
+        if b.get("vrf") == vpn_name and b.get("if_index") is not None:
+            bound.append({
+                "if_index": b["if_index"],
+                "name": f"If-{b['if_index']}",  # 简化：没拿 name
+            })
     return bound
 
 
@@ -448,12 +540,13 @@ def list_vpn_instances(device_id: int, db: Session = Depends(get_db)):
             username=device.username, password=password,
         ) as client:
             response_xml = client.get_config(build_vpn_instance_filter_xml())
-            vpn_list = parse_vpn_instances(response_xml)
+            parsed = parse_vpn_instances(response_xml)
+            vpn_list = parsed["instances"]  # 已含 bound_interfaces
 
-            # 附加每个 VPN instance 的绑定接口
             result = []
             for vpn in vpn_list:
-                bound = _resolve_interfaces_for_vpn(client, vpn["name"])
+                # vpn 含 bound_interfaces（已解析）；前端用 if_index 即可
+                bound = [{"if_index": idx, "name": f"If-{idx}"} for idx in vpn.get("bound_interfaces", [])]
                 result.append({
                     "name": vpn["name"],
                     "rd": vpn.get("rd", "auto"),
@@ -489,7 +582,7 @@ def create_vpn_instance(device_id: int, body: VpnInstanceCreate, db: Session = D
             username=device.username, password=password,
         ) as client:
             # 预校验：是否已存在
-            existing = parse_vpn_instances(client.get_config(build_vpn_instance_filter_xml()))
+            existing = parse_vpn_instances(client.get_config(build_vpn_instance_filter_xml()))["instances"]
             if any(v["name"] == name for v in existing):
                 return APIResponse(success=False, error=f"VPN instance {name} 已存在")
 
@@ -521,7 +614,7 @@ def delete_vpn_instance(device_id: int, vpn_name: str, db: Session = Depends(get
             username=device.username, password=password,
         ) as client:
             # 预校验：是否还存在
-            existing = parse_vpn_instances(client.get_config(build_vpn_instance_filter_xml()))
+            existing = parse_vpn_instances(client.get_config(build_vpn_instance_filter_xml()))["instances"]
             if not any(v["name"] == vpn_name for v in existing):
                 return APIResponse(success=False, error=f"VPN instance {vpn_name} 不存在")
 
@@ -579,7 +672,7 @@ def bind_interface_vpn(device_id: int, if_index: int, body: InterfaceVpnBind,
             username=device.username, password=password,
         ) as client:
             # 预校验：VPN instance 是否存在
-            existing = parse_vpn_instances(client.get_config(build_vpn_instance_filter_xml()))
+            existing = parse_vpn_instances(client.get_config(build_vpn_instance_filter_xml()))["instances"]
             if not any(v["name"] == vpn_name for v in existing):
                 return APIResponse(success=False, error=f"VPN instance {vpn_name} 不存在，请先创建")
 

@@ -1,76 +1,106 @@
-"""NETCONF XML 构造器（v2.2）
+"""NETCONF XML 构造器（v2.2 H3C V7 实际模型）
 
-封装 H3C V7 设备 NETCONF 模型相关 XML 的构造，避免散落在各路由中。
+H3C V7 设备（192.168.100.4 Leaf-03 实测）模型拆分：
+- `Ifmgr/Interfaces/Interface`：物理/子接口（L2 + 部分 L3），**不返回带 VPN 的 L3 接口**
+- `IPV4ADDRESS/Ipv4Addresses/Ipv4Address`：L3 接口的 IP 地址（独立模块）
+- `L3vpn/L3vpnVRF/VRF/VRF`：VPN instance 定义
+- `L3vpn/L3vpnIf/Bind/VRF/IfIndex`：VPN instance 绑定的接口
 
-- VPN instance (`Ipv4Vrf` / `VRF`) 创建 / 删除
-- 接口绑 / 解绑 VPN instance (`IpBindVrfInstance`)
-- 接口扩展字段 filter（`Ipv4Address` 等）
+**合并规则**：完整接口列表 = Ifmgr 接口 + IPV4ADDRESS 中出现的 if_index（去重）
 
-**注意**：H3C V7 实际命名空间 / 字段名以设备探测为准，注释中标注
-"待探测"的字段在实施时需要在 192.168.100.4 上验证。
-如 NETCONF 模型不被设备接受，应 fallback 到 SSH CLI 实现（见 design.md）。
+如果设备不支持 L3vpn，调用方降级走 SSH CLI（v2.3 跟进）。
+
+**重要**：本文件所有 XML 都基于 192.168.100.4 探测得到。其他 H3C V7 设备
+模型一致（用同一 H3C NETCONF schema），但具体字段可能略有差异。
 """
 import xml.etree.ElementTree as ET
 from typing import Optional
 
 # H3C NETCONF 配置命名空间（与 vlan.py / interface.py 一致）
 H3C_CONFIG_NS = "http://www.h3c.com/netconf/config:1.0"
-# NETCONF base 1.0 命名空间（xc:operation="delete" 等用）
+# NETCONF base 1.0 命名空间
 NETCONF_BASE_NS = "urn:ietf:params:xml:ns:netconf:base:1.0"
+
+
+# ============ 接口查询 filter ============
+
+
+def build_interfaces_filter_xml() -> str:
+    """物理/子接口（不含 L3）"""
+    return f'<top xmlns="{H3C_CONFIG_NS}"><Ifmgr><Interfaces/></Ifmgr></top>'
+
+
+def build_ipv4_addresses_filter_xml() -> str:
+    """L3 接口的 IP 地址（独立模块）"""
+    return f'<top xmlns="{H3C_CONFIG_NS}"><IPV4ADDRESS></IPV4ADDRESS></top>'
+
+
+def build_interface_extended_filter_xml() -> str:
+    """兼容旧名：返回 Ifmgr + IPV4ADDRESS（同时获取）
+
+    注意：H3C filter 必须严格匹配 schema，**不能**同时声明多个根元素（多根是 XML 错），
+    所以本函数保留为单根 Ifmgr，与原实现一致。IPV4ADDRESS 需单独查询。
+    """
+    return build_interfaces_filter_xml()
 
 
 # ============ VPN instance ============
 
 
 def build_vpn_instance_filter_xml() -> str:
-    """构造查询 VPN instance 的 get-config filter
-
-    H3C 模型：`<Ipv4Vrf><VRF>...所有实例...</VRF></Ipv4Vrf>`
-    """
-    return f'<top xmlns="{H3C_CONFIG_NS}"><Ipv4Vrf></Ipv4Vrf></top>'
+    """查询所有 VPN instance + 绑定（一次拿全）"""
+    return f'<top xmlns="{H3C_CONFIG_NS}"><L3vpn></L3vpn></top>'
 
 
 def build_vpn_instance_create_xml(name: str, rd: str = "auto") -> str:
-    """构造创建 VPN instance 的 edit-config XML
+    """创建 VPN instance
 
-    Args:
-        name: VPN instance 名（如 "MGMT"）
-        rd: route-distinguisher，默认 "auto"（设备自动分配）
+    H3C 模型：
+    <L3vpn>
+      <L3vpnVRF>
+        <VRF>
+          <VRF>name</VRF>
+        </VRF>
+      </L3vpnVRF>
+    </L3vpn>
 
-    H3C 模型（待探测）:
-        <top>
-          <Ipv4Vrf>
-            <VRF>
-              <Name>{name}</Name>
-              <DefaultRD>{rd}</DefaultRD>
-            </VRF>
-          </Ipv4Vrf>
-        </top>
+    注：H3C 探测下来 RD 不作为必填字段，VRF 下只需要 VRF 子元素。
     """
     return f"""
     <config>
         <top xmlns="{H3C_CONFIG_NS}">
-            <Ipv4Vrf>
-                <VRF>
-                    <Name>{name}</Name>
-                    <DefaultRD>{rd}</DefaultRD>
-                </VRF>
-            </Ipv4Vrf>
+            <L3vpn>
+                <L3vpnVRF>
+                    <VRF>
+                        <VRF>{name}</VRF>
+                    </VRF>
+                </L3vpnVRF>
+            </L3vpn>
         </top>
     </config>
     """
 
 
 def build_vpn_instance_delete_xml(name: str) -> str:
-    """构造删除 VPN instance 的 edit-config XML（用 xc:operation="delete"）"""
+    """删除 VPN instance
+
+    H3C V7 限制：xc:operation 必须挂在外层 VRF（带 name 的那个）上，**不能**挂在内层 `<VRF>name</VRF>`。
+    但两个元素都叫 VRF（外层结构 = VRF 容器，内层 = VRF name），所以需要在外层 VRF 加 xc:operation="delete"，
+    然后内层 VRF 仍带 name 标识。
+
+    实测：H3C 报错 `Unexpected attribute 'operation' of element '.../VRF/VRF'`
+          → 必须改在外层 `VRF`（容器）上挂 `operation="delete"`。
+    """
     return f"""
     <config>
         <top xmlns="{H3C_CONFIG_NS}">
-            <Ipv4Vrf>
-                <VRF xmlns:xc="{NETCONF_BASE_NS}">
-                    <Name xc:operation="delete">{name}</Name>
-                </VRF>
-            </Ipv4Vrf>
+            <L3vpn>
+                <L3vpnVRF>
+                    <VRF xmlns:xc="{NETCONF_BASE_NS}" xc:operation="delete">
+                        <VRF>{name}</VRF>
+                    </VRF>
+                </L3vpnVRF>
+            </L3vpn>
         </top>
     </config>
     """
@@ -80,105 +110,165 @@ def build_vpn_instance_delete_xml(name: str) -> str:
 
 
 def build_interface_bind_vpn_xml(if_index: int, vpn_name: str) -> str:
-    """构造接口绑 VPN instance 的 edit-config XML
+    """接口绑 VPN instance
 
-    Args:
-        if_index: 接口 if_index（NETCONF 索引）
-        vpn_name: VPN instance 名
-
-    H3C 模型（待探测）:
-        <Ifmgr>
-          <Interfaces>
-            <Interface>
-              <IfIndex>{if_index}</IfIndex>
-              <IpBindVrfInstance>{vpn_name}</IpBindVrfInstance>
-            </Interface>
-          </Interfaces>
-        </Ifmgr>
+    H3C 模型：
+    <L3vpn>
+      <L3vpnIf>
+        <Bind>
+          <VRF>mgt</VRF>
+          <IfIndex>5121</IfIndex>
+        </Bind>
+      </L3vpnIf>
+    </L3vpn>
     """
     return f"""
     <config>
         <top xmlns="{H3C_CONFIG_NS}">
-            <Ifmgr>
-                <Interfaces>
-                    <Interface>
+            <L3vpn>
+                <L3vpnIf>
+                    <Bind>
+                        <VRF>{vpn_name}</VRF>
                         <IfIndex>{if_index}</IfIndex>
-                        <IpBindVrfInstance>{vpn_name}</IpBindVrfInstance>
-                    </Interface>
-                </Interfaces>
-            </Ifmgr>
+                    </Bind>
+                </L3vpnIf>
+            </L3vpn>
         </top>
     </config>
     """
 
 
-def build_interface_unbind_vpn_xml(if_index: int) -> str:
-    """构造接口解绑 VPN instance 的 edit-config XML"""
+def build_interface_unbind_vpn_xml(if_index: int, vpn_name: str) -> str:
+    """接口解绑 VPN instance（必须指定 VRF 名 + IfIndex 唯一定位 Bind）"""
     return f"""
     <config>
         <top xmlns="{H3C_CONFIG_NS}">
-            <Ifmgr>
-                <Interfaces>
-                    <Interface xmlns:xc="{NETCONF_BASE_NS}">
+            <L3vpn>
+                <L3vpnIf xmlns:xc="{NETCONF_BASE_NS}">
+                    <Bind xc:operation="delete">
+                        <VRF>{vpn_name}</VRF>
                         <IfIndex>{if_index}</IfIndex>
-                        <IpBindVrfInstance xc:operation="delete"></IpBindVrfInstance>
-                    </Interface>
-                </Interfaces>
-            </Ifmgr>
+                    </Bind>
+                </L3vpnIf>
+            </L3vpn>
         </top>
     </config>
     """
-
-
-# ============ 接口扩展 filter（IP 地址 + VPN instance 绑定）============
-
-
-def build_interface_extended_filter_xml() -> str:
-    """构造查询接口扩展字段的 get-config filter
-
-    在原 Ifmgr/Interfaces filter 基础上不需特殊处理（get-config 子树
-    会返回所有匹配字段，包括 Ipv4Address / IpBindVrfInstance）。
-    保留独立函数以便未来按需裁剪。
-    """
-    return f'<top xmlns="{H3C_CONFIG_NS}"><Ifmgr><Interfaces/></Ifmgr></top>'
 
 
 # ============ XML 解析辅助 ============
 
 
 def parse_vpn_instances(xml_str: str) -> list[dict]:
-    """解析 VPN instance get-config 响应
+    """解析 L3vpn get-config 响应
 
-    预期响应（待 192.168.100.4 探测）:
-        <Ipv4Vrf>
-          <VRF>
-            <Name>MGMT</Name>
-            <DefaultRD>auto</DefaultRD>
-          </VRF>
-        </Ipv4Vrf>
+    预期响应：
+    <L3vpn>
+      <L3vpnVRF><VRF><VRF>name</VRF></VRF></L3vpnVRF>
+      <L3vpnIf>
+        <Bind><VRF>name</VRF><IfIndex>idx</IfIndex></Bind>
+        ...
+      </L3vpnIf>
+    </L3vpn>
 
     Returns:
-        [{"name": "MGMT", "rd": "auto"}, ...]
+        {"instances": [{"name": "mgt", "bound_interfaces": [5121]}], "bindings": [{"vrf": "mgt", "if_index": 5121}]}
     """
-    results = []
+    instances = []
+    bindings = []
     try:
         root = ET.fromstring(xml_str)
         for elem in root.iter():
             tag = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
-            if tag == "VRF":
-                vrf = {"name": None, "rd": None}
+            if tag == "L3vpnVRF":
+                for vrf in elem.iter():
+                    t = vrf.tag.split("}")[-1] if "}" in vrf.tag else vrf.tag
+                    if t == "VRF":
+                        # VRF 元素下嵌套 VRF name
+                        for sub in vrf:
+                            st = sub.tag.split("}")[-1] if "}" in sub.tag else sub.tag
+                            if st == "VRF" and sub.text:
+                                instances.append({"name": sub.text.strip(), "rd": "auto"})
+            elif tag == "Bind":
+                bind = {"vrf": None, "if_index": None}
                 for child in elem:
-                    child_tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
-                    if child_tag == "Name" and child.text:
-                        vrf["name"] = child.text.strip()
-                    elif child_tag == "DefaultRD" and child.text:
-                        vrf["rd"] = child.text.strip()
-                if vrf["name"]:
-                    results.append(vrf)
+                    ct = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+                    if ct == "VRF" and child.text:
+                        bind["vrf"] = child.text.strip()
+                    elif ct == "IfIndex" and child.text:
+                        try:
+                            bind["if_index"] = int(child.text)
+                        except ValueError:
+                            pass
+                if bind["vrf"] is not None and bind["if_index"] is not None:
+                    bindings.append(bind)
     except ET.ParseError as e:
-        # 让上层记录日志
         raise ValueError(f"VPN instance XML 解析失败: {e}") from e
-    return results
+
+    # 合并
+    for inst in instances:
+        bound = [b["if_index"] for b in bindings if b["vrf"] == inst["name"]]
+        inst["bound_interfaces"] = bound
+    return {"instances": instances, "bindings": bindings}
+
+
+def parse_ipv4_addresses(xml_str: str) -> dict[int, list[str]]:
+    """解析 IPV4ADDRESS get-config 响应
+
+    Returns:
+        {if_index: ["192.168.100.4/24"], ...}
+    """
+    result = {}
+    try:
+        root = ET.fromstring(xml_str)
+        for elem in root.iter():
+            tag = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
+            if tag == "Ipv4Address":
+                if_index = None
+                ip = None
+                mask = None
+                for child in elem:
+                    ct = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+                    if ct == "IfIndex" and child.text:
+                        try:
+                            if_index = int(child.text)
+                        except ValueError:
+                            pass
+                    elif ct == "Ipv4Address" and child.text:
+                        ip = child.text.strip()
+                    elif ct == "Ipv4Mask" and child.text:
+                        mask = child.text.strip()
+                if if_index is not None and ip:
+                    if mask:
+                        # 转换 255.255.255.0 → /24
+                        prefix = _mask_to_prefix(mask)
+                        result[if_index] = result.get(if_index, []) + [f"{ip}/{prefix}"]
+                    else:
+                        result[if_index] = result.get(if_index, []) + [ip]
+    except ET.ParseError as e:
+        raise ValueError(f"IPv4Address XML 解析失败: {e}") from e
+    return result
+
+
+def _mask_to_prefix(mask: str) -> int:
+    """255.255.255.0 → 24"""
+    try:
+        parts = [int(p) for p in mask.split(".")]
+        if len(parts) != 4:
+            return 32
+        n = 0
+        for p in parts:
+            n = (n << 8) | p
+        # 计算 1 的个数
+        prefix = 0
+        for i in range(31, -1, -1):
+            if (n >> i) & 1:
+                prefix += 1
+            else:
+                break
+        return prefix
+    except (ValueError, AttributeError):
+        return 32
 
 
 def extract_if_index(elem) -> Optional[int]:

@@ -246,12 +246,22 @@ def classify_netconf_error(error: Exception) -> str:
 
     包含 RPC 错误（业务错误）的处理
     """
+    # 已知连接错误标识（含其中之一即为连接类错误）
+    connection_indicators = [
+        "重试",       # 重试 N 次后仍失败
+        "不可达",     # 设备不可达
+        "认证失败",   # 认证失败
+        "端口 830",   # 端口未开放
+        "NETCONF会话创建失败",
+        "SSH连接失败",
+    ]
     # 先用连接错误分类器
     conn_msg = classify_connection_error(error)
-    if "连接失败:" not in conn_msg or "重试" in conn_msg:
+    is_connection_error = any(ind in conn_msg for ind in connection_indicators)
+    if is_connection_error:
         return conn_msg
 
-    # RPC 业务错误
+    # RPC 业务错误（连接错误标识没有命中，往下走 RPCError 分支）
     if isinstance(error, RPCError):
         msg = str(error.message) if hasattr(error, "message") else str(error)
         # 常见错误模式
