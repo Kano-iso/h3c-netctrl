@@ -2,7 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import PageHeader from '../components/PageHeader.vue'
 import AssetEditModal from '../components/AssetEditModal.vue'
-import { deviceApi, assetApi } from '../api/index.js'
+import { deviceApi, assetApi, backupApi } from '../api/index.js'
 import { getStatusInfo } from '../utils/status.js'
 
 const loading = ref(true)
@@ -17,6 +17,12 @@ const refreshingIds = ref(new Set())  // 单设备采集中跟踪
 // Modal state
 const assetEditOpen = ref(false)
 const editingAsset = ref({ deviceId: null, deviceName: '', asset: {} })
+
+// 全量备份
+const fullBackingUp = ref(false)
+const fullResult = ref(null)
+const fullResultOpen = ref(false)
+const fullResultConfirm = ref(false)  // 防止全量备份确认误点（暂用 false）
 
 async function loadAssets() {
   loading.value = true
@@ -114,6 +120,21 @@ const byStatus = computed(() => groupBy('status'))
 const statusChip = (s) => getStatusInfo(s).chipClass
 const statusLabel = (s) => getStatusInfo(s).label
 
+// 全量备份
+const handleFullBackup = async () => {
+  if (fullBackingUp.value) return
+  fullBackingUp.value = true
+  fullResult.value = null
+  const r = await backupApi.createAll()
+  fullBackingUp.value = false
+  if (!r.success) {
+    error.value = r.error || '全量备份失败'
+    return
+  }
+  fullResult.value = r.data || { success: [], failed: [] }
+  fullResultOpen.value = true
+}
+
 // 编辑资产
 const onEditAsset = (d) => {
   editingAsset.value = { deviceId: d.id, deviceName: d.name, asset: d.asset || {} }
@@ -140,6 +161,10 @@ const onEditAsset = (d) => {
         <button class="btn-outline" :disabled="refreshing" @click="refresh">
           <svg :class="['size-3.5', refreshing && 'animate-spin']" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 12a9 9 0 109-9 9.75 9.75 0 00-6.74 2.74L3 8M3 3v5h5"/></svg>
           {{ refreshing ? '采集中…' : '全量刷新' }}
+        </button>
+        <button class="btn-primary" :disabled="fullBackingUp" @click="handleFullBackup">
+          <svg v-if="fullBackingUp" class="size-3.5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg>
+          {{ fullBackingUp ? '全量备份中…' : '全量备份' }}
         </button>
       </template>
     </PageHeader>
@@ -249,5 +274,50 @@ const onEditAsset = (d) => {
       :asset="editingAsset.asset"
       @updated="loadAssets"
     />
+
+    <!-- 全量备份结果 Modal -->
+    <Teleport to="body">
+      <Transition name="fade">
+        <div v-if="fullResultOpen" class="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div class="absolute inset-0 bg-ink-950/40 backdrop-blur-sm" @click="fullResultOpen = false"></div>
+          <div class="relative panel w-full max-w-lg shadow-2xl">
+            <div class="px-5 py-4 border-b border-canvas-300 flex items-center justify-between">
+              <h3 class="text-base font-semibold text-ink-900">全量备份结果</h3>
+              <button class="btn-soft !text-xs" @click="fullResultOpen = false">关闭</button>
+            </div>
+            <div class="px-5 py-4 space-y-3">
+              <div v-if="fullResult" class="text-sm space-y-2">
+                <div class="flex items-center gap-2 text-good">
+                  <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 13l4 4L19 7"/></svg>
+                  <span>成功 <b>{{ fullResult.success.length }}</b> 台</span>
+                </div>
+                <div v-if="fullResult.failed.length > 0" class="flex items-start gap-2 text-bad">
+                  <svg class="size-4 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+                  <div>
+                    <div>失败 <b>{{ fullResult.failed.length }}</b> 台</div>
+                    <ul class="mt-1 ml-4 text-[11px] space-y-0.5 list-disc">
+                      <li v-for="(f, i) in fullResult.failed" :key="i">
+                        设备 ID {{ f.device_id }} — {{ f.error }}
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+                <div v-if="fullResult.success.length > 0" class="text-[11px] text-ink-500">
+                  备份详情：{{ fullResult.success.length }} 份新备份已入库
+                </div>
+                <div class="text-[11px] text-ink-500 pt-2 border-t border-canvas-300">
+                  前往 <b>配置备份</b> 页面查看 / 下载 / 回滚
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
   </template>
 </template>
+
+<style scoped>
+.fade-enter-active, .fade-leave-active { transition: opacity .2s; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
+</style>

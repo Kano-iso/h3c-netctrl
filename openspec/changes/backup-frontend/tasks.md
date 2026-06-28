@@ -25,15 +25,15 @@
 
 ## 4. 前端 Devices.vue 接入
 
-- [ ] 4.1 操作列加"备份"按钮
-- [ ] 4.2 引入 `BackupListModal` 组件
-- [ ] 4.3 点击"备份" → 弹 Modal（传入 deviceId / deviceName）
+- [x] 4.1 操作列加"备份"按钮
+- [x] 4.2 引入 `BackupListModal` 组件
+- [x] 4.3 点击"备份" → 弹 Modal（传入 deviceId / deviceName）
 
 ## 5. 前端 CMDB.vue 接入
 
-- [ ] 5.1 顶部加"全量备份"按钮（资产表头右侧）
-- [ ] 5.2 点击 → 调用 `backupApi.createAll()` → 显示结果聚合
-- [ ] 5.3 错误处理（任一设备失败 → 中文错误）
+- [x] 5.1 顶部加"全量备份"按钮（资产表头右侧）
+- [x] 5.2 点击 → 调用 `backupApi.createAll()` → 显示结果聚合
+- [x] 5.3 错误处理（任一设备失败 → 中文错误）
 
 ## 6. 真机验证（192.168.100.4 Leaf-03）
 

@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import PageHeader from '../components/PageHeader.vue'
 import DeviceFormModal from '../components/DeviceFormModal.vue'
 import AssetEditModal from '../components/AssetEditModal.vue'
+import BackupListModal from '../components/BackupListModal.vue'
 import ConfirmModal from '../components/ConfirmModal.vue'
 import { deviceApi, assetApi } from '../api/index.js'
 import { getStatusChip, getStatusLabel } from '../utils/status.js'
@@ -28,6 +29,14 @@ const deleteBusy = ref(false)
 
 const assetEditOpen = ref(false)
 const editingAsset = ref({ deviceId: null, deviceName: '', asset: {} })
+
+// 备份 Modal
+const backupModalOpen = ref(false)
+const backupModalInfo = ref({ id: null, name: '' })
+function openBackupModal(d) {
+  backupModalInfo.value = { id: d.id, name: d.name }
+  backupModalOpen.value = true
+}
 
 async function loadDevices() {
   loading.value = true
@@ -237,6 +246,7 @@ const onEditAsset = (d) => {
                     {{ testing.has(d.id) ? '测试中…' : '连接测试' }}
                   </button>
                   <button class="btn-soft !text-[11px] !px-2 !py-1" @click="onEditAsset(d)">资产</button>
+                  <button class="btn-soft !text-[11px] !px-2 !py-1" @click="openBackupModal(d)">备份</button>
                   <button class="btn-soft !text-[11px] !px-2 !py-1" @click="onEdit(d)">编辑</button>
                   <button class="btn-soft !text-[11px] !px-2 !py-1 hover:!text-bad" @click="onDeleteClick(d)">删除</button>
                 </div>
@@ -270,6 +280,11 @@ const onEditAsset = (d) => {
       variant="danger"
       :busy="deleteBusy"
       @confirm="onDeleteConfirm"
+    />
+    <BackupListModal
+      v-model:visible="backupModalOpen"
+      :device-id="backupModalInfo.id"
+      :device-name="backupModalInfo.name"
     />
   </template>
 </template>
