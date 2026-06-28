@@ -2,6 +2,30 @@
 
 基于 NETCONF + SSH 的 H3C 交换机轻量网控平台。
 
+## 版本状态
+
+| 版本 | 状态 | 主题 | 详情 |
+|---|---|---|---|
+| v1.0 MVP | ✅ 2026-06-13 | 基础 CRUD + NETCONF VLAN/接口 | [archive/2026-06-13-v1-mvp-foundation](openspec/changes/archive/) |
+| v2.0 平台化 | ✅ 2026-06-22 | 8 项：NETCONF 重构 / QA 测试套件 / bugfix 轮次 / Schemas v2 | [archive 目录](openspec/changes/archive/) |
+| v2.1 前端重构 | ✅ 2026-06-23 | 7 项：多命令终端 / 设备 CRUD UI / 资产编辑 / 单设备采集 / 状态判定修复 | [archive 目录](openspec/changes/archive/) |
+| **v2.2 网控增强** | 🚧 进行中 | 手动备份+回滚 / 接口 VPN 能力 / 容器解耦预留 | 本次会话目标 |
+| v3.0 VPC | ⏳ 规划 | VPC 能力（SDN） | 延后 |
+
+详细进度与归档 change 见 [openspec/changes/archive/](openspec/changes/archive/)。
+主规格沉淀见 [openspec/specs/](openspec/specs/)。
+
+## 未来架构
+
+详见 [docs/CONTAINER-DECOUPLING.md](docs/CONTAINER-DECOUPLING.md)（v2.1.x patch 已预留蓝图，未实际拆）。
+
+| 容器 | 职责 | 实施 |
+|---|---|---|
+| **core** | NETCONF 配置 / 运维终端 / 设备 CRUD / 操作日志 | 当前 monolith |
+| **asset** | cmdb / 备份 / 资产采集 / 统一数据库 | v2.3 拆分 |
+| **sdn** (v3.0) | VPC + etcd 协调 | v3.0 引入 |
+| **monitor** (未来) | 实时指标 / 告警 / dashboard | 未来 |
+
 ## 功能概览
 
 | 模块 | 说明 |
@@ -9,9 +33,9 @@
 | 仪表盘 | 设备统计、最近操作、最近告警 |
 | 设备管理 | 多设备 CRUD、连接测试、密码加密存储 |
 | VLAN 管理 | 通过 NETCONF 协议增删改查 VLAN |
-| 网络运维 | 命令派发式终端（SSH 执行，返回输出） |
-| 接口管理 | 接口列表查看、Access/Trunk 联动配置下发 |
-| CMDB | 设备资产台账、硬件信息自动采集、位置/标签管理 |
+| 网络运维 | 命令派发式终端（SSH 执行，返回输出，支持多命令） |
+| 接口管理 | 接口列表查看、Access/Trunk 联动配置下发、trunk 允许 VLAN 列表显式拒绝 |
+| CMDB | 设备资产台账、硬件信息自动采集（SSH）、位置/标签/状态手动编辑、单设备采集 |
 | 批量操作 | 多设备勾选、批量执行命令、结果汇总 |
 | 操作日志 | 全操作自动记录、按类型/状态筛选 |
 

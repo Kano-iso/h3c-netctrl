@@ -17,6 +17,13 @@ from app.utils.logger import setup_logging
 # 初始化日志系统
 setup_logging(log_level=settings.LOG_LEVEL, log_file="./logs/app.log")
 
+# 未来容器解耦预留（v2.1.x patch，未实际拆）
+# 当前 monolith 单进程；v2.3 拆 asset / v3.0 加 sdn / 未来 monitor
+# 详见 docs/CONTAINER-DECOUPLING.md
+SERVICE_NAME = os.getenv("SERVICE_NAME", "core")
+logger = logging.getLogger("app")
+logger.info(f"service_name={SERVICE_NAME} (future split: core/asset/sdn/monitor)")
+
 app = FastAPI(
     title="H3C NetCtrl",
     description="基于 NETCONF 的 H3C 交换机轻量网控平台",

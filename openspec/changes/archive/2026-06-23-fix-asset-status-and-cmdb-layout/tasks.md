@@ -17,5 +17,5 @@
 
 ## 4. 收尾
 
-- [ ] 4.1 提交代码 `fix(asset-status): 不可达设备判 offline + CMDB 操作列宽度适配`
-- [ ] 4.2 archive change
+- [x] 4.1 提交代码 `fix(asset-status): 不可达设备判 offline + CMDB 操作列宽度适配`（commit 上面）
+- [x] 4.2 archive change

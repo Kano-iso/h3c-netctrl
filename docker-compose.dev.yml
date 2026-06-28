@@ -1,3 +1,9 @@
+# ============================================================
+# 未来容器拆分蓝图（v2.1.x patch 预留，未实际拆）
+# 当前 backend 服务 = monolith，承载 core + asset 业务
+# v2.3 拆 asset / v3.0 加 sdn / 未来 monitor
+# 详见 docs/CONTAINER-DECOUPLING.md
+# ============================================================
 services:
   backend:
     build:
@@ -12,6 +18,10 @@ services:
       - ./logs:/app/logs
     env_file:
       - .env
+    environment:
+      # 未来拆容器时通过 SERVICE_NAME 标识实例角色
+      # 当前 monolith 启动 log 输出 service_name=core
+      - SERVICE_NAME=${SERVICE_NAME:-core}
     restart: unless-stopped
     networks:
       - h3c-net
