@@ -86,7 +86,11 @@ def _make_manager(device: Device, password: str) -> BackupManager:
 
 @router.post("/devices/{device_id}/backup", response_model=APIResponse)
 def create_backup(device_id: int, body: BackupCreateRequest, db: Session = Depends(get_db)):
-    """对指定设备创建配置备份（拉取 startup.cfg / running.cfg）"""
+    """对指定设备创建配置备份（拉取 startup.cfg / running.cfg）
+
+    日志记录：BackupManager.create_backup() 内部已经按 btype 粒度（startup / running）
+    成功/失败都 record_log，路由层不重复记日志（避免重复 + device_name 字段不一致）。
+    """
     device, password, error = _get_device_with_password(db, device_id)
     if error:
         return error
@@ -170,7 +174,10 @@ def download_backup(device_id: int, backup_id: int, db: Session = Depends(get_db
 
 @router.delete("/devices/{device_id}/backup/{backup_id}", response_model=APIResponse)
 def delete_backup(device_id: int, backup_id: int, db: Session = Depends(get_db)):
-    """删除备份（locked=True 返回 403）"""
+    """删除备份（locked=True 返回 403）
+
+    日志记录：BackupManager.delete_backup() 内部已 record_log，路由层不重复记。
+    """
     device, password, error = _get_device_with_password(db, device_id)
     if error:
         return error
@@ -193,7 +200,10 @@ def delete_backup(device_id: int, backup_id: int, db: Session = Depends(get_db))
 
 @router.post("/devices/{device_id}/backup/{backup_id}/lock", response_model=APIResponse)
 def lock_backup(device_id: int, backup_id: int, body: BackupLockRequest, db: Session = Depends(get_db)):
-    """切换备份锁定状态（true 锁定 / false 解锁）"""
+    """切换备份锁定状态（true 锁定 / false 解锁）
+
+    日志记录：BackupManager.set_locked() 内部已 record_log，路由层不重复记。
+    """
     device, password, error = _get_device_with_password(db, device_id)
     if error:
         return error
@@ -223,6 +233,9 @@ def restore_backup(device_id: int, backup_id: int, body: BackupRestoreRequest = 
 
     业界主流（Oxidized / Ansible Network / NAPALM / H3C iMC）都是"工具不负责 reboot"，
     但 v2.2 用户场景是"页面点一下就完成回滚"，所以 with_reboot=True 走端到端流程。
+
+    日志记录：BackupManager.restore() 内部已 record_log（包含 reboot / verify），
+    路由层不重复记。
     """
     device, password, error = _get_device_with_password(db, device_id)
     if error:
@@ -273,13 +286,22 @@ def create_all_backups(db: Session = Depends(get_db)):
                     "device_name": device.name,
                     "backups": results,
                 })
+                record_log(db, device.id, device.name, "backup_create_all",
+                           f"全量备份成功：{len(results)} 份新备份", "success")
             else:
                 failed_list.append({"device_id": device.id, "device_name": device.name, "error": "所有类型备份均失败"})
+                record_log(db, device.id, device.name, "backup_create_all",
+                           "全量备份失败：所有类型均失败", "failed",
+                           error_message="所有类型备份均失败")
         except BackupError as e:
             failed_list.append({"device_id": device.id, "device_name": device.name, "error": str(e)})
+            record_log(db, device.id, device.name, "backup_create_all",
+                       "全量备份失败", "failed", error_message=str(e))
         except Exception as e:
             logger.error(f"全量备份异常 device_id={device.id}: {e}", exc_info=True)
             failed_list.append({"device_id": device.id, "device_name": device.name, "error": str(e)})
+            record_log(db, device.id, device.name, "backup_create_all",
+                       "全量备份异常", "failed", error_message=str(e))
 
     return APIResponse(
         success=True,

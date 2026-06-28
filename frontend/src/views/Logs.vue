@@ -24,6 +24,11 @@ const actionOptions = [
   { value: 'interface_config', label: 'interface_config · 接口配置' },
   { value: 'asset_refresh', label: 'asset_refresh · 资产刷新' },
   { value: 'batch_execute', label: 'batch_execute · 批量执行' },
+  { value: 'backup_create', label: 'backup_create · 单设备备份' },
+  { value: 'backup_create_all', label: 'backup_create_all · 全量备份' },
+  { value: 'backup_delete', label: 'backup_delete · 删除备份' },
+  { value: 'backup_lock', label: 'backup_lock · 锁定 / 解锁' },
+  { value: 'backup_restore', label: 'backup_restore · 回滚' },
 ]
 
 // "全部" 显式作为第一项（placeholder 也可，但放第一项更明确）
