@@ -5,14 +5,14 @@
 
 ## 2. 前端 BackupListModal 组件
 
-- [ ] 2.1 `frontend/src/components/BackupListModal.vue` 新建
-- [ ] 2.2 Props: `visible` (ref), `deviceId`, `deviceName`
-- [ ] 2.3 列表表格：备份 ID / 文件名 / 时间 / 大小 / 类型 / 锁定 / hash 前 8 位
-- [ ] 2.4 操作列：下载 / 删除（锁定时禁用 + tooltip）/ 锁定切换 / 回滚
-- [ ] 2.5 顶部"立即备份"按钮
-- [ ] 2.6 关闭按钮 + ESC 键
-- [ ] 2.7 删除 / 回滚 / 锁定切换 必经 `ConfirmModal` 二次确认
-- [ ] 2.8 错误信息显示（设备不可达等）
+- [x] 2.1 `frontend/src/components/BackupListModal.vue` 新建
+- [x] 2.2 Props: `visible` (ref), `deviceId`, `deviceName`
+- [x] 2.3 列表表格：备份 ID / 文件名 / 时间 / 大小 / 类型 / 锁定 / hash 前 8 位
+- [x] 2.4 操作列：下载 / 删除（锁定时禁用 + tooltip）/ 锁定切换 / 回滚
+- [x] 2.5 顶部"立即备份"按钮
+- [x] 2.6 关闭按钮 + ESC 键
+- [x] 2.7 删除 / 回滚 / 锁定切换 必经 `ConfirmModal` 二次确认
+- [x] 2.8 错误信息显示（设备不可达等）
 
 ## 3. 前端 Backup.vue 重写
 
