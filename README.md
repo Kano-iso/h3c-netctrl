@@ -156,6 +156,23 @@ h3c-netctrl/
 | LOG_LEVEL | 否 | INFO | 日志级别（INFO/DEBUG） |
 | BACKEND_PORT | 否 | 8000 | 后端服务端口 |
 
+## QA
+
+每个版本发版前必跑：
+
+```bash
+# 后端 QA（unit + smoke + bugfix regression + xml builder，秒级）
+docker compose -f docker-compose.dev.yml --profile qa up qa-backend
+
+# 前端 QA（编译 + 组件测试 v2.3+，秒级）
+docker compose -f docker-compose.dev.yml --profile qa up qa-frontend
+
+# 真机集成（按需，分钟级，需 SSH 通设备）
+docker compose -f docker-compose.dev.yml run --rm --entrypoint "pytest -m integration -v" qa-backend
+```
+
+详细 SOP 见 [docs/QA-GUIDE.md](docs/QA-GUIDE.md)。
+
 ## 版本历史
 
 | 版本 | 主要功能 | 发版说明 |
@@ -164,4 +181,4 @@ h3c-netctrl/
 | V1.1 | Vue 3 前端重构、多设备管理、日志查看页面 | ⚠️ 弃用，被 v2.1 替代 |
 | V2.0 | 侧边栏导航、Dashboard、运维终端、接口管理、CMDB、批量操作、Alembic 迁移、GitHub Actions CI | - |
 | V2.1 | 多命令终端、设备 CRUD UI、资产编辑、单设备采集、状态判定修复 | - |
-| **V2.2.0** | **备份前端（3 入口 + 1 Modal）、接口 VPN 联动 + L2/L3 + link type + IP 编辑能力、4 收尾 bug fix** | [**RELEASE-NOTES-v2.2.0.md**](RELEASE-NOTES-v2.2.0.md) |
+| V2.2.0 | **备份前端（3 入口 + 1 Modal）、接口 VPN 联动 + L2/L3 + link type + IP 编辑能力、4 收尾 bug fix** | [**RELEASE-NOTES-v2.2.0.md**](RELEASE-NOTES-v2.2.0.md) |

@@ -19,10 +19,26 @@ v2.2.0 发版后留下 3 类遗留项需要在 v2.3 收尾：
 
 - **新增 ops-toolkit 容器**（profile: ops，按需启动）：预装 ping / nc / SSH client / ncclient + 一组预制脚本（check-host.sh / check-netconf.sh / ssh-test.sh / capture-config.sh），后端无侵入，仅作为排错工具
 - **新增 link mode 切换能力**：后端 PATCH `/api/devices/{id}/interfaces/{if_index}/link-mode`（mode=bridge|route, force=bool），走 SSH CLI（NETCONF 不支持 link-mode 变更），UI 加"改层级"按钮，受保护护栏+二次确认+设备验证
-- **引入自动化测试双层架构**：
-  - `tests/e2e/` —— Playwright 跑前端 UI（无需设备）
-  - `tests/integration/` —— pytest + paramiko 跑真实设备 SSH/NETCONF
-  - 覆盖 backup-frontend 6.x + 新增 link mode 切换
+- **引入自动化测试架构**（**轻量化：复用 `qa-backend` 容器 + `backend/tests/`，0 装包**）：
+  - API 层：FastAPI TestClient + pytest（无设备）
+  - 设备集成层：pytest + paramiko + ncclient（192.168.100.4 / .5）
+  - 覆盖 backup-frontend 6.x + 新增 link mode 切换 + v2.2.0 漏的 14 个新 API
+  - **不引入 Playwright**（个人项目 ROI 低，模拟点击是 over-engineering）
+- **QA 规范化（强制）**：
+  - 每个 change 的 `proposal.md` 必含 "QA 验证计划" 段（按 [QA-TEMPLATE.md](../QA-TEMPLATE.md) 模板）
+  - Apply 阶段必跑 `docker compose --profile qa up qa-backend`（单元 + smoke）
+  - Archive 阶段必跑 `docker compose --profile qa up qa-frontend`（验编译）
+  - 真机集成可推迟（设备不通时 skip），但单元 / smoke 不能少
+  - v2.2.0 漏的 14 个新 API + 备份 / VPN 真机集成测试：单独立 [v2.2.1-followup-v22-qa-repair](../v2.2.1-followup-v22-qa-repair/proposal.md) 补
+  - **QA 容器使用文档**：[docs/QA-GUIDE.md](../../../docs/QA-GUIDE.md)（SOP / 流程 / checklist / 跑法），防止将来忘记 QA 流程
+- **QA 前端规范化（v2.3 引入 vitest）**：
+  - 引入 `vitest` + `@vue/test-utils` 跑组件测试（Modal / 表单 / 状态机）
+  - qa-frontend 容器从"只验编译"升级到"编译 + 组件测试"
+  - 装包：vitest + @vue/test-utils + jsdom ~10MB
+  - 跑法：`npm run test` 在 qa-frontend 容器里跑
+- **新模块 API 增量加入 QA**（长期）：
+  - 每次新加 API（v2.3 / v2.3.x / v2.4...）→ 必加 smoke + 错误码 test
+  - 流程：实现 API → 加 test → 跑 qa-backend → 写 6.x 浏览器验证项（如有 UI）→ archive
 - **拆 asset 容器**（可选 / 评估中）：cmdb + 备份从 monolith 拆出到独立 `asset` 容器（v2.1.x 蓝图 [docs/CONTAINER-DECOUPLING.md](docs/CONTAINER-DECOUPLING.md)）
 - **架构**：保留 OpenSpec 单 change 模式，每个 sub-change 独立起 + archive
 
@@ -34,8 +50,12 @@ v2.2.0 发版后留下 3 类遗留项需要在 v2.3 收尾：
 |---|---|---|
 | `add-ops-toolkit-container` | 容器化运维工具 | docker-compose 新增 ops-toolkit service，profile: ops，5 个预制脚本 |
 | `add-interface-l2-l3-switch` | link mode 切换（L2↔L3） | SSH CLI 走 `port link-mode { bridge \| route }` + 二次确认护栏 |
-| `add-backup-e2e-and-integration-tests` | 自动化测试双层 | Playwright (UI) + pytest + paramiko (设备) |
+| `add-backup-e2e-and-integration-tests` (轻量：复用 `qa-backend` 容器 + `backend/tests/`) | 自动化测试 | FastAPI TestClient (API) + pytest + paramiko (设备集成) |
+| `v2.2.1-followup-v22-qa-repair` (P0，单独起项) | v2.2.0 QA 漏项补齐 | 14 个新 API smoke + 错误码 + 192.168.100.4 backup 集成 + 192.168.100.5 VPN 集成 |
 | `v2.2.1-followup-backup-frontend-ui-tests` | backup-frontend UI 验证补 | 6.3-6.8/6.10/6.11 浏览器 UI 端到端 |
+| `qa-template-mandatory` | QA 模板强制 | proposal.md 必含 "QA 验证计划" 段 ([QA-TEMPLATE.md](../QA-TEMPLATE.md)) |
+| `add-qa-guide` | QA 容器使用文档 | [docs/QA-GUIDE.md](../../../docs/QA-GUIDE.md)（SOP / 流程 / checklist / 跑法） |
+| `add-vitest-component-tests` (v2.3 引入) | QA 前端规范化 | vitest + @vue/test-utils 跑组件测试（Modal / 表单 / 状态机） |
 | `interface-linked-config` | 接口联动配置（其他维度） | 需求待具体化 |
 | `v2.3-container-decoupling-asset`（可选） | 拆 asset 容器 | cmdb + 备份独立容器 |
 
@@ -49,7 +69,7 @@ v2.2.0 发版后留下 3 类遗留项需要在 v2.3 收尾：
 - **新增后端**：`backend/app/routers/interface.py` 加 `PATCH /link-mode`；`backend/app/utils/ssh_executor.py` 可能加 link-mode 专用方法
 - **新增前端**：`frontend/src/views/Interfaces.vue` 加"改层级"按钮 + `LinkModeSwitchModal.vue` 二次确认弹窗
 - **新增测试**：`backend/tests/test_backup_api.py` + `test_backup_integration.py` + `test_vpn_integration.py`（**复用 `qa-backend` 容器 + `requirements.txt` 已含 pytest + paramiko，0 装包消耗**）
-- **CI**：`.github/workflows/qa.yml` 加 `docker compose --profile qa up qa-backend --abort-on-container-exit` 一行
+- **CI**：`.github/workflows/qa.yml` 加 `docker compose --profile qa up qa-backend --abort-on-container-exit` 一行 + `docker compose --profile qa up qa-frontend --abort-on-container-exit` 一行
 - **不破坏**：v2.2.0 backup-frontend / interface-vpn-instance-and-l2-l3 / fix-vpn-edit-capabilities 端点
 - **可回退**：每个 sub-change 独立 revert
 
