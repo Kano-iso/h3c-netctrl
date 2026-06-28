@@ -15,8 +15,8 @@
 | **v1.1 UI 增强** | ⚠️ 弃用 | Vue 3 重构 + 多设备 UI（被 v2.1 替代） | [archive/2026-06-23-v11-ui-enhancement-deprecated](openspec/changes/archive/2026-06-23-v11-ui-enhancement-deprecated/) |
 | **v2.0 平台化** | ✅ 2026-06-22 | 8 项：NETCONF 重构 / QA / bugfix 轮 / Schemas v2 / CMDB / 终端 / 批量 / 侧边栏 | archive 目录下 `2026-06-21-v20-platform-evolution` / `2026-06-22-v20-*` |
 | **v2.1 前端重构** | ✅ 2026-06-23 | 7 项：多命令终端 / 设备 CRUD UI / 资产编辑 / 单设备采集 / 状态判定修复 / 容器解耦预留 | archive 目录下 `2026-06-23-v21-frontend-refactor` / `2026-06-23-*` / `2026-06-28-container-decoupling` |
-| **v2.1.x patch 灰度** | 🚧 进行中 | 手动备份后端能力（前端延后到 v2.2） | [archive/2026-06-28-v21x-patch-backup-backend](openspec/changes/archive/2026-06-28-v21x-patch-backup-backend/) |
-| **v2.2 网控增强** | 🚧 进行中（3/3 待 archive） | 备份前端 / 接口 VPN / 接口 L2-L3 / 联动配置 | [archive/2026-06-28-interface-vpn-instance-and-l2-l3](openspec/changes/archive/2026-06-28-interface-vpn-instance-and-l2-l3/)（VPN + L2/L3 ✅ + **v2.2.1 patch 已发** unbind 预校验 + Modal UX 修复 [archive/2026-06-28-fix-vpn-and-l2l3-ux-bugs](openspec/changes/archive/2026-06-28-fix-vpn-and-l2l3-ux-bugs/) + **v2.2.2 patch 已发** link type + IP 编辑能力 [archive/2026-06-28-fix-vpn-edit-capabilities](openspec/changes/archive/2026-06-28-fix-vpn-edit-capabilities/)，**备份前端 [backup-frontend](openspec/changes/backup-frontend/) 4 个 fix commits 已 commit，真机验证 6.1/6.2/6.9 PASS（6.3-6.8/6.10/6.11 未在浏览器逐一验证）待 archive**） |
+| **v2.1.x patch 灰度** | ✅ 2026-06-29 (并入 v2.2.0 发版) | 手动备份后端能力（前端在 v2.2 backup-frontend 补齐） | [archive/2026-06-28-v21x-patch-backup-backend](openspec/changes/archive/2026-06-28-v21x-patch-backup-backend/) |
+| **v2.2 网控增强** | ✅ 2026-06-29 (tag: v2.2.0) | 备份前端 / 接口 VPN / 接口 L2-L3 / 联动配置 | [archive/2026-06-28-interface-vpn-instance-and-l2-l3](openspec/changes/archive/2026-06-28-interface-vpn-instance-and-l2-l3/)（VPN + L2/L3 ✅ + **v2.2.1 patch** unbind 预校验 + Modal UX 修复 [archive/2026-06-28-fix-vpn-and-l2l3-ux-bugs](openspec/changes/archive/2026-06-28-fix-vpn-and-l2l3-ux-bugs/) + **v2.2.2 patch** link type + IP 编辑能力 [archive/2026-06-28-fix-vpn-edit-capabilities](openspec/changes/archive/2026-06-28-fix-vpn-edit-capabilities/) + [archive/2026-06-28-backup-frontend](openspec/changes/archive/2026-06-28-backup-frontend/)） |
 | **v3.0 VPC** | ⏳ 规划 | VPC + etcd（SDN 起步） | 暂未起 spec |
 | **monitor** | ⏳ 远期 | 监控 / 告警 / dashboard 独立化 | 暂未起 spec |
 
@@ -236,7 +236,22 @@
 |---|---|---|
 | 2026-06-28 | 初版：v1.0 → v2.1 + v2.1.x patch 灰度 + v2.2 规划 | session 续接 |
 | 2026-06-29 | v2.2 第 1 项 archive + v2.2.1 patch（unbind 预校验 + Modal UX）+ v2.2.2 patch（link type + IP 编辑能力）archive | session 续接 |
+| 2026-06-29 | v2.2.0 tag 发版（backup-frontend archive + 4 fix commits + spec 规范化，共 18 commits） | session 续接 |
 
 ---
 
-**最后更新**：2026-06-29
+**最后更新**：2026-06-29 v2.2.0 发版
+
+---
+
+## 7. v2.3 backlog（暂存）
+
+**目标**：补齐 v2.2.0 遗留 UI 验证 + 容器化运维工具 + L2/L3 切换能力。
+
+| change-id | 主题 | 备注 |
+|---|---|---|
+| `v2.2.1-followup-backup-frontend-ui-tests` | 补 backup-frontend 6.3-6.8/6.10/6.11 浏览器 UI 逐一验证（功能代码 OK，未逐一测） | follow-up |
+| `add-ops-toolkit-container` | docker-compose 新增 ops-toolkit service（profile: ops），预装 ping/nc/SSH client/ncclient + 一组预制脚本（check-host.sh / check-netconf.sh / ssh-test.sh），后端无侵入 | 用户原话："我们应该有一个专门的容器吧，每一次我们限错命令有点蠢...有的时候还有会有一个环境问题" |
+| `add-interface-l2-l3-switch` | 后端 PATCH /devices/{id}/interfaces/{if_index}/link-mode（mode=bridge|route, force=bool），走 SSH CLI（NETCONF 不支持），受保护护栏+二次确认+设备验证，UI 加"改层级"按钮 | 覆盖 v2.2.2 patch 没做的 L2↔L3 切换 |
+| `add-backup-e2e-and-integration-tests` | Playwright (UI 自动化) + pytest + paramiko (设备集成) | v2.2 收尾时的自动化测试建议 |
+| `interface-linked-config` | 接口联动配置（其他维度） | 用户原话"顺便再加一个能力"（需求未具体化） |
