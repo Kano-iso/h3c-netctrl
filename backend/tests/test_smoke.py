@@ -401,6 +401,35 @@ def test_link_mode_switch_endpoint_exists(client, created_device, real_device_ne
     assert resp.status_code in (200, 422, 500)
 
 
+def test_link_mode_switch_full_flow(client, created_device, real_device_netconf):
+    """PATCH link-mode 端到端：force=false → 确认；force=true → 执行
+
+    v2.3 修复：原代码硬编码 port=22，但 H3C V7 NETCONF/SSH 共用 830
+    """
+    # step 1: force=false 触发确认流程
+    r1 = client.patch(
+        f"/api/devices/{created_device['id']}/interfaces/100/link-mode",
+        json={"mode": "bridge", "force": False}
+    )
+    assert r1.status_code == 200, f"force=false 应 200，实际 {r1.status_code} {r1.text}"
+    d1 = r1.json()
+    assert d1["success"] is True
+    assert d1["data"]["confirmed"] is False
+    assert d1["data"]["mode"] == "bridge"
+    assert "force=true" in d1["data"]["message"]
+
+    # step 2: force=true 真正执行（不接设备，期望 connection error，不应 500 Pydantic 错误）
+    r2 = client.patch(
+        f"/api/devices/{created_device['id']}/interfaces/100/link-mode",
+        json={"mode": "bridge", "force": True}
+    )
+    # 期望：要么成功（设备通），要么返回 success=False 带 SSH 错误信息（业务错误），不应 Internal Server Error
+    assert r2.status_code == 200, f"force=true 不应 500，实际 {r2.status_code} {r2.text}"
+    d2 = r2.json()
+    # 不管成功失败，success 字段一定有
+    assert "success" in d2
+
+
 def test_link_mode_switch_device_not_found(client):
     """PATCH /api/devices/{id}/interfaces/{if_index}/link-mode 设备不存在"""
     resp = client.patch(

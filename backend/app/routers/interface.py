@@ -1055,9 +1055,10 @@ def switch_link_mode(device_id: int, if_index: int, body: LinkModeSwitch,
         )
 
     # 执行 SSH CLI
+    # H3C V7 NETCONF/SSH 共用同一端口（默认 830）
     ssh = SSHExecutor(
         host=device.host,
-        port=22,
+        port=device.port,
         username=device.username,
         password=password,
         timeout=30,
@@ -1074,7 +1075,7 @@ def switch_link_mode(device_id: int, if_index: int, body: LinkModeSwitch,
     # 检查结果
     for r in results:
         if not r["success"]:
-            error_msg = f"SSH CLI 失败: {r['command']} -> {r['output'][:200]}"
+            error_msg = f"SSH CLI 失败: {r.get('cmd', '?')} -> {(r.get('error') or r.get('output', ''))[:200]}"
             logger.error(f"切 link mode 失败: device_id={device_id}, if_index={if_index}, {error_msg}")
             record_log(db, device.id, device.name, "link_mode_switch",
                        f"切 link mode if_index={if_index} -> {body.mode} 失败",
