@@ -3,6 +3,7 @@ import re
 import socket
 import subprocess
 import time
+from typing import Optional
 
 import paramiko
 from ncclient import manager
@@ -155,6 +156,38 @@ class NetconfClient:
             username=self.username, password=self.password,
             timeout=self.timeout, max_retries=self.max_retries,
         )
+
+    def get_interface_name_by_index(self, if_index: int) -> Optional[str]:
+        """根据 if_index 查询接口的 name（如 GigabitEthernet1/0/3）
+
+        v2.3 新增：link-mode 走 SSH CLI 需要真实接口名（if_index 数字不能解析出 name）
+        """
+        if not self._manager:
+            raise RuntimeError("NETCONF未连接")
+        xml = f'''<filter>
+  <top xmlns="http://www.h3c.com/netconf/data:1.0">
+    <Ifmgr>
+      <Interfaces>
+        <Interface>
+          <IfIndex>{if_index}</IfIndex>
+        </Interface>
+      </Interfaces>
+    </Ifmgr>
+  </top>
+</filter>'''
+        try:
+            r = self._manager.get(xml)
+            # 解析 <Name> 字段
+            import xml.etree.ElementTree as ET
+            root = ET.fromstring(str(r))
+            NS = '{http://www.h3c.com/netconf/data:1.0}'
+            for iface in root.iter(NS + 'Interface'):
+                if iface.findtext(NS + 'IfIndex') == str(if_index):
+                    return iface.findtext(NS + 'Name')
+            return None
+        except Exception as e:
+            logger.error(f"get_interface_name_by_index 失败 if_index={if_index}: {e}")
+            return None
 
     def disconnect(self):
         """断开 NETCONF 连接"""

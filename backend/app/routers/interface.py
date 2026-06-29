@@ -1054,11 +1054,41 @@ def switch_link_mode(device_id: int, if_index: int, body: LinkModeSwitch,
             },
         )
 
-    # 执行 SSH CLI
-    # H3C V7 NETCONF/SSH 共用同一端口（默认 830）
+    # v2.3 修复：先用 NETCONF 查接口真实 name（if_index ≠ name 数字），再用 SSH 22 CLI 改
+    # H3C V7：port 22 = SSH CLI（link-mode 走这条）；port 830 = NETCONF（无 link-mode）
+    try:
+        from app.netconf_client import NetconfClient
+        nc = NetconfClient(
+            host=device.host,
+            port=device.port,
+            username=device.username,
+            password=password,
+        )
+        nc.connect()
+        try:
+            name = nc.get_interface_name_by_index(if_index)
+        finally:
+            nc.disconnect()
+    except Exception as e:
+        error_msg = f"NETCONF 查接口名失败 if_index={if_index}: {e}"
+        logger.error(error_msg)
+        record_log(db, device.id, device.name, "link_mode_switch",
+                   f"切 link mode if_index={if_index} -> {body.mode} 失败（NETCONF 查 name）",
+                   "failed", error_message=error_msg)
+        return APIResponse(success=False, error=error_msg)
+
+    if not name:
+        error_msg = f"接口不存在 if_index={if_index}"
+        logger.error(f"切 link mode 失败: {error_msg}")
+        record_log(db, device.id, device.name, "link_mode_switch",
+                   f"切 link mode if_index={if_index} -> {body.mode} 失败（接口不存在）",
+                   "failed", error_message=error_msg)
+        return APIResponse(success=False, error=error_msg)
+
+    # 执行 SSH CLI（强制走 22，NETCONF 不支持 link-mode）
     ssh = SSHExecutor(
         host=device.host,
-        port=device.port,
+        port=22,
         username=device.username,
         password=password,
         timeout=30,
@@ -1067,7 +1097,7 @@ def switch_link_mode(device_id: int, if_index: int, body: LinkModeSwitch,
     # 切到 system-view → 进入接口 → 改 link-mode
     commands = [
         "system-view",
-        f"interface {_parse_if_name_for_cli(if_index)}",
+        f"interface {name}",
         f"port link-mode {body.mode}",
     ]
     results = ssh.execute_commands(commands, delay_ms=500)

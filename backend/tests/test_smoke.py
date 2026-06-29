@@ -4,7 +4,10 @@
 """
 import json
 import os
+import time
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 
 def test_health(client):
@@ -404,7 +407,10 @@ def test_link_mode_switch_endpoint_exists(client, created_device, real_device_ne
 def test_link_mode_switch_full_flow(client, created_device, real_device_netconf):
     """PATCH link-mode 端到端：force=false → 确认；force=true → 执行
 
-    v2.3 修复：原代码硬编码 port=22，但 H3C V7 NETCONF/SSH 共用 830
+    v2.3 修复：
+    - port 强制 22（device.port=830 是 NETCONF，link-mode 走 SSH CLI）
+    - if_index → name 用 NETCONF 查（不能从数字解析）
+    - NetconfClient 用 disconnect() 而非 close()
     """
     # step 1: force=false 触发确认流程
     r1 = client.patch(
@@ -428,6 +434,97 @@ def test_link_mode_switch_full_flow(client, created_device, real_device_netconf)
     d2 = r2.json()
     # 不管成功失败，success 字段一定有
     assert "success" in d2
+
+
+@pytest.mark.integration
+def test_link_mode_switch_real_device():
+    """真机 192.168.100.5：桥接二层（L2）→ 三层（route）→ 二层（bridge）
+
+    v2.3 闭环验证（不用点 UI）：
+    - 设备必须可达（否则 skip）
+    - if_index=2 对应 GigabitEthernet1/0/1
+    - 流程：n (L2/bridge) → n+1 (L3/route) → n (L2/bridge)
+    - 全程 force=true（不弹确认），最后一步恢复初始状态
+    """
+    import os
+    import time
+    from app.database import SessionLocal
+    from app.models import Device
+
+    host = os.environ.get("INTEGRATION_VPN_HOST", "192.168.100.5")
+    port = int(os.environ.get("INTEGRATION_VPN_PORT", "830"))
+    user = os.environ.get("INTEGRATION_VPN_USER", "python")
+    pwd = os.environ.get("INTEGRATION_VPN_PASS", "Admin123!@#")
+
+    # 先检查设备可达
+    import socket as _s
+    try:
+        s = _s.create_connection((host, port), timeout=5)
+        s.close()
+    except Exception as e:
+        pytest.skip(f"设备 {host}:{port} 不可达: {e}")
+
+    # 创建测试设备
+    db = SessionLocal()
+    try:
+        # 清理
+        existing = db.query(Device).filter(Device.host == host).all()
+        for d in existing:
+            db.delete(d)
+        db.commit()
+
+        from app.utils.crypto import encrypt_password
+        dev = Device(
+            name="link_mode_test",
+            host=host,
+            port=port,
+            username=user,
+            password_encrypted=encrypt_password(pwd),
+        )
+        db.add(dev)
+        db.commit()
+        device_id = dev.id
+    finally:
+        db.close()
+
+    # 走 link-mode 切换
+    from fastapi.testclient import TestClient
+    from app.main import app
+    c = TestClient(app)
+
+    try:
+        # step 1: 当前状态（应是 L2/bridge），用 force=false 确认
+        r1 = c.patch(f"/api/devices/{device_id}/interfaces/2/link-mode",
+                     json={"mode": "route", "force": False})
+        assert r1.status_code == 200
+        assert r1.json()["success"] is True
+        assert r1.json()["data"]["confirmed"] is False
+        time.sleep(1)
+
+        # step 2: force=true 切 route
+        r2 = c.patch(f"/api/devices/{device_id}/interfaces/2/link-mode",
+                     json={"mode": "route", "force": True})
+        assert r2.status_code == 200
+        assert r2.json()["success"] is True, f"切 route 失败: {r2.json()}"
+        assert r2.json()["data"]["confirmed"] is True
+        time.sleep(2)
+
+        # step 3: 改回 bridge（恢复 n 状态）
+        r3 = c.patch(f"/api/devices/{device_id}/interfaces/2/link-mode",
+                     json={"mode": "bridge", "force": True})
+        assert r3.status_code == 200
+        assert r3.json()["success"] is True, f"改回 bridge 失败: {r3.json()}"
+        assert r3.json()["data"]["confirmed"] is True
+    finally:
+        # 清理测试设备
+        db = SessionLocal()
+        try:
+            dev = db.query(Device).filter(Device.id == device_id).first()
+            if dev:
+                db.delete(dev)
+                db.commit()
+        finally:
+            db.close()
 
 
 def test_link_mode_switch_device_not_found(client):
