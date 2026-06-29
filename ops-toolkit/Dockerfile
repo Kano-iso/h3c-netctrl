@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.10-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     iputils-ping \
@@ -13,7 +13,7 @@ RUN mkdir -p /scripts /captures
 
 # 预制脚本
 COPY scripts/ /scripts/
-RUN chmod +x /scripts/*.sh
+RUN chmod +x /scripts/*.sh && cp /scripts/*.sh /usr/local/bin/
 
 WORKDIR /scripts
 
