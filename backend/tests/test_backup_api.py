@@ -306,3 +306,45 @@ def test_create_all_backups_no_devices(client):
     data = resp.json()
     assert data["success"] is False
     assert "无设备" in data["error"]
+
+
+def test_create_all_with_types_filter(client, created_device):
+    """v2.3 新增：全量备份 body 传 types 过滤"""
+    # 每次新 mock，避免前次测试残留
+    with patch("app.routers.backup.BackupManager") as MockBM:
+        mock_mgr = MagicMock()
+        mock_mgr.create_backup.return_value = [
+            {"id": 1, "type": "startup", "size": 100, "content_hash": "abc",
+             "filename": "x.cfg", "created_at": "2026-06-29T10:00:00"}
+        ]
+        MockBM.return_value = mock_mgr
+
+        # 每次 patch 进入都清空 mock.call_args
+        mock_mgr.reset_mock()
+
+        # body={types:["startup"]} → 只备 startup
+        r1 = client.post("/api/backups", json={"types": ["startup"]})
+        assert r1.status_code == 200
+        assert r1.json()["success"] is True
+        # 验证传给 BackupManager 的 types（第一次调用 = 第一次 client.post）
+        first_call = mock_mgr.create_backup.call_args_list[0]
+        passed_types = first_call.kwargs.get("types") or first_call[1].get("types")
+        assert passed_types == ["startup"], f"期望 ['startup']，实际 {passed_types}"
+
+        # body={types:["running"]} → 只备 running
+        r2 = client.post("/api/backups", json={"types": ["running"]})
+        assert r2.status_code == 200
+        assert r2.json()["success"] is True
+
+        # body={} → 默认全备（向后兼容）
+        r3 = client.post("/api/backups", json={})
+        assert r3.status_code == 200
+        assert r3.json()["success"] is True
+
+
+def test_create_all_invalid_type(client, created_device):
+    """v2.3 新增：全量备份不支持的类型 → 200 + 错误"""
+    r = client.post("/api/backups", json={"types": ["xxx"]})
+    assert r.status_code == 200
+    assert r.json()["success"] is False
+    assert "不支持的备份类型" in r.json()["error"]

@@ -257,12 +257,26 @@ def restore_backup(device_id: int, backup_id: int, body: BackupRestoreRequest = 
 # ============ 全量备份 ============
 
 
+class BackupAllRequest(BaseModel):
+    """全量备份请求体"""
+    types: Optional[List[str]] = None  # 不传 = 全部（startup + running）
+
+
 @router.post("/backups", response_model=APIResponse)
-def create_all_backups(db: Session = Depends(get_db)):
-    """对所有设备并发触发备份"""
+def create_all_backups(body: Optional[BackupAllRequest] = None, db: Session = Depends(get_db)):
+    """对所有设备并发触发备份（v2.3 支持指定 type）"""
+    if body is None:
+        body = BackupAllRequest()
     devices = db.query(Device).all()
     if not devices:
         return APIResponse(success=False, error="无设备可备份")
+
+    types = body.types or ["startup", "running"]
+    # 校验类型
+    valid_types = {"startup", "running"}
+    invalid = [t for t in types if t not in valid_types]
+    if invalid:
+        return APIResponse(success=False, error=f"不支持的备份类型: {invalid}（仅支持 startup / running）")
 
     # 并发备份（串行实现 - SQLite 写并发问题；如切 Postgres 可改 asyncio.gather）
     success_list = []
@@ -279,7 +293,7 @@ def create_all_backups(db: Session = Depends(get_db)):
 
         mgr = _make_manager(device, password)
         try:
-            results = mgr.create_backup(types=["startup", "running"], db=db)
+            results = mgr.create_backup(types=types, db=db)
             if results:
                 success_list.append({
                     "device_id": device.id,

@@ -128,7 +128,9 @@ async function handleFullBackup() {
   if (fullBackingUp.value) return
   fullBackingUp.value = true
   fullResult.value = null
-  const r = await backupApi.createAll()
+  // v2.3 新增：根据 type 选择备份类型
+  const types = fullBackupType.value === 'all' ? ['startup', 'running'] : [fullBackupType.value]
+  const r = await backupApi.createAll({ types })
   fullBackingUp.value = false
   if (!r.success) {
     errMsg.value = r.error || '全量备份失败'
@@ -246,6 +248,14 @@ onMounted(loadAll)
     subtitle="手动备份、锁定、回滚。每设备自动保留最新 5 份未锁定备份，锁定的不参与轮转。"
   >
     <template #actions>
+      <div class="flex items-center gap-2 mr-2">
+        <span class="text-xs text-ink-500">类型</span>
+        <div class="flex items-center gap-1 text-xs">
+          <button :class="['px-2.5 py-1 rounded-full transition', fullBackupType === 'all' ? 'bg-ink-900 text-white' : 'text-ink-700 hover:bg-canvas-200']" @click="fullBackupType = 'all'">全部</button>
+          <button :class="['px-2.5 py-1 rounded-full transition', fullBackupType === 'startup' ? 'bg-ink-900 text-white' : 'text-ink-700 hover:bg-canvas-200']" @click="fullBackupType = 'startup'">startup</button>
+          <button :class="['px-2.5 py-1 rounded-full transition', fullBackupType === 'running' ? 'bg-ink-900 text-white' : 'text-ink-700 hover:bg-canvas-200']" @click="fullBackupType = 'running'">running</button>
+        </div>
+      </div>
       <button class="btn-primary" :disabled="fullBackingUp" @click="handleFullBackup">
         <svg v-if="fullBackingUp" class="size-3.5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg>
         {{ fullBackingUp ? '全量备份中…' : '立即全量备份' }}

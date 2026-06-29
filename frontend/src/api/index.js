@@ -152,7 +152,7 @@ export const backupApi = {
     }),
 
   // 全量备份（POST /api/backups，并发对所有设备，结果聚合）
-  createAll: () => apiCall('/backups', { method: 'POST' }),
+  createAll: (body) => apiCall('/backups', { method: 'POST', body: body || {} }),
 
   // 下载（返回 Blob，不走 apiCall 因为它走 .json()）
   download: async (deviceId, backupId) => {
