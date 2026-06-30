@@ -31,14 +31,26 @@ VPN_PASSWORD = os.getenv("INTEGRATION_VPN_PASSWORD", "Admin123!@#")
 # ==================== 辅助函数 ====================
 
 
-def _check_netconf_reachable(host: str, port: int, timeout: int = 5) -> bool:
-    """快速检测 NETCONF 端口 TCP 是否可达（单次尝试）"""
-    try:
-        s = socket.create_connection((host, port), timeout=timeout)
-        s.close()
-        return True
-    except OSError:
-        return False
+def _check_netconf_reachable(host: str, port: int, timeout: int = 5, retries: int = 3, retry_interval: int = 5) -> bool:
+    """快速检测 NETCONF 端口 TCP 是否可达（重试 N 次，扛过设备抖动）
+
+    177 测试机偶发丢包（实测 33% 丢包），单次 connect 不可靠。
+    最多 retries 次，每次间隔 retry_interval 秒。
+    """
+    for i in range(retries):
+        try:
+            s = socket.create_connection((host, port), timeout=timeout)
+            s.close()
+            if i > 0:
+                print(f"[vpn-int] NETCONF {host}:{port} 第 {i+1} 次重试成功")
+            return True
+        except OSError as e:
+            if i < retries - 1:
+                print(f"[vpn-int] NETCONF {host}:{port} 第 {i+1} 次失败: {e}，{retry_interval}s 后重试")
+                time.sleep(retry_interval)
+            else:
+                print(f"[vpn-int] NETCONF {host}:{port} 重试 {retries} 次仍失败: {e}")
+    return False
 
 
 def wait_for_ssh(host: str, port: int, username: str, password: str,
@@ -137,7 +149,7 @@ def test_create_vpn_instance(client):
 
     device = _create_device(client, "Leaf-04-VPN", VPN_HOST, VPN_PORT,
                             VPN_USERNAME, VPN_PASSWORD)
-    vpn_name = "test_vpn_integ"
+    vpn_name = f"test_vpn_integ_{device['id']}_{int(time.time()*1000)%100000}"  # 加 id+ts 后缀
 
     try:
         # 创建 VPN instance
@@ -179,7 +191,7 @@ def test_delete_vpn_instance(client):
 
     device = _create_device(client, "Leaf-04-DelVPN", VPN_HOST, VPN_PORT,
                             VPN_USERNAME, VPN_PASSWORD)
-    vpn_name = "test_vpn_del"
+    vpn_name = f"test_vpn_del_{device['id']}_{int(time.time()*1000)%100000}"  # 加 id+ts 后缀
 
     try:
         # 创建 VPN
@@ -218,7 +230,7 @@ def test_bind_unbind_vpn(client):
 
     device = _create_device(client, "Leaf-04-BindVPN", VPN_HOST, VPN_PORT,
                             VPN_USERNAME, VPN_PASSWORD)
-    vpn_name = "test_vpn_bind"
+    vpn_name = f"test_vpn_bind_{device['id']}_{int(time.time()*1000)%100000}"  # 加 id+ts 后缀
     if_index = None  # 提前声明，确保 except 块可用
 
     try:
