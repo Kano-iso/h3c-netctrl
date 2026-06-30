@@ -88,14 +88,42 @@ def _query_vpn_instances(client, device_id: int) -> list[dict]:
     return data["data"]["vpn_instances"]
 
 
-# v2.3.1：集成测试必须避开 mgmt 口（if_index=1）和 GE1/0/1~30（if_index 2-31），
-# 避免误改用户接入端口。只在 GE1/0/30+（if_index >= 32）上做会动配置的操作。
+# v2.3.1：集成测试必须避开所有"已有用途"接口，避免误改用户线上配置。
+#
+# 黑名单范围（v2.3 总结的真实事故案例）：
+# - if_index=1  → mgmt 口（绝对不能动）
+# - if_index 2-31 → GE1/0/1~30（用户接入端口，可能跑业务）
+# - if_index >= 4096 → LoopBack (5123) / Vsi (5131) / Vlan-interface 等逻辑口
+#   5131 (Vsi-interface2) 是 VTEP，绑着 VPN 跑 VXLAN，绝对不能解绑/改 IP
+#   5123-5125 是 LoopBack，跑 VTEP ID / 路由 ID
+#   其它 Vlan-interface 也常跑 SVI 业务
+#
+# 白名单：if_index ∈ [32, 4095] 且 name 看起来像物理口（GE/XGE/...）
 SAFE_IFINDEX_MIN = 32
+SAFE_IFINDEX_MAX = 4095  # 物理口 if_index 一般 < 4096
+PHYS_PORT_NAME_HINTS = (
+    "GigabitEthernet",
+    "Ten-GigabitEthernet",
+    "TwentyFiveGigE",
+    "FortyGigE",
+    "HundredGigE",
+    "GE",  # 简写
+    "XGE",  # 简写
+)
 
 
 def _filter_safe_ifaces(interfaces: list[dict]) -> list[dict]:
-    """过滤出 if_index >= SAFE_IFINDEX_MIN（GE1/0/30+）的安全接口"""
-    return [i for i in interfaces if i.get("if_index", 0) >= SAFE_IFINDEX_MIN]
+    """过滤出"安全可动"的接口：物理口 + if_index 32-4095 + 看着像物理口名"""
+    result = []
+    for i in interfaces:
+        idx = i.get("if_index", 0)
+        if idx < SAFE_IFINDEX_MIN or idx >= SAFE_IFINDEX_MAX:
+            continue
+        name = i.get("name", "") or ""
+        if not any(h in name for h in PHYS_PORT_NAME_HINTS):
+            continue
+        result.append(i)
+    return result
 
 
 # ==================== 测试用例 ====================
