@@ -251,28 +251,62 @@ def build_ipv4_address_set_xml(if_index: int, ip: str, mask: str) -> str:
 
 
 def build_ipv4_address_clear_xml(if_index: int) -> str:
-    """清空 L3 接口的所有 IPv4 地址（v2.2.2 范围：清空而非单删）
-
-    H3C V7 模型：key 是复合 (IfIndex, AddressOrigin)。
-    xc:operation="delete" 必须带完整 key 才能唯一定位条目，否则设备报
+    """⚠️ 已废弃：单凭 (IfIndex, AddressOrigin) 的 key 不完整，设备会报
     "An indexical column or data of some indexical columns is missed."。
 
-    注：手动配置 IP 的 AddressOrigin=1。
+    H3C V7 真实 key = (IfIndex, Ipv4Address)（v2.3 真机探测 192.168.100.5 #5131）：
+    - 简化 key (IfIndex, Ipv4Address) → delete 成功
+    - 完整 key (IfIndex, Ipv4Address, Ipv4Mask, AddressOrigin) → 设备报
+      "data cannot be assigned to non-index columns"（Ipv4Mask/AddressOrigin
+      不是索引列，不能出现在 delete 操作里）
+    - 单 (IfIndex, AddressOrigin) → 缺 Ipv4Address 索引 → "indexical column missed"
+
+    改用：路由层先 `parse_ipv4_addresses(client.get_config(IPV4ADDRESS filter))`
+    拿到 (if_index → [ip, ...])，再 `build_ipv4_address_clear_entries_xml(if_index, ip_list)`。
     """
+    raise NotImplementedError(
+        "build_ipv4_address_clear_xml(if_index) 已废弃。"
+        "改用 build_ipv4_address_clear_entries_xml(if_index, ip_list)，"
+        "ip_list 由 parse_ipv4_addresses(client.get_config(IPV4ADDRESS filter)) 得到。"
+    )
+
+
+def build_ipv4_address_clear_entries_xml(if_index: int, ip_list: list[str]) -> str:
+    """清空 L3 接口的所有 IPv4 地址（v2.3 真机验证版，H3C V7 192.168.100.5 #5131）
+
+    H3C V7 真实 key = (IfIndex, Ipv4Address)（Ipv4Mask 和 AddressOrigin 是非索引列）。
+    路由层先 `parse_ipv4_addresses` 拿 IfIndex 的所有 IP，本函数按每条 IP 生成一个
+    delete（key 完整，设备接受）。
+
+    Args:
+        if_index: 接口索引
+        ip_list: 该接口下所有 IPv4 地址（不含 CIDR，纯 IP 字符串，如 "192.168.2.254"）
+                 来自 parse_ipv4_addresses(client.get_config(IPV4ADDRESS filter)) 的 values
+                 列表（已剥离 CIDR 后缀）。
+
+    Returns:
+        edit-config XML，可直接 client.edit_config(xxx)
+        如果 ip_list 为空，返回空字符串（路由层应短路不调用 edit_config）
+    """
+    if not ip_list:
+        return ""
+    delete_entries = "\n".join(
+        f"""<Ipv4Address xmlns:xc="{NETCONF_BASE_NS}" xc:operation="delete">
+                                <IfIndex>{if_index}</IfIndex>
+                                <Ipv4Address>{ip}</Ipv4Address>
+                            </Ipv4Address>"""
+        for ip in ip_list
+    )
     return f"""
     <config>
         <top xmlns="{H3C_CONFIG_NS}">
             <IPV4ADDRESS>
                 <Ipv4Addresses>
-                    <Ipv4Address xmlns:xc="{NETCONF_BASE_NS}" xc:operation="delete">
-                        <IfIndex>{if_index}</IfIndex>
-                        <AddressOrigin>1</AddressOrigin>
-                    </Ipv4Address>
+                    {delete_entries}
                 </Ipv4Addresses>
             </IPV4ADDRESS>
         </top>
-    </config>
-    """
+    </config>"""
 
 
 # ============ XML 解析辅助 ============
