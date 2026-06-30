@@ -208,10 +208,11 @@ def test_lock_backup_prevents_delete(client):
 # ======================== 单元测试（不需设备） ========================
 
 def test_rotate_respects_locked_backups():
-    """v2.3 修复：locked 备份永远不被轮转
+    """v2.3.1 patch：BACKUP_KEEP = 总份数（含锁定）
 
     场景：device 有 5 份非锁定 + 2 份锁定备份（共 7 份），keep=5
-    期望：2 份锁定保留 + 5 份非锁定保留 = 7 份总数（无删除）
+    旧 v2.2 语义（keep=非锁定）：不删，剩 7
+    新 v2.3.1 语义（keep=总数）：locked=2 < keep=5 → 删 2 最旧非锁定 → 剩 5（3+2）
     """
     from app.database import Base, engine, SessionLocal
     from app.utils.backup_manager import BackupManager
@@ -237,7 +238,8 @@ def test_rotate_respects_locked_backups():
         device_id = device.id
 
         now = datetime.utcnow()
-        # 5 份非锁定
+        # 5 份非锁定（按时间 0..4，最旧为 nl0）
+        unlocked_hashes = [f"nl{i}" for i in range(5)]
         for i in range(5):
             db.add(Backup(
                 device_id=device_id,
@@ -245,11 +247,12 @@ def test_rotate_respects_locked_backups():
                 file_path=f"/tmp/test_{i}.cfg",
                 backup_type="startup",
                 size=100,
-                content_hash=f"nl{i}",
+                content_hash=unlocked_hashes[i],
                 locked=False,
                 created_at=now + timedelta(seconds=i),
             ))
-        # 2 份锁定
+        # 2 份锁定（按时间 5,6）
+        locked_hashes = [f"lk{i}" for i in range(2)]
         for i in range(2):
             db.add(Backup(
                 device_id=device_id,
@@ -257,7 +260,7 @@ def test_rotate_respects_locked_backups():
                 file_path=f"/tmp/locked_{i}.cfg",
                 backup_type="startup",
                 size=100,
-                content_hash=f"lk{i}",
+                content_hash=locked_hashes[i],
                 locked=True,
                 created_at=now + timedelta(seconds=10 + i),
             ))
@@ -270,14 +273,16 @@ def test_rotate_respects_locked_backups():
         locked = [b for b in all_backups if b.locked]
         unlocked = [b for b in all_backups if not b.locked]
 
-        # 锁定全保留
+        # 锁定全保留（2 份）
         assert len(locked) == 2, f"锁定应保留 2，实际 {len(locked)}"
-        # 非锁定保留 5
-        assert len(unlocked) == 5, f"非锁定应保留 5，实际 {len(unlocked)}"
-        # 删除数 = 0（5 非锁定 - keep 5 = 0）
-        assert deleted == 0, f"期望删除 0，实际 {deleted}"
-        # 总数 7
-        assert len(all_backups) == 7
+        # 非锁定保留 3 份（nl2, nl3, nl4）—— nl0, nl1 被删
+        assert len(unlocked) == 3, f"非锁定应保留 3，实际 {len(unlocked)}"
+        remaining_hashes = {b.content_hash for b in unlocked}
+        assert remaining_hashes == {"nl2", "nl3", "nl4"}, f"期望 nl2-nl4 保留，实际 {remaining_hashes}"
+        # 删除数 = 2（总 7 - keep 5）
+        assert deleted == 2, f"期望删除 2，实际 {deleted}"
+        # 总数 5（3+2）
+        assert len(all_backups) == 5, f"期望总数 5，实际 {len(all_backups)}"
     finally:
         db.query(Backup).delete()
         db.query(Device).delete()
@@ -286,10 +291,11 @@ def test_rotate_respects_locked_backups():
 
 
 def test_rotate_deletes_oldest_unlocked_only():
-    """v2.3 修复：锁定备份不被轮转删除
+    """v2.3.1 patch：BACKUP_KEEP = 总份数（含锁定）
 
     场景：device 有 7 份非锁定 + 1 份锁定（共 8 份），keep=5
-    期望：删除 2 份最旧的非锁定，保留 5 份非锁定 + 1 份锁定 = 6 份
+    旧 v2.2 语义（keep=非锁定）：删 2，剩 6（5+1）
+    新 v2.3.1 语义（keep=总数）：locked=1 < keep=5 → 删 3 最旧非锁定 → 剩 5（4+1）
     """
     from app.database import Base, engine, SessionLocal
     from app.utils.backup_manager import BackupManager
@@ -315,7 +321,7 @@ def test_rotate_deletes_oldest_unlocked_only():
         device_id = device.id
 
         now = datetime.utcnow()
-        # 7 份非锁定
+        # 7 份非锁定（按时间 0..6，最旧为 nl0）
         for i in range(7):
             db.add(Backup(
                 device_id=device_id,
@@ -327,7 +333,7 @@ def test_rotate_deletes_oldest_unlocked_only():
                 locked=False,
                 created_at=now + timedelta(seconds=i),
             ))
-        # 1 份锁定
+        # 1 份锁定（时间 10）
         db.add(Backup(
             device_id=device_id,
             filename="locked.cfg",
@@ -349,14 +355,14 @@ def test_rotate_deletes_oldest_unlocked_only():
 
         # 锁定 1 保留
         assert len(locked) == 1
-        # 非锁定 5 保留（最新 nl2-nl6）
-        assert len(unlocked) == 5
+        # 非锁定 4 保留（nl3, nl4, nl5, nl6）—— nl0, nl1, nl2 被删
+        assert len(unlocked) == 4
         hashes = {b.content_hash for b in unlocked}
-        assert hashes == {"nl2", "nl3", "nl4", "nl5", "nl6"}, f"期望 nl2-nl6，实际 {hashes}"
-        # 删除 2
-        assert deleted == 2, f"期望删除 2，实际 {deleted}"
-        # 总数 6
-        assert len(all_backups) == 6
+        assert hashes == {"nl3", "nl4", "nl5", "nl6"}, f"期望 nl3-nl6 保留，实际 {hashes}"
+        # 删除 3（总 8 - keep 5）
+        assert deleted == 3, f"期望删除 3，实际 {deleted}"
+        # 总数 5
+        assert len(all_backups) == 5, f"期望总数 5，实际 {len(all_backups)}"
     finally:
         db.query(Backup).delete()
         db.query(Device).delete()
@@ -365,11 +371,12 @@ def test_rotate_deletes_oldest_unlocked_only():
 
 
 def test_rotate_protects_locked_from_deletion():
-    """v2.3 修复：锁定备份按时间也参与排序，但不被删除
+    """v2.3.1 patch：BACKUP_KEEP = 总份数（含锁定）
 
-    场景：1 份旧锁定 + 5 份新非锁定，keep=5
-    期望：保留旧锁定 + 5 份新非锁定 = 6 份总数（无删除）
-    旧 bug：旧锁定被轮转删除（应该被保护）
+    场景：1 份旧锁定 + 5 份新非锁定 = 6 份，keep=5
+    旧 v2.2 语义（keep=非锁定）：不删，剩 6
+    新 v2.3.1 语义（keep=总数）：locked=1 < keep=5 → 删 1 最旧非锁定 → 剩 5（4+1）
+    锁定永远不被删（v2.2 承诺保留）
     """
     from app.database import Base, engine, SessionLocal
     from app.utils.backup_manager import BackupManager
@@ -425,12 +432,19 @@ def test_rotate_protects_locked_from_deletion():
 
         all_backups = db.query(Backup).filter(Backup.device_id == device_id).all()
         locked = [b for b in all_backups if b.locked]
+        unlocked = [b for b in all_backups if not b.locked]
 
-        # 旧锁定必须保留
+        # 旧锁定必须保留（v2.2 承诺锁定不被删）
         assert len(locked) == 1, f"旧锁定应保留，实际删除"
         assert locked[0].content_hash == "old_locked"
-        # 删除 0
-        assert deleted == 0
+        # 非锁定 4 保留（new1-new4），new0 被删
+        assert len(unlocked) == 4
+        unlocked_hashes = {b.content_hash for b in unlocked}
+        assert unlocked_hashes == {"new1", "new2", "new3", "new4"}, f"期望 new1-new4，实际 {unlocked_hashes}"
+        # 删除 1
+        assert deleted == 1
+        # 总数 5
+        assert len(all_backups) == 5
     finally:
         db.query(Backup).delete()
         db.query(Device).delete()

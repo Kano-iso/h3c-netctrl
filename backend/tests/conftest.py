@@ -105,6 +105,13 @@ def _make_mock_netconf(ifmgr_xml: str = None, vlan_xml: str = None):
     mgr.get_config.side_effect = fake_get_config
     mgr.edit_config.return_value = "<ok/>"
     mgr.close_session.return_value = None
+    # v2.3.0 新增方法 mock：按 if_index 推 name，< 4096 → 物理口，>= 4096 → LoopBack
+    # （真实设备上 5123-5125 实际是 LoopBack0/1/2，这里只保证 _detect_layer 不报 TypeError）
+    def fake_get_interface_name_by_index(if_index: int):
+        if if_index < 4096:
+            return f"GigabitEthernet1/0/{max(if_index - 1, 0)}"
+        return f"LoopBack{if_index - 5123}"
+    mgr.get_interface_name_by_index.side_effect = fake_get_interface_name_by_index
     return mgr
 
 
