@@ -88,6 +88,16 @@ def _query_vpn_instances(client, device_id: int) -> list[dict]:
     return data["data"]["vpn_instances"]
 
 
+# v2.3.1：集成测试必须避开 mgmt 口（if_index=1）和 GE1/0/1~30（if_index 2-31），
+# 避免误改用户接入端口。只在 GE1/0/30+（if_index >= 32）上做会动配置的操作。
+SAFE_IFINDEX_MIN = 32
+
+
+def _filter_safe_ifaces(interfaces: list[dict]) -> list[dict]:
+    """过滤出 if_index >= SAFE_IFINDEX_MIN（GE1/0/30+）的安全接口"""
+    return [i for i in interfaces if i.get("if_index", 0) >= SAFE_IFINDEX_MIN]
+
+
 # ==================== 测试用例 ====================
 
 
@@ -194,9 +204,9 @@ def test_bind_unbind_vpn(client):
 
         # 查询接口列表，找一个 L3 接口用于绑定
         interfaces = _query_interfaces(client, device["id"])
-        l3_ifaces = [i for i in interfaces if i.get("layer") == "L3"]
+        l3_ifaces = _filter_safe_ifaces([i for i in interfaces if i.get("layer") == "L3"])
         if not l3_ifaces:
-            pytest.skip("设备上没有 L3 接口，无法测试 VPN 绑定")
+            pytest.skip("设备上没有 GE1/0/30+ 的 L3 接口，无法测试 VPN 绑定")
 
         # 找一个未绑定 VPN 的 L3 接口
         target_iface = None
@@ -260,9 +270,9 @@ def test_change_link_type(client):
     try:
         # 查询接口列表，找一个 L2 接口
         interfaces = _query_interfaces(client, device["id"])
-        l2_ifaces = [i for i in interfaces if i.get("layer") == "L2"]
+        l2_ifaces = _filter_safe_ifaces([i for i in interfaces if i.get("layer") == "L2"])
         if not l2_ifaces:
-            pytest.skip("设备上没有 L2 接口，无法测试 link type 切换")
+            pytest.skip("设备上没有 GE1/0/30+ 的 L2 接口，无法测试 link type 切换")
 
         # 找一个 access 模式接口，切到 trunk
         target_iface = None
@@ -317,9 +327,9 @@ def test_set_ipv4_address(client):
     try:
         # 查询接口列表，找一个 L3 接口
         interfaces = _query_interfaces(client, device["id"])
-        l3_ifaces = [i for i in interfaces if i.get("layer") == "L3"]
+        l3_ifaces = _filter_safe_ifaces([i for i in interfaces if i.get("layer") == "L3"])
         if not l3_ifaces:
-            pytest.skip("设备上没有 L3 接口，无法测试 IPv4 地址设置")
+            pytest.skip("设备上没有 GE1/0/30+ 的 L3 接口，无法测试 IPv4 地址设置")
 
         target_iface = l3_ifaces[0]
         if_index = target_iface["if_index"]
@@ -335,6 +345,14 @@ def test_set_ipv4_address(client):
         assert set_resp.status_code == 200, set_resp.text
         set_data = set_resp.json()
         assert set_data["success"] is True, f"IPv4 地址设置失败: {set_data}"
+
+        # === n → n+1 → n 还原：清掉测试 IP，恢复原状态 ===
+        clear_resp = client.delete(
+            f"/api/devices/{device['id']}/interfaces/{if_index}/ipv4-address",
+        )
+        assert clear_resp.status_code == 200, clear_resp.text
+        clear_data = clear_resp.json()
+        assert clear_data["success"] is True, f"IPv4 地址清理失败（还原）: {clear_data}"
     except Exception:
         raise
 
@@ -350,11 +368,11 @@ def test_clear_ipv4_address(client):
     if_index = None  # 提前声明，确保 except 块可用
 
     try:
-        # 查询接口列表，找一个 L3 接口
+        # 查询接口列表，找一个 L3 接口（避开 mgmt + GE1/0/1~30）
         interfaces = _query_interfaces(client, device["id"])
-        l3_ifaces = [i for i in interfaces if i.get("layer") == "L3"]
+        l3_ifaces = _filter_safe_ifaces([i for i in interfaces if i.get("layer") == "L3"])
         if not l3_ifaces:
-            pytest.skip("设备上没有 L3 接口，无法测试 IPv4 地址清空")
+            pytest.skip("设备上没有 GE1/0/30+ 的 L3 接口，无法测试 IPv4 地址清空")
 
         target_iface = l3_ifaces[0]
         if_index = target_iface["if_index"]
