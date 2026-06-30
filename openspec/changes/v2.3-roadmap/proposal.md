@@ -84,17 +84,17 @@ v2.3 = **7 类工作全打包**（不分大小版本），一起发版：
 - qa-frontend 容器从"只验编译"升级到"编译 + 组件测试"
 - 装包：vitest + @vue/test-utils + jsdom ~10MB
 
-### 8. 拆 asset 容器（**评估中**，可能推迟 v2.3.1）
+### 8. 拆 asset 容器（**已决定推 v3.0**）
 
-- 评估拆 asset 容器的 ROI（开发成本 vs 收益）
-- 如决定拆：cmdb + 备份从 monolith 拆出到独立 `asset` 容器
-- 如不拆：标记"评估结论：暂不拆，v3.0 VPC 时再统一拆"
+- **2026-06-30 决策**：asset 容器拆推 v3.0（与 VPC + etcd 一起做），v2.3 不拆
+- 评估结论：单独拆资产 ROI 低，与 v3.0 VPC 一起做可一次性建立"业务拆分"模式
+- v2.3 archive 此项时标"推 v3.0"
+- v2.3.1 patch 不含此 change
 
-### 9. interface-linked-config（**待需求具体化**）
+### 9. interface-linked-config（**已删除**）
 
-- 用户提过"顺便再加一个能力"
-- 跟用户确认具体能力范围
-- 评估能力范围 + 选 NETCONF / SSH CLI 实现路径
+- **2026-06-30 决策**：用户暂不需要，从 v2.3.1 PRD 删
+- 如未来需要，新开 change
 
 ## Capabilities
 
@@ -110,8 +110,8 @@ v2.3 = **7 类工作全打包**（不分大小版本），一起发版：
 | `qa-template-mandatory` | QA 模板强制 | proposal.md 必含 "QA 验证计划" 段 ([QA-TEMPLATE.md](../QA-TEMPLATE.md)) | 0 |
 | `add-qa-guide` | QA 容器使用文档 | [docs/QA-GUIDE.md](../../../docs/QA-GUIDE.md)（SOP / 流程 / checklist / 跑法） | 0 |
 | `add-vitest-component-tests` | QA 前端规范化 | vitest + @vue/test-utils 跑组件测试 | +10MB |
-| `v2.3-container-decoupling-asset`（**评估中**） | 拆 asset 容器 | cmdb + 备份独立容器 | - |
-| `interface-linked-config`（**待具体化**） | 接口联动配置（其他维度） | 需求待用户确认 | - |
+| `v2.3-container-decoupling-asset`（**推 v3.0**） | 拆 asset 容器 | **2026-06-30 决策：推 v3.0 VPC 一起做**，v2.3 不拆 | - |
+| `interface-linked-config`（**已删除**） | 接口联动配置 | **2026-06-30 用户决策：暂时不要** | - |
 
 ### Modified Capabilities
 
