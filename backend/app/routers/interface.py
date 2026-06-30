@@ -19,12 +19,13 @@ from app.utils.netconf_xml import (
     build_interface_bind_vpn_xml,
     build_interface_extended_filter_xml,
     build_interface_unbind_vpn_xml,
-    build_ipv4_address_clear_xml,
+    build_ipv4_address_clear_entries_xml,
     build_ipv4_address_set_xml,
     build_link_type_change_xml,
     build_vpn_instance_create_xml,
     build_vpn_instance_delete_xml,
     build_vpn_instance_filter_xml,
+    parse_ipv4_addresses,
     parse_vpn_instances,
 )
 
@@ -39,8 +40,8 @@ H3C_CONFIG_NS = "http://www.h3c.com/netconf/config:1.0"
 LINK_TYPE_MAP = {"access": 1, "trunk": 2, "hybrid": 3}
 LINK_TYPE_REVERSE = {1: "access", 2: "trunk", 3: "hybrid"}
 
-# L3 接口命名约定（H3C 官方）
-L3_NAME_PATTERN = re.compile(r"^Vlan-interface\d+", re.IGNORECASE)
+# L3 接口命名约定（H3C 官方：Vlan-interface / LoopBack / Vsi-interface）
+L3_NAME_PATTERN = re.compile(r"^(Vlan-interface|LoopBack|Vsi-interface)\d+", re.IGNORECASE)
 # 子接口命名约定（如 GigabitEthernet0/0/0.100）
 SUB_IF_PATTERN = re.compile(r"^.+\.\d+$")
 
@@ -113,7 +114,11 @@ def _parse_interface_response(xml_str: str) -> list[dict]:
                 ct = child.tag.split("}")[-1] if "}" in child.tag else child.tag
                 if ct == "IfIndex" and child.text:
                     iface["if_index"] = int(child.text)
-                elif ct == "Description" and child.text:
+                elif ct == "Name" and child.text:
+                    # v2.3 B11 修复：H3C V7 物理口才有 Name（Eth1/0/1），优先用 Name
+                    iface["name"] = child.text.strip()
+                elif ct == "Description" and child.text and "name" not in iface:
+                    # v2.3 B11 修复：Name 不存在时 Description 兜底（H3C V7 Loopback/Vsi/Vlan 实际行为）
                     iface["name"] = child.text.strip()
                 elif ct == "LinkType" and child.text:
                     iface["mode"] = LINK_TYPE_REVERSE.get(int(child.text), "access")
@@ -123,6 +128,12 @@ def _parse_interface_response(xml_str: str) -> list[dict]:
                     iface["allowed_vlans"] = _parse_vlan_range(child.text)
                 elif ct == "AdminStatus" and child.text:
                     iface["status"] = "up" if child.text == "1" else "down"
+                elif ct == "PortLayer" and child.text:
+                    # v2.3 B11：H3C V7 PortLayer 1=L2 2=L3，最权威的层级字段
+                    try:
+                        iface["port_layer"] = int(child.text)
+                    except ValueError:
+                        pass
             if iface.get("if_index") is not None:
                 if_index_to_iface[iface["if_index"]] = iface
 
@@ -215,15 +226,23 @@ def _parse_interface_response(xml_str: str) -> list[dict]:
 
 
 def _detect_layer(iface: dict, ip_addresses: list[str], vpn_instance: str | None) -> str:
-    """判定 L2 / L3（v2.2 H3C V7 实际模型版）
+    """判定 L2 / L3（v2.3 H3C V7 实际模型版）
 
-    判定规则（H3C V7 真实情况，name 不可用）：
+    判定规则（H3C V7 真实情况，v2.3 B11 修复）：
+    0. PortLayer 字段（H3C V7 最权威）：1=L2 2=L3
     1. 有 IPv4 地址 → L3
     2. 绑了 VPN instance → L3
-    3. 名称以 Vlan-interface 开头 → L3
+    3. 名称以 Vlan-interface / LoopBack / Vsi-interface 开头 → L3
     4. 名称匹配子接口正则（X.Y） → L3
     5. 其余 → L2
     """
+    # v2.3 B11 修复：PortLayer 优先（H3C V7 真实返回的字段）
+    port_layer = iface.get("port_layer")
+    if port_layer == 2:
+        return "L3"
+    if port_layer == 1:
+        return "L2"
+
     if ip_addresses:
         return "L3"
     if vpn_instance:
@@ -254,6 +273,25 @@ def _mask_to_prefix(mask: str) -> int:
         return prefix
     except (ValueError, AttributeError):
         return 32
+
+
+def _looks_like_physical_port(name: str) -> bool:
+    """判断 name 是不是物理口名字（H3C 常见：GigabitEthernet / TenGigabit / Eth / 聚合口等）
+
+    用于 list 路由层补查 name 时的启发：Ifmgr 没回 Name 时，_parse_interface_response
+    兜底成 If-N 或 Description（如 "Loopback_VTEP_ID"），这些都不像物理口名字，
+    触发 get_interface_name_by_index 补查真实 name。
+    """
+    if not name:
+        return False
+    if re.match(
+        r"^(GigabitEthernet|TenGigabit|Twenty-FiveGigE|FortyGigE|HundredGigE|"
+        r"GE|TE|FGE|HGE|XGigabitEthernet|Eth|Bridge-Aggregation|Route-Aggregation|"
+        r"M-GigabitEthernet|MP|XGigabit)",
+        name, re.IGNORECASE,
+    ):
+        return True
+    return False
 
 
 def _parse_vlan_range(vlan_str: str) -> list[int]:
@@ -389,7 +427,12 @@ def get_interfaces(device_id: int, db: Session = Depends(get_db)):
             filter_xml = combined_filter
             response_xml = client.get_config(filter_xml)
 
-        interfaces = _parse_interface_response(response_xml)
+            interfaces = _parse_interface_response(response_xml)
+
+            # v2.3 真机验证（192.168.100.5 #5128/#5131）：Ifmgr 对 Loopback / Vsi 不回 Name，
+            # 兜底成 Description 或 If-N 导致 layer 错判。补查 name 后重判。
+            _enrich_interface_names(client, interfaces)
+
         logger.info(f"接口查询成功: device_id={device_id}, 获取到 {len(interfaces)} 个接口")
         return APIResponse(success=True, data=interfaces)
     except Exception as e:
@@ -908,8 +951,38 @@ def _query_current_mode(client: NetconfClient, if_index: int) -> str | None:
         return current_mode  # None 表示"无 mode" / L3-only 语义上不能切
 
 
+def _enrich_interface_names(client: NetconfClient, interfaces: list[dict]) -> None:
+    """对 Ifmgr 没回 Name 的接口补查 get_interface_name_by_index 拿真实 name
+
+    v2.3 真机验证（192.168.100.5 #5128/#5131）：
+    H3C V7 Ifmgr 对 Loopback / Vsi-interface / Vlan-interface 不返回 <Name>，
+    现有 _parse_interface_response 兜底成 Description 或 If-N，导致
+    _detect_layer 走不到 L3 正则。补查后 name 变成真实（如 LoopBack0 / Vsi-interface2），
+    重新 _detect_layer 算出 layer。
+
+    Args:
+        client: 已连接的 NetconfClient
+        interfaces: in-place 修改 list[dict]，每个 dict 加 / 改 name 字段、重算 layer
+    """
+    for iface in interfaces:
+        name = iface.get("name") or ""
+        if (name.startswith("If-") and name[3:].isdigit()) or not _looks_like_physical_port(name):
+            try:
+                real_name = client.get_interface_name_by_index(iface["if_index"])
+            except Exception as e:
+                logger.warning(f"补查接口 name 失败 if_index={iface['if_index']}: {e}")
+                continue
+            if real_name:
+                iface["name"] = real_name
+                iface["layer"] = _detect_layer(
+                    iface, iface.get("ip_addresses", []), iface.get("vpn_instance"),
+                )
+
+
 def _check_l3_interface(client: NetconfClient, if_index: int) -> tuple[bool, str]:
     """校验接口是否为 L3（H3C V7 三模块合并：IPV4ADDRESS / L3vpn / Vlan-interface 名称）
+
+    v2.3 真机验证版：Ifmgr 没 Name 的接口（如 Loopback / Vsi）补查真实 name 后重判 layer。
 
     Returns: (is_l3, error_msg)
     - is_l3=True: 是 L3 接口
@@ -925,6 +998,8 @@ def _check_l3_interface(client: NetconfClient, if_index: int) -> tuple[bool, str
     )
     response_xml = client.get_config(combined_filter)
     ifaces = _parse_interface_response(response_xml)
+    # v2.3 真机验证：补查没 Name 的接口
+    _enrich_interface_names(client, ifaces)
     target = next((i for i in ifaces if i["if_index"] == if_index), None)
     if not target:
         return False, f"接口 if_index={if_index} 不存在"
@@ -1039,6 +1114,38 @@ def switch_link_mode(device_id: int, if_index: int, body: LinkModeSwitch,
         return APIResponse(success=False, error=msg)
     if if_index in protected and body.force:
         logger.warning(f"切 link mode force=true 强制通过保护: device_id={device_id}, if_index={if_index}")
+
+    # v2.3 真机验证（192.168.100.5 #5128 LoopBack0）：link-mode 仅物理口（GE/TE 等）支持，
+    # L3 类型（LoopBack / Vsi-interface / Vlan-interface）和子接口都不支持。
+    # 提前查 name 拦截，避免 SSH "% Unrecognized command" 后还得回滚。
+    from app.netconf_client import NetconfClient
+    nc_name = None
+    try:
+        nc_pre = NetconfClient(
+            host=device.host, port=device.port, username=device.username, password=password,
+        )
+        nc_pre.connect()
+        nc_name = nc_pre.get_interface_name_by_index(if_index)
+        nc_pre.disconnect()
+    except Exception as e:
+        logger.warning(f"link-mode 预查 name 失败（继续执行）: {e}")
+    if nc_name:
+        if L3_NAME_PATTERN.match(nc_name):
+            # LoopBack / Vsi-interface / Vlan-interface → 不支持
+            msg = f"接口 {nc_name}（if_index={if_index}）是 L3 类型，不支持 link-mode（H3C V7 仅物理接口支持）"
+            logger.warning(msg)
+            record_log(db, device.id, device.name, "link_mode_switch",
+                       f"切 link mode {nc_name} -> {body.mode} 拒绝（L3 类型）",
+                       "failed", error_message=msg)
+            return APIResponse(success=False, error=msg)
+        if not _looks_like_physical_port(nc_name):
+            # 子接口 / 聚合口 / 其它非物理口 → 不支持
+            msg = f"接口 {nc_name}（if_index={if_index}）不是物理接口，不支持 link-mode"
+            logger.warning(msg)
+            record_log(db, device.id, device.name, "link_mode_switch",
+                       f"切 link mode {nc_name} -> {body.mode} 拒绝（非物理口）",
+                       "failed", error_message=msg)
+            return APIResponse(success=False, error=msg)
 
     # 二次确认（force=false 时返回确认提示，不执行）
     if not body.force:
@@ -1178,8 +1285,16 @@ def set_interface_ipv4(device_id: int, if_index: int, body: Ipv4AddressSet,
                 return APIResponse(success=False, error=l3_err)
 
             # clear + set 两步 edit-config
-            clear_xml = build_ipv4_address_clear_xml(if_index)
-            client.edit_config(clear_xml)
+            # v2.3 真机验证（192.168.100.5 #5131）：H3C V7 IPV4ADDRESS 的 key = (IfIndex, Ipv4Address)，
+            # AddressOrigin 和 Ipv4Mask 是非索引列不能出现在 delete 操作里。
+            # 先查 IfIndex 下的所有 IP，每条生成一个 delete（带完整 key）。
+            ipv4_xml = client.get_config('<top xmlns="http://www.h3c.com/netconf/config:1.0"><IPV4ADDRESS></IPV4ADDRESS></top>')
+            ip_by_idx = parse_ipv4_addresses(ipv4_xml)
+            # parse_ipv4_addresses 返回值是 {if_index: ["ip/prefix", ...]}，剥 CIDR
+            current_ips = [entry.split("/")[0] for entry in ip_by_idx.get(if_index, [])]
+            clear_xml = build_ipv4_address_clear_entries_xml(if_index, current_ips)
+            if clear_xml:
+                client.edit_config(clear_xml)
 
             set_xml = build_ipv4_address_set_xml(if_index, body.ip, body.mask)
             client.edit_config(set_xml)
@@ -1235,8 +1350,13 @@ def clear_interface_ipv4(device_id: int, if_index: int, db: Session = Depends(ge
                 return APIResponse(success=False, error=l3_err)
 
             # 清空
-            clear_xml = build_ipv4_address_clear_xml(if_index)
-            client.edit_config(clear_xml)
+            # v2.3 真机验证：H3C V7 key = (IfIndex, Ipv4Address)，先查后逐条 delete
+            ipv4_xml = client.get_config('<top xmlns="http://www.h3c.com/netconf/config:1.0"><IPV4ADDRESS></IPV4ADDRESS></top>')
+            ip_by_idx = parse_ipv4_addresses(ipv4_xml)
+            current_ips = [entry.split("/")[0] for entry in ip_by_idx.get(if_index, [])]
+            clear_xml = build_ipv4_address_clear_entries_xml(if_index, current_ips)
+            if clear_xml:
+                client.edit_config(clear_xml)
 
         logger.info(f"清空 IP 成功: device_id={device_id}, if_index={if_index}")
         record_log(db, device.id, device.name, "ipv4_address_clear",
