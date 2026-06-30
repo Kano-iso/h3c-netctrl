@@ -314,24 +314,44 @@ class BackupManager:
     # ===================== 轮转 =====================
 
     def rotate(self, device_id: int, keep: int, db=None):
-        """轮转：保留最新 N 份非锁定备份，删除超出的最旧非锁定备份"""
+        """轮转：每设备总份数 ≤ keep（含锁定），锁定优先保留不被删
+
+        v2.3.1 patch 改：BACKUP_KEEP 从"非锁定份数"改为"总份数"（含锁定）。
+        锁定备份永远不被轮转删除（v2.2.0 承诺保留）。
+        锁定数 ≥ keep → 不删任何非锁定（用户锁太多属预期，保留）。
+        锁定数 < keep → 从最旧非锁定删到 `总 - keep = 0`。
+        """
         if db is None:
             db = self.db
         if db is None:
             raise BackupError("rotate 需要 db 参数")
 
-        backups = (
+        # 查该设备**所有**备份（不 filter locked），按 created_at ASC
+        all_backups = (
             db.query(Backup)
-            .filter(Backup.device_id == device_id, Backup.locked == False)  # noqa: E712
+            .filter(Backup.device_id == device_id)
             .order_by(Backup.created_at.asc())
             .all()
         )
-        to_delete = len(backups) - keep
+        # 分离锁定 vs 非锁定（按 created_at 顺序，锁定优先保留）
+        locked = [b for b in all_backups if b.locked]
+        unlocked = [b for b in all_backups if not b.locked]
+
+        # 锁定数 ≥ keep：用户锁太多，不删任何非锁定（防误删用户保留的）
+        if len(locked) >= keep:
+            logger.warning(
+                f"轮转跳过: device_id={device_id}, 锁定 {len(locked)} ≥ keep={keep},"
+                f"非锁定 {len(unlocked)} 全部保留（总 {len(all_backups)} > keep {keep}）"
+            )
+            return 0
+
+        # 锁定数 < keep：从最旧非锁定删到总份数 == keep
+        to_delete = len(all_backups) - keep
         if to_delete <= 0:
             return 0
 
         deleted = 0
-        for backup in backups[:to_delete]:
+        for backup in unlocked[:to_delete]:
             try:
                 if os.path.exists(backup.file_path):
                     os.remove(backup.file_path)
