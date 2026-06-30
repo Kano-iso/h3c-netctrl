@@ -22,10 +22,10 @@ import pytest
 
 # ==================== 设备凭据 ====================
 
-VPN_HOST = os.getenv("INTEGRATION_VPN_HOST", "192.168.100.5")
+VPN_HOST = os.getenv("INTEGRATION_VPN_HOST", "192.168.100.177")
 VPN_PORT = int(os.getenv("INTEGRATION_VPN_PORT", "830"))
-VPN_USERNAME = os.getenv("INTEGRATION_VPN_USERNAME", "admin")
-VPN_PASSWORD = os.getenv("INTEGRATION_VPN_PASSWORD", "Admin@123")
+VPN_USERNAME = os.getenv("INTEGRATION_VPN_USERNAME", "python")
+VPN_PASSWORD = os.getenv("INTEGRATION_VPN_PASSWORD", "Admin123!@#")
 
 
 # ==================== 辅助函数 ====================

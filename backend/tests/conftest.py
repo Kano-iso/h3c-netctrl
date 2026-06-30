@@ -22,7 +22,7 @@ def pytest_configure(config):
 def pytest_addoption(parser):
     parser.addoption(
         "--integration", action="store_true", default=False,
-        help="跑真实设备集成测试（需 SSH 通 192.168.100.4 / .5）"
+        help="跑真实设备集成测试（需 SSH 通 192.168.100.177 测试用交换机）"
     )
 
 

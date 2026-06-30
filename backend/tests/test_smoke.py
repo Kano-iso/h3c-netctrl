@@ -451,7 +451,7 @@ def test_link_mode_switch_real_device():
     from app.database import SessionLocal
     from app.models import Device
 
-    host = os.environ.get("INTEGRATION_VPN_HOST", "192.168.100.5")
+    host = os.environ.get("INTEGRATION_VPN_HOST", "192.168.100.177")
     port = int(os.environ.get("INTEGRATION_VPN_PORT", "830"))
     user = os.environ.get("INTEGRATION_VPN_USER", "python")
     pwd = os.environ.get("INTEGRATION_VPN_PASS", "Admin123!@#")

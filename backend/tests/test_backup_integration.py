@@ -20,10 +20,10 @@ import pytest
 
 # ==================== 设备凭据 ====================
 
-BACKUP_HOST = os.getenv("INTEGRATION_BACKUP_HOST", "192.168.100.4")
+BACKUP_HOST = os.getenv("INTEGRATION_BACKUP_HOST", "192.168.100.177")
 BACKUP_PORT = int(os.getenv("INTEGRATION_BACKUP_PORT", "22"))
-BACKUP_USERNAME = os.getenv("INTEGRATION_BACKUP_USERNAME", "admin")
-BACKUP_PASSWORD = os.getenv("INTEGRATION_BACKUP_PASSWORD", "Admin@123")
+BACKUP_USERNAME = os.getenv("INTEGRATION_BACKUP_USERNAME", "python")
+BACKUP_PASSWORD = os.getenv("INTEGRATION_BACKUP_PASSWORD", "Admin123!@#")
 
 
 # ==================== 辅助函数 ====================
