@@ -151,6 +151,7 @@ def test_create_vpn_instance(client):
                             VPN_USERNAME, VPN_PASSWORD)
     vpn_name = f"test_vpn_integ_{device['id']}_{int(time.time()*1000)%100000}"  # 加 id+ts 后缀
 
+    vpn_created = False
     try:
         # 创建 VPN instance
         resp = client.post(
@@ -161,26 +162,19 @@ def test_create_vpn_instance(client):
         data = resp.json()
         assert data["success"] is True, f"VPN 创建失败: {data}"
         assert data["data"]["name"] == vpn_name, f"VPN 名称不匹配: {data['data']}"
+        vpn_created = True  # 标记创建成功，后面 try/finally 必须清
 
         # 列表验证
         vpn_list = _query_vpn_instances(client, device["id"])
         vpn_names = [v["name"] for v in vpn_list]
         assert vpn_name in vpn_names, f"新 VPN {vpn_name} 不在列表中: {vpn_names}"
-
-        # 清理：删除 VPN instance
-        del_resp = client.delete(
-            f"/api/devices/{device['id']}/vpn-instances/{vpn_name}",
-        )
-        assert del_resp.status_code == 200
-        del_data = del_resp.json()
-        assert del_data["success"] is True, f"VPN 清理删除失败: {del_data}"
-    except Exception:
-        # 尽力清理
-        try:
-            client.delete(f"/api/devices/{device['id']}/vpn-instances/{vpn_name}")
-        except Exception:
-            pass
-        raise
+    finally:
+        # v2.3.1：无论 assert 成败，必须清，避免 177 上残留
+        if vpn_created:
+            try:
+                client.delete(f"/api/devices/{device['id']}/vpn-instances/{vpn_name}")
+            except Exception as cleanup_err:
+                print(f"[vpn-int] 清理 {vpn_name} 失败（不致命，test 失败优先）: {cleanup_err}")
 
 
 @pytest.mark.integration
@@ -193,6 +187,7 @@ def test_delete_vpn_instance(client):
                             VPN_USERNAME, VPN_PASSWORD)
     vpn_name = f"test_vpn_del_{device['id']}_{int(time.time()*1000)%100000}"  # 加 id+ts 后缀
 
+    vpn_created = False
     try:
         # 创建 VPN
         create_resp = client.post(
@@ -201,6 +196,7 @@ def test_delete_vpn_instance(client):
         )
         assert create_resp.status_code == 200
         assert create_resp.json()["success"] is True
+        vpn_created = True
 
         # 删除 VPN
         del_resp = client.delete(
@@ -209,17 +205,19 @@ def test_delete_vpn_instance(client):
         assert del_resp.status_code == 200
         del_data = del_resp.json()
         assert del_data["success"] is True, f"VPN 删除失败: {del_data}"
+        vpn_created = False  # 删除成功，标记无需再清
 
         # 列表验证不再出现
         vpn_list = _query_vpn_instances(client, device["id"])
         vpn_names = [v["name"] for v in vpn_list]
         assert vpn_name not in vpn_names, f"已删除的 VPN {vpn_name} 仍在列表中: {vpn_names}"
-    except Exception:
-        try:
-            client.delete(f"/api/devices/{device['id']}/vpn-instances/{vpn_name}")
-        except Exception:
-            pass
-        raise
+    finally:
+        # 兜底：创建成功但没删成功，try/finally 必须清
+        if vpn_created:
+            try:
+                client.delete(f"/api/devices/{device['id']}/vpn-instances/{vpn_name}")
+            except Exception as cleanup_err:
+                print(f"[vpn-int] 清理 {vpn_name} 失败（不致命，test 失败优先）: {cleanup_err}")
 
 
 @pytest.mark.integration
@@ -232,6 +230,8 @@ def test_bind_unbind_vpn(client):
                             VPN_USERNAME, VPN_PASSWORD)
     vpn_name = f"test_vpn_bind_{device['id']}_{int(time.time()*1000)%100000}"  # 加 id+ts 后缀
     if_index = None  # 提前声明，确保 except 块可用
+    vpn_created = False
+    vpn_bound = False
 
     try:
         # 创建 VPN instance
@@ -241,6 +241,7 @@ def test_bind_unbind_vpn(client):
         )
         assert create_resp.status_code == 200
         assert create_resp.json()["success"] is True, f"VPN 创建失败: {create_resp.json()}"
+        vpn_created = True
 
         # 查询接口列表，找一个 L3 接口用于绑定
         interfaces = _query_interfaces(client, device["id"])
@@ -267,6 +268,7 @@ def test_bind_unbind_vpn(client):
         assert bind_resp.status_code == 200, bind_resp.text
         bind_data = bind_resp.json()
         assert bind_data["success"] is True, f"VPN 绑定失败: {bind_data}"
+        vpn_bound = True
 
         # 解绑
         unbind_resp = client.delete(
@@ -275,6 +277,7 @@ def test_bind_unbind_vpn(client):
         assert unbind_resp.status_code == 200, unbind_resp.text
         unbind_data = unbind_resp.json()
         assert unbind_data["success"] is True, f"VPN 解绑失败: {unbind_data}"
+        vpn_bound = False  # 解绑成功，标记无需再解
 
         # 清理：删除 VPN instance
         del_resp = client.delete(
@@ -282,20 +285,23 @@ def test_bind_unbind_vpn(client):
         )
         assert del_resp.status_code == 200
         assert del_resp.json()["success"] is True, f"VPN 清理删除失败: {del_resp.json()}"
-    except Exception:
-        # 尽力清理
-        if if_index is not None:
+        vpn_created = False  # 删除成功，标记无需再删
+    finally:
+        # v2.3.1：try/finally 兜底清理，避免 177 上残留 VPN/绑定
+        # 1) 先尝试解绑（如果还绑着）
+        if vpn_bound and if_index is not None:
             try:
                 client.delete(
                     f"/api/devices/{device['id']}/interfaces/{if_index}/vpn-instance",
                 )
-            except Exception:
-                pass
-        try:
-            client.delete(f"/api/devices/{device['id']}/vpn-instances/{vpn_name}")
-        except Exception:
-            pass
-        raise
+            except Exception as cleanup_err:
+                print(f"[vpn-int] 清理 {vpn_name} 解绑失败（不致命）: {cleanup_err}")
+        # 2) 再尝试删除 VPN instance
+        if vpn_created:
+            try:
+                client.delete(f"/api/devices/{device['id']}/vpn-instances/{vpn_name}")
+            except Exception as cleanup_err:
+                print(f"[vpn-int] 清理 {vpn_name} 失败（不致命，test 失败优先）: {cleanup_err}")
 
 
 @pytest.mark.integration
