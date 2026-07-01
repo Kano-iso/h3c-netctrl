@@ -200,12 +200,25 @@ class NetconfClient:
             logger.debug(f"NETCONF连接已关闭: {self.host}:{self.port}")
 
     def get_config(self, filter_xml: str) -> str:
-        """执行 get-config 操作"""
+        """执行 get-config 操作（拿 running config，VLAN 等用）"""
         if not self._manager:
             raise RuntimeError("NETCONF未连接")
         logger.debug(f"get-config 请求 XML:\n{filter_xml}")
         result = self._manager.get_config(source="running", filter=("subtree", filter_xml))
         logger.debug(f"get-config 响应 XML:\n{result.xml}")
+        return result.xml
+
+    def get(self, filter_xml: str) -> str:
+        """执行 get 操作（拿 operational data，Ifmgr / IPV4ADDRESS / L3vpn 等用）
+
+        v2.4-bugfix-interface-display-100 修复：H3C V7 Ifmgr 等是 operational data，
+        用 get_config 拿不到全部接口，必须用 get + data namespace 才能拿到全接口。
+        """
+        if not self._manager:
+            raise RuntimeError("NETCONF未连接")
+        logger.debug(f"get 请求 XML:\n{filter_xml}")
+        result = self._manager.get(filter=("subtree", filter_xml))
+        logger.debug(f"get 响应 XML（前 500 字符）:\n{result.xml[:500]}")
         return result.xml
 
     def edit_config(self, config_xml: str) -> str:

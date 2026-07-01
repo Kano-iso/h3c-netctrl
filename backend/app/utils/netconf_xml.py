@@ -16,8 +16,12 @@ H3C V7 设备（192.168.100.4 Leaf-03 实测）模型拆分：
 import xml.etree.ElementTree as ET
 from typing import Optional
 
-# H3C NETCONF 配置命名空间（与 vlan.py / interface.py 一致）
+# H3C NETCONF 配置命名空间（vlan / edit-config 等配置操作）
 H3C_CONFIG_NS = "http://www.h3c.com/netconf/config:1.0"
+# H3C NETCONF 运行/操作数据命名空间（v2.4-bugfix-interface-display-100 修复）
+# Ifmgr / IPV4ADDRESS / L3vpn 是 operational data，必须用 data namespace 查
+# （用 config namespace 调 get 拿不到，会得到 <data></data>）
+H3C_DATA_NS = "http://www.h3c.com/netconf/data:1.0"
 # NETCONF base 1.0 命名空间
 NETCONF_BASE_NS = "urn:ietf:params:xml:ns:netconf:base:1.0"
 
@@ -26,13 +30,30 @@ NETCONF_BASE_NS = "urn:ietf:params:xml:ns:netconf:base:1.0"
 
 
 def build_interfaces_filter_xml() -> str:
-    """物理/子接口（不含 L3）"""
-    return f'<top xmlns="{H3C_CONFIG_NS}"><Ifmgr><Interfaces/></Ifmgr></top>'
+    """物理/子接口（不含 L3）— operational data，用 data namespace + GET"""
+    return f'<top xmlns="{H3C_DATA_NS}"><Ifmgr><Interfaces/></Ifmgr></top>'
 
 
 def build_ipv4_addresses_filter_xml() -> str:
-    """L3 接口的 IP 地址（独立模块）"""
-    return f'<top xmlns="{H3C_CONFIG_NS}"><IPV4ADDRESS></IPV4ADDRESS></top>'
+    """L3 接口的 IP 地址（独立模块）— operational data，用 data namespace + GET"""
+    return f'<top xmlns="{H3C_DATA_NS}"><IPV4ADDRESS></IPV4ADDRESS></top>'
+
+
+def build_all_interfaces_operational_filter_xml(include_l3vpn: bool = True) -> str:
+    """3 模块合并 filter（Ifmgr + IPV4ADDRESS + [L3vpn]）— operational data + GET
+
+    v2.4-bugfix-interface-display-100：H3C V7 Ifmgr 等是 operational data，
+    之前用 config namespace + get_config 拿不全（100.100 凑巧 24 个，其他设备 7-11 个，
+    改成 get + config namespace 拿 181 B 空 data）。改用本函数 + data namespace + GET。
+    """
+    l3vpn = "<L3vpn></L3vpn>" if include_l3vpn else ""
+    return (
+        f'<top xmlns="{H3C_DATA_NS}">'
+        f'<Ifmgr><Interfaces/></Ifmgr>'
+        f'<IPV4ADDRESS></IPV4ADDRESS>'
+        f'{l3vpn}'
+        f'</top>'
+    )
 
 
 def build_interface_extended_filter_xml() -> str:

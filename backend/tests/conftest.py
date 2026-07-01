@@ -87,14 +87,18 @@ DEFAULT_NETCONF_VLAN_XML = """<?xml version="1.0" encoding="UTF-8"?>
 
 
 def _make_mock_netconf(ifmgr_xml: str = None, vlan_xml: str = None):
-    """构造一个 mock NetconfClient，get_config 返回 XML 字符串"""
+    """构造一个 mock NetconfClient，get / get_config 都返回 XML 字符串
+
+    关键：fixture 直接给 mock instance 的 .get / .get_config / .edit_config 设 side_effect，
+    返回 str（不走真 NetconfClient method 的 `return result.xml` 链——str 没 .xml 属性）。
+    """
     mgr = MagicMock()
     if ifmgr_xml is None:
         ifmgr_xml = DEFAULT_NETCONF_INTERFACE_XML
     if vlan_xml is None:
         vlan_xml = DEFAULT_NETCONF_VLAN_XML
-    # get_config 直接返回 XML 字符串（不是 MagicMock）
-    def fake_get_config(filter_tuple):
+    # get_config / get 共用的 filter → XML 字符串逻辑
+    def filter_to_xml(filter_tuple):
         filter_xml = filter_tuple[1] if isinstance(filter_tuple, tuple) else filter_tuple
         if "Ifmgr" in filter_xml or "Interface" in filter_xml:
             return ifmgr_xml
@@ -102,7 +106,10 @@ def _make_mock_netconf(ifmgr_xml: str = None, vlan_xml: str = None):
             return vlan_xml
         # 默认返回空 data
         return "<data/>"
-    mgr.get_config.side_effect = fake_get_config
+    # get_config 直接返回 XML 字符串
+    mgr.get_config.side_effect = filter_to_xml
+    # v2.4-bugfix-interface-display-100：get_interfaces 改用 client.get()，mock 也直接返回 str
+    mgr.get.side_effect = filter_to_xml
     mgr.edit_config.return_value = "<ok/>"
     mgr.close_session.return_value = None
     # v2.3.0 新增方法 mock：按 if_index 推 name，< 4096 → 物理口，>= 4096 → LoopBack

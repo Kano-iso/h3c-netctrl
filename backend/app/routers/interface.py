@@ -16,8 +16,8 @@ from app.schemas import APIResponse
 from app.utils.crypto import decrypt_password
 from app.utils.log_recorder import record_log
 from app.utils.netconf_xml import (
+    build_all_interfaces_operational_filter_xml,
     build_interface_bind_vpn_xml,
-    build_interface_extended_filter_xml,
     build_interface_unbind_vpn_xml,
     build_ipv4_address_clear_entries_xml,
     build_ipv4_address_set_xml,
@@ -35,6 +35,9 @@ router = APIRouter(tags=["interface"])
 
 # H3C 命名空间（与 vlan.py 一致）
 H3C_CONFIG_NS = "http://www.h3c.com/netconf/config:1.0"
+# v2.4-bugfix-interface-display-100：Ifmgr / IPV4ADDRESS / L3vpn 是 operational data
+# 必须用 data namespace + GET 拿（用 config namespace + GET 拿 181 B 空 data）
+H3C_DATA_NS = "http://www.h3c.com/netconf/data:1.0"
 
 # LinkType 映射
 LINK_TYPE_MAP = {"access": 1, "trunk": 2, "hybrid": 3}
@@ -127,7 +130,14 @@ def _parse_interface_response(xml_str: str) -> list[dict]:
                 elif ct == "TrunkVLANs" and child.text:
                     iface["allowed_vlans"] = _parse_vlan_range(child.text)
                 elif ct == "AdminStatus" and child.text:
-                    iface["status"] = "up" if child.text == "1" else "down"
+                    # v2.4-bugfix-interface-display-100 修复：status 优先看 OperStatus（链路层），
+                    # AdminStatus 只看是否 shutdown。H3C V7 OperStatus 1=down 2=up
+                    iface["admin_status"] = "up" if child.text == "1" else "down"
+                    iface.setdefault("status", iface["admin_status"])
+                elif ct == "OperStatus" and child.text:
+                    # OperStatus（链路层状态）覆盖 AdminStatus 作为 status
+                    iface["oper_status"] = "up" if child.text == "2" else "down"
+                    iface["status"] = iface["oper_status"]
                 elif ct == "PortLayer" and child.text:
                     # v2.3 B11：H3C V7 PortLayer 1=L2 2=L3，最权威的层级字段
                     try:
@@ -416,16 +426,10 @@ def get_interfaces(device_id: int, db: Session = Depends(get_db)):
             host=device.host, port=device.port,
             username=device.username, password=password,
         ) as client:
-            # 一次查三模块（Ifmgr + IPV4ADDRESS + L3vpn）
-            combined_filter = (
-                f'<top xmlns="{H3C_CONFIG_NS}">'
-                '<Ifmgr><Interfaces/></Ifmgr>'
-                '<IPV4ADDRESS></IPV4ADDRESS>'
-                '<L3vpn></L3vpn>'
-                '</top>'
-            )
-            filter_xml = combined_filter
-            response_xml = client.get_config(filter_xml)
+            # v2.4-bugfix-interface-display-100 修复：Ifmgr / IPV4ADDRESS / L3vpn 是 operational data
+            # 用 config namespace + get 拿 181 B 空 data；改用 data namespace + get
+            filter_xml = build_all_interfaces_operational_filter_xml(include_l3vpn=True)
+            response_xml = client.get(filter_xml)
 
             interfaces = _parse_interface_response(response_xml)
 
@@ -882,13 +886,10 @@ def _query_current_mode(client: NetconfClient, if_index: int) -> str | None:
 
     用 Ifmgr + IPV4ADDRESS 合并查询判断接口是 L2 还是 L3。
     """
-    combined_filter = (
-        f'<top xmlns="{H3C_CONFIG_NS}">'
-        '<Ifmgr><Interfaces/></Ifmgr>'
-        '<IPV4ADDRESS></IPV4ADDRESS>'
-        '</top>'
-    )
-    response_xml = client.get_config(combined_filter)
+    # v2.4-bugfix-interface-display-100：Ifmgr / IPV4ADDRESS 是 operational data
+    # 必须用 data namespace + GET（之前 config namespace + get_config 拿不全）
+    combined_filter = build_all_interfaces_operational_filter_xml(include_l3vpn=False)
+    response_xml = client.get(combined_filter)
     root = ET.fromstring(response_xml)
 
     # 1) 扫 Ifmgr 找 LinkType（如果存在）
