@@ -438,13 +438,18 @@ def test_link_mode_switch_full_flow(client, created_device, real_device_netconf)
 
 @pytest.mark.integration
 def test_link_mode_switch_real_device():
-    """真机 192.168.100.5：桥接二层（L2）→ 三层（route）→ 二层（bridge）
+    """真机集成：桥接二层（L2）→ 三层（route）→ 二层（bridge）
 
     v2.3 闭环验证（不用点 UI）：
     - 设备必须可达（否则 skip）
-    - if_index=2 对应 GigabitEthernet1/0/1
+    - 动态选 if_index：必须 if_index ∈ [32, 4095) 且 name 看着像物理 L2 口
+      （避开 mgmt + GE1/0/1~30 接入端口 + LoopBack/Vsi/Vlan 等逻辑口）
+      之前硬编码 if_index=2（GE1/0/1）是**真机事故**：切 bridge→route
+      会清掉该口所有 L2 配置（VLAN/trunk/子接口），切回 bridge 不恢复，
+      导致用户接入端口的 IP/VPN 一起被摧毁（v2.3.1 修复）。
     - 流程：n (L2/bridge) → n+1 (L3/route) → n (L2/bridge)
-    - 全程 force=true（不弹确认），最后一步恢复初始状态
+    - 全程 force=true（不弹确认）
+    - 警告：bridge→route 仍会清目标口的 L2 配置，请用业务无关的测试口
     """
     import os
     import time
@@ -492,9 +497,29 @@ def test_link_mode_switch_real_device():
     from app.main import app
     c = TestClient(app)
 
+    # v2.3.1 修复：动态选 if_index，避开 if_index=2（GE1/0/1）这种接入端口
+    # 选安全物理 L2 口：if_index ∈ [32, 4095) + name 看着像物理口
+    ifaces_resp = c.get(f"/api/devices/{device_id}/interfaces")
+    assert ifaces_resp.status_code == 200
+    ifaces = ifaces_resp.json().get("data", [])
+    safe_l2_ifaces = [
+        i for i in ifaces
+        if 32 <= i.get("if_index", 0) < 4095
+        and i.get("layer") == "L2"
+        and any(h in (i.get("name") or "") for h in (
+            "GigabitEthernet", "Ten-GigabitEthernet", "TwentyFiveGigE",
+            "FortyGigE", "HundredGigE", "GE", "XGE",
+        ))
+    ]
+    if not safe_l2_ifaces:
+        pytest.skip("设备上没有 GE1/0/30+ 的物理 L2 口，无法跑 link-mode 集成测试")
+    target_iface = safe_l2_ifaces[0]
+    target_if_index = target_iface["if_index"]
+    print(f"[link-mode-test] 选 {target_iface.get('name')} (if_index={target_if_index})")
+
     try:
         # step 1: 当前状态（应是 L2/bridge），用 force=false 确认
-        r1 = c.patch(f"/api/devices/{device_id}/interfaces/2/link-mode",
+        r1 = c.patch(f"/api/devices/{device_id}/interfaces/{target_if_index}/link-mode",
                      json={"mode": "route", "force": False})
         assert r1.status_code == 200
         assert r1.json()["success"] is True
@@ -502,15 +527,15 @@ def test_link_mode_switch_real_device():
         time.sleep(1)
 
         # step 2: force=true 切 route
-        r2 = c.patch(f"/api/devices/{device_id}/interfaces/2/link-mode",
+        r2 = c.patch(f"/api/devices/{device_id}/interfaces/{target_if_index}/link-mode",
                      json={"mode": "route", "force": True})
         assert r2.status_code == 200
         assert r2.json()["success"] is True, f"切 route 失败: {r2.json()}"
         assert r2.json()["data"]["confirmed"] is True
         time.sleep(2)
 
-        # step 3: 改回 bridge（恢复 n 状态）
-        r3 = c.patch(f"/api/devices/{device_id}/interfaces/2/link-mode",
+        # step 3: 改回 bridge（恢复 bridge 模式；L2 配置已被设备清掉，无法恢复）
+        r3 = c.patch(f"/api/devices/{device_id}/interfaces/{target_if_index}/link-mode",
                      json={"mode": "bridge", "force": True})
         assert r3.status_code == 200
         assert r3.json()["success"] is True, f"改回 bridge 失败: {r3.json()}"
