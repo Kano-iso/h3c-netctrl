@@ -262,13 +262,26 @@ function cancelChangeLinkType() {
 
 // ============ v2.3: 切换 L2/L3 层级（bridge/route） ============
 const showLinkModeConfirm = ref(false)
-const linkModeChange = ref({ iface: null, mode: '', message: '', force: false })
+const linkModeChange = ref({ iface: null, mode: '', message: '', force: false, reason_code: null, suggested_action: null })
 const linkModeSubmitting = ref(false)
 const linkModeErr = ref('')
+// v24-bugfix: 护栏拒时显示 reason_code + suggested_action
+const linkModeGuardInfo = ref(null)  // { reason_code, suggested_action, error }
 
 async function requestSwitchLinkMode(iface) {
-  const targetMode = iface.layer === 'L3' ? 'bridge' : 'route'
+  // v24-bugfix: 前端预检 L3，理论上按钮已 v-if 隐藏，但作为兜底（防竞态/数据过期）
+  if (iface.layer === 'L3') {
+    linkModeGuardInfo.value = {
+      reason_code: 'L3_INTERFACE',
+      suggested_action: '此接口是 L3 虚接口（LoopBack / Vsi-interface / Vlan-interface），不支持切换 L2/L3 层级。如需配置 IP，请用 IPv4 地址配置功能。',
+      error: `${iface.name} 是 L3 接口，不支持切层级`,
+    }
+    return
+  }
+
+  const targetMode = 'route'  // v24-bugfix: 按钮仅 L2 显示，永远是"改三层"
   linkModeErr.value = ''
+  linkModeGuardInfo.value = null
   linkModeSubmitting.value = true
 
   // 先调用 force=false 获取确认消息
@@ -276,7 +289,17 @@ async function requestSwitchLinkMode(iface) {
   linkModeSubmitting.value = false
 
   if (!r.success) {
-    linkModeErr.value = r.error || '切换失败'
+    // v24-bugfix: 优先用 reason_code + suggested_action
+    const data = r.data
+    if (data && data.reason_code) {
+      linkModeGuardInfo.value = {
+        reason_code: data.reason_code,
+        suggested_action: data.suggested_action || '请检查接口状态后重试',
+        error: r.error || '切换失败',
+      }
+    } else {
+      linkModeErr.value = r.error || '切换失败'
+    }
     return
   }
 
@@ -288,6 +311,8 @@ async function requestSwitchLinkMode(iface) {
       mode: targetMode,
       message: data.message || `切换接口 ${iface.name} 到 ${targetMode} 模式`,
       force: true,
+      reason_code: null,
+      suggested_action: null,
     }
     showLinkModeConfirm.value = true
   } else {
@@ -301,23 +326,40 @@ async function confirmSwitchLinkMode() {
   if (!iface || !selectedDeviceId.value) return
   linkModeSubmitting.value = true
   linkModeErr.value = ''
+  linkModeGuardInfo.value = null
 
   const r = await interfaceApi.setLinkMode(selectedDeviceId.value, iface.if_index, mode, true)
   linkModeSubmitting.value = false
 
   if (!r.success) {
-    linkModeErr.value = r.error || '切层级失败'
+    // v24-bugfix: 强制执行失败也走 reason_code
+    const data = r.data
+    if (data && data.reason_code) {
+      linkModeGuardInfo.value = {
+        reason_code: data.reason_code,
+        suggested_action: data.suggested_action || '请检查接口状态后重试',
+        error: r.error || '切层级失败',
+      }
+      showLinkModeConfirm.value = false
+    } else {
+      linkModeErr.value = r.error || '切层级失败'
+    }
     return
   }
   showLinkModeConfirm.value = false
-  linkModeChange.value = { iface: null, mode: '', message: '', force: false }
+  linkModeChange.value = { iface: null, mode: '', message: '', force: false, reason_code: null, suggested_action: null }
   await loadInterfaces()
 }
 
 function cancelSwitchLinkMode() {
   if (linkModeSubmitting.value) return
   showLinkModeConfirm.value = false
-  linkModeChange.value = { iface: null, mode: '', message: '', force: false }
+  linkModeChange.value = { iface: null, mode: '', message: '', force: false, reason_code: null, suggested_action: null }
+  linkModeErr.value = ''
+}
+
+function dismissLinkModeGuard() {
+  linkModeGuardInfo.value = null
   linkModeErr.value = ''
 }
 
@@ -370,6 +412,16 @@ async function onIpModalConfirm() {
           <button :class="['px-3 py-1.5 text-xs font-medium rounded-full transition', filterMode === 'trunk' ? 'bg-ink-900 text-white' : 'text-ink-700 hover:bg-canvas-200']" @click="filterMode = 'trunk'">Trunk</button>
         </div>
         <div class="text-[10px] text-ink-500 ml-auto font-mono">设备：{{ selectedDevice.name || '—' }} · 共 {{ filtered.length }} 个接口</div>
+      </div>
+
+      <!-- v24-bugfix-ui-feedback-and-loopback: 顶部说明，告知 L3 接口为何无"改层级"按钮 -->
+      <div class="panel px-4 py-2.5 bg-canvas-100 border-canvas-300 flex items-start gap-2.5 text-xs text-ink-700">
+        <span class="text-accent mt-0.5">ℹ️</span>
+        <div class="flex-1 leading-relaxed">
+          <span class="font-semibold text-ink-900">L3 接口（LoopBack / Vsi-interface / Vlan-interface）</span>
+          不可切换 L2/L3 层级，请直接通过"改 IP"按钮配置 IP 地址。
+          L2 物理口（GE / XGE / 聚合口等）才支持"改三层"操作（需二次确认 + force=true）。
+        </div>
       </div>
 
       <div v-if="error" class="panel p-6 border border-bad/30 bg-bad/5">
@@ -440,12 +492,13 @@ async function onIpModalConfirm() {
                 >
                   改 {{ i.mode === 'access' ? 'Trunk' : 'Access' }}
                 </button>
-                <!-- v2.3: 切换 L2/L3 层级 -->
+                <!-- v2.3: 切换 L2/L3 层级（v24-bugfix: 仅 L2 显示，L3 改 IP 即可） -->
                 <button
+                  v-if="i.layer !== 'L3'"
                   @click="requestSwitchLinkMode(i)"
                   class="btn-soft !text-xs !px-2.5 !py-1"
                 >
-                  {{ i.layer === 'L3' ? '改二层' : '改三层' }}
+                  改三层
                 </button>
                 <!-- v2.2.2 patch: L3 接口才显示"改 IP"按钮 -->
                 <button
@@ -605,6 +658,21 @@ async function onIpModalConfirm() {
       variant="danger"
       @confirm="confirmSwitchLinkMode"
       @cancel="cancelSwitchLinkMode"
+    />
+
+    <!-- v24-bugfix: 切层级护栏拒时弹窗，告知 reason_code + suggested_action -->
+    <ConfirmModal
+      v-if="linkModeGuardInfo"
+      :open="!!linkModeGuardInfo"
+      :title="`切层级被拒绝（${linkModeGuardInfo.reason_code}）`"
+      :message="(linkModeGuardInfo.error || '切层级失败') + '\n\n' +
+        `💡 建议操作：\n` +
+        `${linkModeGuardInfo.suggested_action || '请检查接口状态后重试'}`"
+      :confirm-text="'我知道了'"
+      :cancel-text="'关闭'"
+      variant="danger"
+      @confirm="dismissLinkModeGuard"
+      @cancel="dismissLinkModeGuard"
     />
 
     <!-- v2.2.2 patch: 改 IP modal（内部自带二次确认） -->
