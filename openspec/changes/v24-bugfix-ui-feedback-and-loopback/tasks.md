@@ -51,8 +51,20 @@
 
 - [x] 4.1 `pytest backend/tests/ --tb=no -q` → **138 passed, 11 skipped, 0 failed**
   - 比 v2.3.1 baseline (127 passed, 4 skipped) 新增 11 个单测：4 link_mode_reason + 7 detect_layer_v2 (其中 4 是 v24 弱匹配回归测试)
-- [x] 4.2 端到端：点物理口"改三层" → 二次确认 → 取消关闭（设备配置未变）✓
-  - 真机 100.5 GE1/0/1 点"改三层" → 弹窗正常显示 → 点取消关闭（**未真改设备**），详见 3.10
+- [x] 4.2 真机回归：100.100 (Spine-01) GE1/0/5 (if_index=6) 真改三层（v24-bugfix-status-mapping + Y/N 修复之后）✓
+  - **回归发现 v2.3.0 漏测的 2 个 SSH CLI bug**（在 4.2b 第一次真机改时被逮到）：
+    - bug A: `SSHExecutor.execute_commands` 检测到 H3C V7 `[Y/N]` 二次确认提示时**不答 Y** → 命令被设备丢弃但 executor 判 success（无 Error 关键字）→ API 静默返 success
+    - bug B: 修 bug A 后又发现 — Y/N 检测在**累计** output 里查 [Y/N]（修后该只在最新 extra 里查），老 [Y/N]: 反复触发 Y 发送 → 设备在 [MGT-...] 提示符下收 Y 当命令 → 假 "% Unrecognized command" 失败
+  - 修复: [backend/app/utils/ssh_executor.py](file:///root/workpace/h3c-netctrl/backend/app/utils/ssh_executor.py#L120-L213) 加 CONFIRM_PROMPT_PATTERNS（[Y/N] / [yes/no] / continue?(yes/no)）自动应答 Y，封顶 3 次防死循环
+  - 6 个新单测 [backend/tests/test_ssh_yn_prompt.py](file:///root/workpace/h3c-netctrl/backend/tests/test_ssh_yn_prompt.py) 覆盖：H3C V7 / Cisco / 无 Y/N 不误触 / Y/N 后 Error 仍判失败 / 连发 3 次封顶 / bug B 回归
+  - 4.2b.1 force=false → API 返 `confirmed:false` + 二次确认 message ✓
+  - 4.2b.2 force=true → API 返 `confirmed:true`（7s）✓
+  - 4.2b.3 SSH `display current-configuration interface GE1/0/5` 验证有 `port link-mode route` 一行 ✓
+  - 4.2b.4 force=true 改回 bridge → API 返 `confirmed:true`（7s）✓
+  - 4.2b.5 SSH 验证无 `port link-mode route` 行（已回默认 bridge）✓
+  - 4.2b.6 link-mode 切换 H3C V7 会清 L2 配置（vlan 100 被自动清）— 手动 `port access vlan 100` 补回 ✓
+  - 4.2b.7 设备最终配置 = `port link-mode bridge` + `port access vlan 100`，与回归前一致 ✓
+  - 旧 4.2（弹窗取消）+ 4.2b 都合并到 4.2，弹窗取消走 §3.10 端到端验证已覆盖
 - [x] 4.3 端到端：点 LoopBack0 改层级（按钮已不显示，无操作）✓
   - 真机 100.5 L3 接口行无"改三层"按钮（详见 3.9），用户不可能误点
 - [x] 4.4 OperationLog 日志：护栏拒记 status="failed" + error_message 带 reason_code

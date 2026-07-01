@@ -120,6 +120,11 @@ class SSHExecutor:
     def execute_commands(self, commands: list, delay_ms: int = 1000) -> list:
         """执行多条配置命令（如 system-view → interface → 配置），逐条发送，遇错继续
 
+        v24-bugfix-ui-feedback-and-loopback / 4.2b 真机回归发现：
+        H3C V7 `port link-mode bridge→route` 弹 `[Y/N]` 二次确认，必须回 Y 才生效。
+        原实现只读不答 Y，命令被设备丢弃但 executor 判 success（无 Error 关键字）→ API 静默返 success。
+        修复：检测 Y/N / yes/no 提示并自动应答 Y（v2.3 已知只 link-mode 这类破坏性命令会弹，安全）。
+
         Args:
             commands: 命令列表
             delay_ms: 每条命令之间的间隔毫秒数（默认 1000）
@@ -128,6 +133,14 @@ class SSHExecutor:
             list[dict]: 每条命令的执行结果
                 [{cmd, output, success, error, execution_time}, ...]
         """
+        # H3C V7 / Cisco 等设备会弹的二次确认提示（H3C V7 形式为 [Y/N]:，Cisco 形式为 [yes/no]:）
+        CONFIRM_PROMPT_PATTERNS = [
+            r'\[Y/N\]',         # H3C V7 "Continue? [Y/N]:"
+            r'\[yes/no\]',      # Cisco "continue? [yes/no]:"
+            r'continue\?\s*\(yes/no\)',  # Cisco alt
+            r'Continue\?\s*\(Y/N\)',     # 大小写变体
+        ]
+
         start_time = time.time()
         client = None
         try:
@@ -152,6 +165,25 @@ class SSHExecutor:
                     channel.send(cmd_strip + '\n')
                     time.sleep(max(delay_sec, 0.5))
                     output = self._read_with_pagination(channel, max_wait=10)
+
+                    # v24-bugfix 4.2b: 检测二次确认 Y/N 提示，自动应答 Y
+                    # 一次不只弹一次：H3C V7 偶发连续弹 2 次（route 模式 + 默认配置重置）
+                    # ⚠️ 只在最新 extra 里查 [Y/N]，不要在累计 output 里查（避免老 [Y/N]: 反复触发）
+                    # 修前 bug：累计 output 仍含首次 [Y/N]:，导致循环 3 次连发 Y → 设备在 [MGT] 提示符
+                    #    收到 Y 当命令报 "% Unrecognized command found at '^' position." → 假失败
+                    confirm_loops = 0
+                    while confirm_loops < 3:
+                        if not any(re.search(p, output) for p in CONFIRM_PROMPT_PATTERNS):
+                            break
+                        logger.info(f"SSH 检测到二次确认提示，自动应答 Y（cmd={cmd_strip}）")
+                        channel.send('Y\n')
+                        time.sleep(1.0)
+                        extra = self._read_with_pagination(channel, max_wait=10)
+                        output = output + '\n' + extra
+                        # 只用最新 extra 判定是否还有 Y/N
+                        if not any(re.search(p, extra) for p in CONFIRM_PROMPT_PATTERNS):
+                            break
+                        confirm_loops += 1
 
                     # 清理 ANSI 和分页
                     output_clean = re.sub(r'\x1b\[[^m]*m', '', output)
