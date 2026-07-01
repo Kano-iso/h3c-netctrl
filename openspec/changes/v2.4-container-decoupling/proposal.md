@@ -1,6 +1,17 @@
 # v2.4-container-decoupling-asset
 
-## Why
+> ## ⚠️ SUPERSEDED BY v24-roadmap（2026-07-02）
+> 本 change 是 v2.3 评估期的早期提案（拆 2 容器 core/asset + Postgres）。
+> v2.4 最终决策已变更，详见 [v24-roadmap/proposal.md](../v24-roadmap/proposal.md)：
+> - **拆 3 容器**：`sdn-control` + `data` + `monitor`（不是 2 容器 core/asset）
+> - **数据库**：3 容器**各自独立 SQLite**（v2.4 **不迁 Postgres**，v2.5/v3.0 再评估）
+> - **内部通信**：Docker internal network + HTTP REST + `X-Internal-Token` 头（**不**用 Postgres 共享）
+> - **拆容器实施 sub-change**：[v24-container-decoupling-3tier](../v24-roadmap/proposal.md)（**待创建**）
+>
+> 本 proposal **不再实施**。保留仅供历史追溯。
+> 决策记录：[project_memory.md § v2.4 数据迁移决策](../../../.trae-cn/memory/projects/-root-workpace-h3c-netctrl/project_memory.md)
+
+## Why（历史背景）
 
 v2.3 备份功能上线后 monolith 性能 / 故障域问题加剧：
 - 备份 I/O 阻塞 NETCONF 配置下发
