@@ -214,6 +214,14 @@ function cancelUnbind() {
 
 const layerChip = (l) => l === 'L3' ? 'chip-info' : 'chip-mute'
 
+// v24-feat-bridge-button: 判断是否物理口（与后端 _looks_like_physical_port 正则一致）
+// 用途：L3 物理口（GE/TE 被切到 route）显示"改二层"按钮，L3 虚接口不显示
+// 后端护栏兜底（_looks_like_physical_port + L3_NAME_PATTERN 双重拦）
+function isPhysicalPort(name) {
+  if (!name) return false
+  return /^(GigabitEthernet|TenGigabit|Twenty-FiveGigE|FortyGigE|HundredGigE|GE|TE|FGE|HGE|XGigabitEthernet|Eth|Bridge-Aggregation|Route-Aggregation|M-GigabitEthernet|MP|XGigabit)/i.test(name)
+}
+
 // ============ v2.2.2 patch (fix-vpn-edit-capabilities) ============
 // 改 link type (mode)：弹 ConfirmModal 二次确认
 const showLinkTypeConfirm = ref(false)
@@ -268,18 +276,28 @@ const linkModeErr = ref('')
 // v24-bugfix: 护栏拒时显示 reason_code + suggested_action
 const linkModeGuardInfo = ref(null)  // { reason_code, suggested_action, error }
 
-async function requestSwitchLinkMode(iface) {
-  // v24-bugfix: 前端预检 L3，理论上按钮已 v-if 隐藏，但作为兜底（防竞态/数据过期）
-  if (iface.layer === 'L3') {
+async function requestSwitchLinkMode(iface, targetMode = 'route') {
+  // v24-feat-bridge-button: targetMode 'route'=改三层 | 'bridge'=改二层
+  // 前端预检（兜底，按钮 v-if 已挡）
+  // - 改三层：L3 接口不能再改三层
+  // - 改二层：L3 虚接口（LoopBack/Vsi/Vlan）不支持 link-mode
+  if (targetMode === 'route' && iface.layer === 'L3') {
     linkModeGuardInfo.value = {
       reason_code: 'L3_INTERFACE',
-      suggested_action: '此接口是 L3 虚接口（LoopBack / Vsi-interface / Vlan-interface），不支持切换 L2/L3 层级。如需配置 IP，请用 IPv4 地址配置功能。',
-      error: `${iface.name} 是 L3 接口，不支持切层级`,
+      suggested_action: '此接口已是 L3，无法再改三层。如需配置 IP，请用"改 IP"按钮。',
+      error: `${iface.name} 已经是 L3 接口`,
+    }
+    return
+  }
+  if (targetMode === 'bridge' && !isPhysicalPort(iface.name)) {
+    linkModeGuardInfo.value = {
+      reason_code: 'PHYSICAL_ONLY',
+      suggested_action: '此接口不是物理接口（可能是 LoopBack / Vsi / Vlan / NULL0 等虚接口），不支持切换 L2/L3 层级。',
+      error: `${iface.name} 不是物理接口，不支持切层级`,
     }
     return
   }
 
-  const targetMode = 'route'  // v24-bugfix: 按钮仅 L2 显示，永远是"改三层"
   linkModeErr.value = ''
   linkModeGuardInfo.value = null
   linkModeSubmitting.value = true
@@ -306,10 +324,11 @@ async function requestSwitchLinkMode(iface) {
   const data = r.data
   if (data && data.confirmed === false) {
     // 后端返回确认提示，弹 ConfirmModal
+    const targetLayerText = targetMode === 'route' ? '三层（route）' : '二层（bridge）'
     linkModeChange.value = {
       iface,
       mode: targetMode,
-      message: data.message || `切换接口 ${iface.name} 到 ${targetMode} 模式`,
+      message: data.message || `切换接口 ${iface.name} 到 ${targetLayerText} 模式`,
       force: true,
       reason_code: null,
       suggested_action: null,
@@ -414,13 +433,15 @@ async function onIpModalConfirm() {
         <div class="text-[10px] text-ink-500 ml-auto font-mono">设备：{{ selectedDevice.name || '—' }} · 共 {{ filtered.length }} 个接口</div>
       </div>
 
-      <!-- v24-bugfix-ui-feedback-and-loopback: 顶部说明，告知 L3 接口为何无"改层级"按钮 -->
+      <!-- v24-bugfix-ui-feedback-and-loopback: 顶部说明 -->
+      <!-- v24-feat-bridge-button: 更新文案，L3 物理口可改回二层 -->
       <div class="panel px-4 py-2.5 bg-canvas-100 border-canvas-300 flex items-start gap-2.5 text-xs text-ink-700">
         <span class="text-accent mt-0.5">ℹ️</span>
         <div class="flex-1 leading-relaxed">
-          <span class="font-semibold text-ink-900">L3 接口（LoopBack / Vsi-interface / Vlan-interface）</span>
-          不可切换 L2/L3 层级，请直接通过"改 IP"按钮配置 IP 地址。
-          L2 物理口（GE / XGE / 聚合口等）才支持"改三层"操作（需二次确认 + force=true）。
+          <span class="font-semibold text-ink-900">L2 物理口</span>（GE / XGE / 聚合口等）支持"改三层"切换到 route 模式；
+          <span class="font-semibold text-ink-900">L3 物理口</span>（被切到 route 的物理口）支持"改二层"切回 bridge。
+          <span class="font-semibold text-ink-900">L3 虚接口</span>（LoopBack / Vsi-interface / Vlan-interface）不可切换层级，请用"改 IP"配置。
+          切换层级会清对端配置（H3C V7 行为），需二次确认。
         </div>
       </div>
 
@@ -492,13 +513,21 @@ async function onIpModalConfirm() {
                 >
                   改 {{ i.mode === 'access' ? 'Trunk' : 'Access' }}
                 </button>
-                <!-- v2.3: 切换 L2/L3 层级（v24-bugfix: 仅 L2 显示，L3 改 IP 即可） -->
+                <!-- v2.3: 切换 L2/L3 层级 -->
+                <!-- v24-feat-bridge-button: L2 物理口显示"改三层"，L3 物理口显示"改二层" -->
                 <button
                   v-if="i.layer !== 'L3'"
-                  @click="requestSwitchLinkMode(i)"
+                  @click="requestSwitchLinkMode(i, 'route')"
                   class="btn-soft !text-xs !px-2.5 !py-1"
                 >
                   改三层
+                </button>
+                <button
+                  v-if="i.layer === 'L3' && isPhysicalPort(i.name)"
+                  @click="requestSwitchLinkMode(i, 'bridge')"
+                  class="btn-soft !text-xs !px-2.5 !py-1"
+                >
+                  改二层
                 </button>
                 <!-- v2.2.2 patch: L3 接口才显示"改 IP"按钮 -->
                 <button
