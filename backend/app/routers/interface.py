@@ -47,6 +47,17 @@ LINK_TYPE_REVERSE = {1: "access", 2: "trunk", 3: "hybrid"}
 L3_NAME_PATTERN = re.compile(r"^(Vlan-interface|LoopBack|Vsi-interface)\d+", re.IGNORECASE)
 # 子接口命名约定（如 GigabitEthernet0/0/0.100）
 SUB_IF_PATTERN = re.compile(r"^.+\.\d+$")
+# v24-bugfix-ui-feedback-and-loopback 修复：当 H3C V7 Ifmgr 对 Loopback 兜底成
+# Description（如 "Loopback_VTEP_ID" / "VSI_TUNNEL_2" / "Vlan_interface10"）时，
+# L3_NAME_PATTERN 不匹配，需 description 弱匹配。H3C 用户实际写法混用连字符和下划线，
+# 用正则兼容 2 种（Vsi-interface / Vsi_interface / Vsiinterface 都行）。
+# 物理口名字不会匹配这些模式（如 "GigabitEthernet1/0/1" / "Uplink_to_Spine"），安全。
+L3_NAME_WEAK_PATTERNS = (
+    re.compile(r"loopback", re.IGNORECASE),
+    # "vsi" 单独作为关键字：H3C Vsi-interface 短缩写很常见，物理口不会含 "vsi"
+    re.compile(r"vsi", re.IGNORECASE),
+    re.compile(r"vlan[_\-]?interface", re.IGNORECASE),
+)
 
 
 class InterfaceConfig(BaseModel):
@@ -236,15 +247,17 @@ def _parse_interface_response(xml_str: str) -> list[dict]:
 
 
 def _detect_layer(iface: dict, ip_addresses: list[str], vpn_instance: str | None) -> str:
-    """判定 L2 / L3（v2.3 H3C V7 实际模型版）
+    """判定 L2 / L3（v2.3 H3C V7 实际模型版 + v2.4 弱匹配修复）
 
-    判定规则（H3C V7 真实情况，v2.3 B11 修复）：
+    判定规则（H3C V7 真实情况，v2.3 B11 + v24-bugfix 修复）：
     0. PortLayer 字段（H3C V7 最权威）：1=L2 2=L3
     1. 有 IPv4 地址 → L3
     2. 绑了 VPN instance → L3
     3. 名称以 Vlan-interface / LoopBack / Vsi-interface 开头 → L3
     4. 名称匹配子接口正则（X.Y） → L3
-    5. 其余 → L2
+    5. v2.4 弱匹配：name 含 Loopback / Vsi-interface / Vlan-interface 子串 → L3
+       （修复 H3C V7 Ifmgr 把 Loopback name 兜底成 Description 的场景）
+    6. 其余 → L2
     """
     # v2.3 B11 修复：PortLayer 优先（H3C V7 真实返回的字段）
     port_layer = iface.get("port_layer")
@@ -261,6 +274,9 @@ def _detect_layer(iface: dict, ip_addresses: list[str], vpn_instance: str | None
     if L3_NAME_PATTERN.match(name):
         return "L3"
     if SUB_IF_PATTERN.match(name):
+        return "L3"
+    # v24-bugfix-ui-feedback-and-loopback 修复：弱匹配兜底
+    if any(p.search(name) for p in L3_NAME_WEAK_PATTERNS):
         return "L3"
     return "L2"
 
@@ -1084,6 +1100,39 @@ def change_link_type(device_id: int, if_index: int, body: LinkTypeChange,
         return APIResponse(success=False, error=error_msg)
 
 
+# v24-bugfix-ui-feedback-and-loopback: link-mode 护栏拒的 reason_code 字典
+# 前端看到 reason_code 后能展示具体提示，不再"默默无反应"。
+# 键 = 护栏拒原因分类，值 = (reason_code, 默认建议文案)
+LINK_MODE_REASON_CODES: dict[str, tuple[str, str]] = {
+    "l3_interface": (
+        "L3_INTERFACE",
+        "此接口是 L3 虚接口（LoopBack / Vsi-interface / Vlan-interface），不支持切换 L2/L3 层级。"
+        "如需配置 IP，请用 IPv4 地址配置功能。",
+    ),
+    "non_physical_port": (
+        "PHYSICAL_ONLY",
+        "此接口不是物理口（可能是子接口/聚合口/管理口），H3C V7 link-mode 仅物理口支持。",
+    ),
+    "protected": (
+        "PROTECTED_INTERFACE",
+        "此接口在设备保护列表中，禁止切换 L2/L3 层级。"
+        "如确需切换，先在设备管理中解除保护，再用 force=true 强制调用。",
+    ),
+    "iface_not_found": (
+        "IFACE_NOT_FOUND",
+        "设备上找不到该 if_index，请刷新接口列表确认。",
+    ),
+    "netconf_failed": (
+        "NETCONF_QUERY_FAILED",
+        "NETCONF 预查接口名失败，无法判定接口类型。",
+    ),
+    "ssh_failed": (
+        "SSH_CLI_FAILED",
+        "SSH CLI 执行失败（设备 SSH 服务异常或命令被拒），请检查设备状态后重试。",
+    ),
+}
+
+
 # ============ 切换 L2/L3 层级（v2.3） ============
 
 
@@ -1112,14 +1161,20 @@ def switch_link_mode(device_id: int, if_index: int, body: LinkModeSwitch,
         record_log(db, device.id, device.name, "link_mode_switch",
                    f"切 link mode if_index={if_index} -> {body.mode} 被保护拦截",
                    "failed", error_message=msg)
-        return APIResponse(success=False, error=msg)
+        # v24-bugfix-ui-feedback-and-loopback: 护栏拒带 reason_code
+        reason_code, suggested_action = LINK_MODE_REASON_CODES["protected"]
+        return APIResponse(
+            success=False,
+            error=msg,
+            data={"reason_code": reason_code, "suggested_action": suggested_action},
+        )
     if if_index in protected and body.force:
         logger.warning(f"切 link mode force=true 强制通过保护: device_id={device_id}, if_index={if_index}")
 
     # v2.3 真机验证（192.168.100.5 #5128 LoopBack0）：link-mode 仅物理口（GE/TE 等）支持，
     # L3 类型（LoopBack / Vsi-interface / Vlan-interface）和子接口都不支持。
     # 提前查 name 拦截，避免 SSH "% Unrecognized command" 后还得回滚。
-    from app.netconf_client import NetconfClient
+    # 注意：用顶部 import 的 NetconfClient（不要函数内 import，否则 mock patch 不生效）
     nc_name = None
     try:
         nc_pre = NetconfClient(
@@ -1129,6 +1184,8 @@ def switch_link_mode(device_id: int, if_index: int, body: LinkModeSwitch,
         nc_name = nc_pre.get_interface_name_by_index(if_index)
         nc_pre.disconnect()
     except Exception as e:
+        # v2.3 行为：warning 后继续（保留兼容），让二次确认流程走完。
+        # reason_code 会在 force=true 真正执行时再报（见下方 NETCONF 再查失败分支）。
         logger.warning(f"link-mode 预查 name 失败（继续执行）: {e}")
     if nc_name:
         if L3_NAME_PATTERN.match(nc_name):
@@ -1138,7 +1195,13 @@ def switch_link_mode(device_id: int, if_index: int, body: LinkModeSwitch,
             record_log(db, device.id, device.name, "link_mode_switch",
                        f"切 link mode {nc_name} -> {body.mode} 拒绝（L3 类型）",
                        "failed", error_message=msg)
-            return APIResponse(success=False, error=msg)
+            # v24-bugfix: L3 类型带 reason_code
+            reason_code, suggested_action = LINK_MODE_REASON_CODES["l3_interface"]
+            return APIResponse(
+                success=False,
+                error=msg,
+                data={"reason_code": reason_code, "suggested_action": suggested_action},
+            )
         if not _looks_like_physical_port(nc_name):
             # 子接口 / 聚合口 / 其它非物理口 → 不支持
             msg = f"接口 {nc_name}（if_index={if_index}）不是物理接口，不支持 link-mode"
@@ -1146,7 +1209,13 @@ def switch_link_mode(device_id: int, if_index: int, body: LinkModeSwitch,
             record_log(db, device.id, device.name, "link_mode_switch",
                        f"切 link mode {nc_name} -> {body.mode} 拒绝（非物理口）",
                        "failed", error_message=msg)
-            return APIResponse(success=False, error=msg)
+            # v24-bugfix: 非物理口带 reason_code
+            reason_code, suggested_action = LINK_MODE_REASON_CODES["non_physical_port"]
+            return APIResponse(
+                success=False,
+                error=msg,
+                data={"reason_code": reason_code, "suggested_action": suggested_action},
+            )
 
     # 二次确认（force=false 时返回确认提示，不执行）
     if not body.force:
@@ -1164,8 +1233,8 @@ def switch_link_mode(device_id: int, if_index: int, body: LinkModeSwitch,
 
     # v2.3 修复：先用 NETCONF 查接口真实 name（if_index ≠ name 数字），再用 SSH 22 CLI 改
     # H3C V7：port 22 = SSH CLI（link-mode 走这条）；port 830 = NETCONF（无 link-mode）
+    # 注意：用顶部 import 的 NetconfClient（不要函数内 import，否则 mock patch 不生效）
     try:
-        from app.netconf_client import NetconfClient
         nc = NetconfClient(
             host=device.host,
             port=device.port,
@@ -1183,7 +1252,13 @@ def switch_link_mode(device_id: int, if_index: int, body: LinkModeSwitch,
         record_log(db, device.id, device.name, "link_mode_switch",
                    f"切 link mode if_index={if_index} -> {body.mode} 失败（NETCONF 查 name）",
                    "failed", error_message=error_msg)
-        return APIResponse(success=False, error=error_msg)
+        # v24-bugfix: NETCONF 查 name 失败带 reason_code
+        reason_code, suggested_action = LINK_MODE_REASON_CODES["netconf_failed"]
+        return APIResponse(
+            success=False,
+            error=error_msg,
+            data={"reason_code": reason_code, "suggested_action": suggested_action},
+        )
 
     if not name:
         error_msg = f"接口不存在 if_index={if_index}"
@@ -1191,7 +1266,13 @@ def switch_link_mode(device_id: int, if_index: int, body: LinkModeSwitch,
         record_log(db, device.id, device.name, "link_mode_switch",
                    f"切 link mode if_index={if_index} -> {body.mode} 失败（接口不存在）",
                    "failed", error_message=error_msg)
-        return APIResponse(success=False, error=error_msg)
+        # v24-bugfix: 接口不存在带 reason_code
+        reason_code, suggested_action = LINK_MODE_REASON_CODES["iface_not_found"]
+        return APIResponse(
+            success=False,
+            error=error_msg,
+            data={"reason_code": reason_code, "suggested_action": suggested_action},
+        )
 
     # 执行 SSH CLI（强制走 22，NETCONF 不支持 link-mode）
     ssh = SSHExecutor(
@@ -1218,7 +1299,13 @@ def switch_link_mode(device_id: int, if_index: int, body: LinkModeSwitch,
             record_log(db, device.id, device.name, "link_mode_switch",
                        f"切 link mode if_index={if_index} -> {body.mode} 失败",
                        "failed", error_message=error_msg)
-            return APIResponse(success=False, error=error_msg)
+            # v24-bugfix: SSH CLI 失败带 reason_code
+            reason_code, suggested_action = LINK_MODE_REASON_CODES["ssh_failed"]
+            return APIResponse(
+                success=False,
+                error=error_msg,
+                data={"reason_code": reason_code, "suggested_action": suggested_action},
+            )
 
     logger.info(f"切 link mode 成功: device_id={device_id}, if_index={if_index}, -> {body.mode}")
     record_log(db, device.id, device.name, "link_mode_switch",

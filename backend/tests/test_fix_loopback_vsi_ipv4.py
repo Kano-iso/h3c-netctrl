@@ -95,8 +95,9 @@ def test_parse_interface_response_loopback_uses_description_fallback():
     # 不像物理口 → 路由层会触发补查
     from app.routers.interface import _looks_like_physical_port
     assert not _looks_like_physical_port(iface["name"])
-    # 没 IP 没 VPN → layer 仍是 L2（route 层会触发补查后重算）
-    assert iface["layer"] == "L2"
+    # v24-bugfix-ui-feedback-and-loopback 修复：弱匹配兜底，name="Loopback_VTEP_ID" 判 L3
+    # （v2.3 行为是判 L2，这就是用户报错的根因场景）
+    assert iface["layer"] == "L3"
 
 
 def test_parse_interface_response_vsi_interface():
@@ -150,8 +151,12 @@ def test_detect_layer_with_ip_vsi_no_name():
 
 
 def test_detect_layer_loopback_no_name_no_ip():
-    """_detect_layer 对没 name 没 IP 的 Loopback 兜底字段 → L2（_check_l3 拒）"""
+    """_detect_layer 对没 name 没 IP 的 Loopback 兜底字段 → L3（v24-bugfix 弱匹配修复）
+
+    v2.3 行为是判 L2（这就是用户报错的根因场景）。
+    v2.4 行为：name 弱匹配命中"loopback"关键字 → L3。
+    """
     from app.routers.interface import _detect_layer
     iface = {"if_index": 5128, "name": "Loopback_VTEP_ID"}
     layer = _detect_layer(iface, [], None)
-    assert layer == "L2"  # 这就是用户报错的根因场景
+    assert layer == "L3"
