@@ -153,15 +153,17 @@ def test_get_interfaces_includes_l3vpn_filter(mock_netconf):
 
 
 def test_get_interfaces_status_uses_oper_status(mock_netconf):
-    """v2.4-bugfix-interface-display-100: status 字段必须用 OperStatus（链路层）覆盖 AdminStatus
+    """v2.4-bugfix-interface-display-100 + v24-bugfix-status-mapping: status 字段必须用 OperStatus（链路层）覆盖 AdminStatus
 
-    H3C V7 AdminStatus=1（没 shutdown）+ OperStatus=1（link down）= 实际 down。
-    旧实现只看 AdminStatus，把 link down 的接口错标成 "up"。
+    H3C V7 AdminStatus=1（没 shutdown）+ OperStatus=2（link down，IF-MIB RFC 2863）= 实际 down。
+    早期实现只看 AdminStatus，把 link down 的接口错标成 "up"。
+    v2.4-bugfix-interface-display-100 引入 OperStatus 概念但编码写反。
+    v24-bugfix-status-mapping 修正编码为 1=UP 2=DOWN。
     """
     from fastapi.testclient import TestClient
     from app.main import app
 
-    # 模拟 link-down 接口：AdminStatus=1（没 shutdown）但 OperStatus=1（link down）
+    # 模拟 link-down 接口：AdminStatus=1（没 shutdown）但 OperStatus=2（link down，RFC 2863）
     mock_netconf.get.return_value = (
         '<?xml version="1.0" encoding="UTF-8"?>'
         '<data><top xmlns="http://www.h3c.com/netconf/data:1.0">'
@@ -194,11 +196,11 @@ def test_get_interfaces_status_uses_oper_status(mock_netconf):
     assert len(ifs) == 2, f"应返回 2 个接口，实际 {len(ifs)}"
 
     by_idx = {i["if_index"]: i for i in ifs}
-    # GigabitEthernet1/0/1: AdminStatus=1, OperStatus=2 → status="up"
-    assert by_idx[2]["status"] == "up", f"if_index=2 应 up，实际: {by_idx[2]}"
+    # GigabitEthernet1/0/1: AdminStatus=1, OperStatus=2 (DOWN, RFC 2863) → status="down"
+    assert by_idx[2]["status"] == "down", f"if_index=2 应 down，实际: {by_idx[2]}"
     assert by_idx[2]["admin_status"] == "up"
-    assert by_idx[2]["oper_status"] == "up"
-    # NULL0: AdminStatus=1, OperStatus=1 → status="down"（关键断言：link down 必须识别）
-    assert by_idx[3]["status"] == "down", f"if_index=3 NULL0 link down 必须 down，实际: {by_idx[3]}"
-    assert by_idx[3]["admin_status"] == "up"  # admin 没 shutdown
-    assert by_idx[3]["oper_status"] == "down"  # 但 link down
+    assert by_idx[2]["oper_status"] == "down"
+    # NULL0: AdminStatus=1, OperStatus=1 (UP, RFC 2863) → status="up"
+    assert by_idx[3]["status"] == "up", f"if_index=3 NULL0 link up 应为 up，实际: {by_idx[3]}"
+    assert by_idx[3]["admin_status"] == "up"
+    assert by_idx[3]["oper_status"] == "up"

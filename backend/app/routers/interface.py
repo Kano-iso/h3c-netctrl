@@ -141,13 +141,15 @@ def _parse_interface_response(xml_str: str) -> list[dict]:
                 elif ct == "TrunkVLANs" and child.text:
                     iface["allowed_vlans"] = _parse_vlan_range(child.text)
                 elif ct == "AdminStatus" and child.text:
-                    # v2.4-bugfix-interface-display-100 修复：status 优先看 OperStatus（链路层），
-                    # AdminStatus 只看是否 shutdown。H3C V7 OperStatus 1=down 2=up
+                    # RFC 2863 (IF-MIB) / H3C V7: AdminStatus 1=UP 2=DOWN
+                    # 反映 admin 意图（是否被 shutdown）
                     iface["admin_status"] = "up" if child.text == "1" else "down"
                     iface.setdefault("status", iface["admin_status"])
                 elif ct == "OperStatus" and child.text:
-                    # OperStatus（链路层状态）覆盖 AdminStatus 作为 status
-                    iface["oper_status"] = "up" if child.text == "2" else "down"
+                    # RFC 2863 (IF-MIB) / H3C V7: OperStatus 1=UP 2=DOWN
+                    # OperStatus 链路层状态覆盖 admin_status 作为 status
+                    # 非 1/2 值（3=testing, 4=unknown, 5=dormant, 6=notPresent, 7=lowerLayerDown）兜底 down
+                    iface["oper_status"] = "up" if child.text == "1" else "down"
                     iface["status"] = iface["oper_status"]
                 elif ct == "PortLayer" and child.text:
                     # v2.3 B11：H3C V7 PortLayer 1=L2 2=L3，最权威的层级字段
@@ -235,6 +237,8 @@ def _parse_interface_response(xml_str: str) -> list[dict]:
         iface.setdefault("name", f"If-{iface.get('if_index', '?')}")
         iface.setdefault("mode", "access")
         iface.setdefault("status", "unknown")
+        iface.setdefault("admin_status", "unknown")
+        iface.setdefault("oper_status", "unknown")
         iface.setdefault("allowed_vlans", [])
         iface.setdefault("ip_addresses", [])
         iface.setdefault("vpn_instance", None)
