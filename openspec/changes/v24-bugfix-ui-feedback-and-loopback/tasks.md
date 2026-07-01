@@ -61,11 +61,22 @@
 
 ## 5. 收尾
 
-- [ ] 5.1 1 个 commit `fix(interface): Loopback description 兜底弱匹配 + link-mode reason_code + OperationLog.result`
-- [ ] 5.2 commit `fix(frontend): Interfaces.vue 改层级按钮仅 L2 显示 + 列表顶部说明`
-- [ ] 5.3 commit `test: 4+2 单测覆盖 detect_layer + link_mode_reason + operation_log_result`
+- [x] 5.1 commit `fix(interface): Loopback description 兜底弱匹配 + link-mode reason_code` → `737a70c`
+  - 含 backend/app/routers/interface.py + 2 个新单测文件 + test_fix_loopback_vsi_ipv4 断言更新
+- [x] 5.2 commit `fix(frontend): Interfaces.vue 改层级按钮仅 L2 显示 + 列表顶部说明 + 守卫弹窗` → `e1aea92`
+- [x] 5.3 commit `docs(openspec): v24-bugfix-ui-feedback-and-loopback 任务清单收尾` → `f23ec62`
 - [ ] 5.4 archive 进 `archive/2026-07-XX-v24-bugfix-ui-feedback-and-loopback/`
+  - **延后到 v2.4.0 发版时统一 archive**（避免 v2.4.0 发版前 archive 又要 rebase）
 - [ ] 5.5 进 v2.4 release notes 合并
+  - **v2.4.0 发版时引用**
+
+## 6. 提交记录
+
+| commit | 描述 |
+|---|---|
+| `737a70c` | fix(interface): Loopback description 兜底弱匹配 + link-mode reason_code |
+| `e1aea92` | fix(frontend): Interfaces.vue 改层级按钮仅 L2 显示 + 列表顶部说明 + 守卫弹窗 |
+| `f23ec62` | docs(openspec): v24-bugfix-ui-feedback-and-loopback 任务清单收尾 |
 
 ## 设备最终状态
 
