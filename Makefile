@@ -1,4 +1,4 @@
-.PHONY: dev dev-rebuild stop logs backup clean qa qa-backend qa-frontend
+.PHONY: dev dev-rebuild stop logs backup clean qa qa-backend qa-frontend container-inventory
 
 # 启动开发环境
 dev:
@@ -52,3 +52,8 @@ qa-frontend:
 	else \
 		echo "✅ 前端 build 通过"; \
 	fi
+
+# === 容器盘点 (v24-container-cleanup) ===
+# 生成 docs/CONTAINER-INVENTORY.md 基线
+container-inventory:
+	@./scripts/container-inventory.sh
