@@ -119,9 +119,11 @@ def create_backup(device_id: int, body: BackupCreateRequest, db: Session = Depen
 @router.get("/devices/{device_id}/backup", response_model=APIResponse)
 def list_backups(device_id: int, db: Session = Depends(get_db)):
     """列出指定设备的所有备份（按 created_at DESC）"""
-    device = db.query(Device).filter(Device.id == device_id).first()
-    if not device:
-        return APIResponse(success=False, error=f"设备不存在: id={device_id}")
+    # 统一设备访问（monolith 本地查 / split 走 internal_api）
+    from app.utils.device_access import get_device_or_error
+    device, error = get_device_or_error(db, device_id)
+    if error:
+        return error
 
     backups = (
         db.query(Backup)
@@ -265,7 +267,20 @@ def create_all_backups(body: Optional[BackupAllRequest] = None, db: Session = De
     """对所有设备并发触发备份（v2.3 支持指定 type）"""
     if body is None:
         body = BackupAllRequest()
-    devices = db.query(Device).all()
+    # 统一设备访问（monolith 本地查 / split 走 internal_api）
+    from app.utils.device_access import get_devices_batch
+    # 传 None 表示拉所有（特殊处理）
+    try:
+        # monolith 模式：本地查所有
+        devices = db.query(Device).all()
+    except Exception as e:
+        logger.warning(f"本地 Device 表不可用，走内部 API: {e}")
+        from app.internal_api import get_devices
+        resp = get_devices()
+        if not resp.get("success"):
+            return APIResponse(success=False, error="无设备可备份")
+        from app.utils.device_access import _wrap_device_dict
+        devices = [_wrap_device_dict(d) for d in resp["data"]]
     if not devices:
         return APIResponse(success=False, error="无设备可备份")
 
@@ -282,7 +297,9 @@ def create_all_backups(body: Optional[BackupAllRequest] = None, db: Session = De
 
     for device in devices:
         try:
-            password = decrypt_password(device.password_encrypted)
+            # split 模式 device 是 SimpleNamespace，_password_decrypted 已解密
+            # monolith 模式 device 是 ORM 对象，需要 decrypt_password
+            password = getattr(device, "_password_decrypted", None) or decrypt_password(device.password_encrypted)
         except Exception as e:
             failed_list.append({"device_id": device.id, "error": f"密码解密失败: {e}"})
             record_log(db, device.id, device.name, "backup_create_all",
