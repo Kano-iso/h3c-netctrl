@@ -3,7 +3,12 @@ import { ref, computed, onMounted } from 'vue'
 import PageHeader from '../components/PageHeader.vue'
 import AssetEditModal from '../components/AssetEditModal.vue'
 import { deviceApi, assetApi, backupApi } from '../api/index.js'
+import { useTaskStore } from '../stores/task.js'
 import { getStatusInfo } from '../utils/status.js'
+
+// v24-fix-batch-async-backup: feature flag
+const ASYNC_MODE = import.meta.env.VITE_ASYNC_BACKUP === 'true'
+const taskStore = useTaskStore()
 
 const loading = ref(true)
 const error = ref('')
@@ -123,6 +128,22 @@ const statusLabel = (s) => getStatusInfo(s).label
 // 全量备份
 const handleFullBackup = async () => {
   if (fullBackingUp.value) return
+
+  // v24-fix-batch-async-backup: ASYNC 模式循环提交，不阻塞
+  if (ASYNC_MODE) {
+    const results = await taskStore.submitBatchBackup(
+      items.value,
+      ['startup', 'running'],
+      (d) => `全量备份 ${d.name}`,
+    )
+    const failed = results.filter((r) => !r.success)
+    if (failed.length) {
+      error.value = `${failed.length} 台设备提交失败: ${failed[0].error || '未知错误'}`
+    }
+    return
+  }
+
+  // 同步模式（v2.3 行为不变）
   fullBackingUp.value = true
   fullResult.value = null
   const r = await backupApi.createAll()

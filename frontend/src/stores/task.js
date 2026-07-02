@@ -69,6 +69,18 @@ export const useTaskStore = defineStore('task', () => {
     return { success: true, task_id: taskId }
   }
 
+  // 批量提交异步备份（全量备份用）
+  // 串行提交，避免瞬间 N 个 HTTP 请求；后台 TaskManager max_workers=1 保证串行执行
+  async function submitBatchBackup(devices, types, labelFn) {
+    const results = []
+    for (const d of devices) {
+      const label = labelFn ? labelFn(d) : `全量备份 ${d.name || '#' + d.id}`
+      const r = await submitBackup(d.id, types, label)
+      results.push({ device_id: d.id, device_name: d.name, ...r })
+    }
+    return results
+  }
+
   // 取消任务
   async function cancelTask(taskId) {
     const r = await taskApi.cancel(taskId)
@@ -190,6 +202,7 @@ export const useTaskStore = defineStore('task', () => {
     hasRunning,
     runningCount,
     submitBackup,
+    submitBatchBackup,
     submitRestore,
     cancelTask,
     restoreFromLocalStorage,

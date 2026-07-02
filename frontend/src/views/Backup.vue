@@ -21,6 +21,7 @@ const filterLock = ref('all')  // 'all' | 'locked' | 'unlocked'
 
 // 全量备份
 const fullBackingUp = ref(false)
+const fullBackupType = ref('all')  // 'all' | 'startup' | 'running'
 const fullResult = ref(null)  // { success: [], failed: [] }
 
 // 全量备份结果 Modal
@@ -131,6 +132,23 @@ function visibleBackupsFor(deviceId) {
 // 全量备份
 async function handleFullBackup() {
   if (fullBackingUp.value) return
+
+  // v24-fix-batch-async-backup: ASYNC 模式循环提交，不阻塞
+  if (ASYNC_MODE) {
+    const types = fullBackupType.value === 'all' ? ['startup', 'running'] : [fullBackupType.value]
+    const results = await taskStore.submitBatchBackup(
+      devices.value,
+      types,
+      (d) => `全量备份 ${d.name}`,
+    )
+    const failed = results.filter((r) => !r.success)
+    if (failed.length) {
+      errMsg.value = `${failed.length} 台设备提交失败: ${failed[0].error || '未知错误'}`
+    }
+    return // 不弹结果 Modal，BackgroundTaskPanel 显示每任务
+  }
+
+  // 同步模式（v2.3 行为不变）
   fullBackingUp.value = true
   fullResult.value = null
   // v2.3 新增：根据 type 选择备份类型
