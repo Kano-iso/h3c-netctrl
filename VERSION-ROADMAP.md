@@ -18,6 +18,9 @@
 | **v2.1.x patch 灰度** | ✅ 2026-06-29 (并入 v2.2.0 发版) | 手动备份后端能力（前端在 v2.2 backup-frontend 补齐） | [archive/2026-06-28-v21x-patch-backup-backend](openspec/changes/archive/2026-06-28-v21x-patch-backup-backend/) |
 | **v2.2 网控增强** | ✅ 2026-06-29 (tag: v2.2.0) | 备份前端 / 接口 VPN / 接口 L2-L3 / 联动配置 | [archive/2026-06-28-interface-vpn-instance-and-l2-l3](openspec/changes/archive/2026-06-28-interface-vpn-instance-and-l2-l3/)（VPN + L2/L3 ✅ + **v2.2.1 patch** unbind 预校验 + Modal UX 修复 [archive/2026-06-28-fix-vpn-and-l2l3-ux-bugs](openspec/changes/archive/2026-06-28-fix-vpn-and-l2l3-ux-bugs/) + **v2.2.2 patch** link type + IP 编辑能力 [archive/2026-06-28-fix-vpn-edit-capabilities](openspec/changes/archive/2026-06-28-fix-vpn-edit-capabilities/) + [archive/2026-06-28-backup-frontend](openspec/changes/archive/2026-06-28-backup-frontend/)） |
 | **v2.3 修 bug + 健壮性补全** | ✅ 2026-06-29 (tag: v2.3.0) | 修 link-mode 4 bug / 备份 UI type / ops-toolkit 容器 / 真机集成测试 / 容器解耦蓝图 / vitest BLOCKED | [v2.3-roadmap PRD](openspec/changes/v2.3-roadmap/proposal.md) + 6 archived changes |
+| **v2.3.1 真机回归 patch** | ✅ 2026-07-01 (tag: v2.3.1) | 修 v2.3.0 漏测：Loopback/Vsi IP 配 / 备份轮转 7→5 份 / 集成测试选口加固 | [archive/2026-07-01-fix-loopback-vsi-ipv4](openspec/changes/archive/2026-07-01-fix-loopback-vsi-ipv4/) + [archive/2026-07-01-fix-rotation-total-keep](openspec/changes/archive/2026-07-01-fix-rotation-total-keep/) + [archive/2026-07-01-v2.3-roadmap](openspec/changes/archive/2026-07-01-v2.3-roadmap/) |
+| **v2.4 优化 + 工程化加固** | ✅ 2026-07-02 (tag: v2.4.0) | 修 v2.3.0 漏测接口显示 / status 映射 / link-mode 双向 / 异步备份 / ops-toolkit UX / 容器清理 / 3 容器蓝图定稿 | [RELEASE-NOTES-v2.4.0.md](RELEASE-NOTES-v2.4.0.md) + 4 bugfix + 2 feat + 1 roadmap (含 4 sub-change) |
+| **v2.4.1 拆 3 容器实施** | ⏳ 规划 | 蓝图 v2.4.0 定稿 → v2.4.1 实施 + 故障注入 + 灰度 | [v24-roadmap § 4](openspec/changes/archive/2026-07-02-v24-roadmap/tasks.md#4-v24-container-decoupling-3tier拆-3-容器大头-p0-延后) |
 | **v3.0 VPC** | ⏳ 规划 | VPC + etcd（SDN 起步） | 暂未起 spec |
 | **monitor** | ⏳ 远期 | 监控 / 告警 / dashboard 独立化 | 暂未起 spec |
 
@@ -238,10 +241,9 @@
 | 2026-06-28 | 初版：v1.0 → v2.1 + v2.1.x patch 灰度 + v2.2 规划 | session 续接 |
 | 2026-06-29 | v2.2 第 1 项 archive + v2.2.1 patch（unbind 预校验 + Modal UX）+ v2.2.2 patch（link type + IP 编辑能力）archive | session 续接 |
 | 2026-06-29 | v2.2.0 tag 发版（backup-frontend archive + 4 fix commits + spec 规范化，共 18 commits） | session 续接 |
-
----
-
-**最后更新**：2026-06-29 v2.2.0 发版
+| 2026-06-29 | v2.3.0 tag 发版（6 archived changes + 18 commits） | session 续接 |
+| 2026-07-01 | v2.3.1 tag 发版（Loopback/Vsi IP 配修复 + 备份轮转 7→5 + 集成测试加固，3 archived + 14 commits） | session 续接 |
+| 2026-07-02 | v2.4.0 tag 发版（7 change: 4 bugfix + 2 feat + 1 roadmap，10 个 archive 子目录，23 commits） | session 续接 |
 
 ---
 
@@ -263,3 +265,37 @@
 - 集成（真机 192.168.100.4/.5）：11 case PASS
 
 **关键 commit**：见 RELEASE-NOTES-v2.3.0.md 章节 8。
+
+---
+
+## 8. v2.4 优化 + 工程化加固（✅ 2026-07-02 tag: v2.4.0）
+
+详见 [RELEASE-NOTES-v2.4.0.md](RELEASE-NOTES-v2.4.0.md)。
+
+**主题**：v2.3.0/v2.3.1 漏测 bug 集中修复 + 工程化加固（ops-toolkit UX + 容器清理 + 3 容器蓝图定稿 + 异步备份）。**不是新功能大版本**。
+
+**包含 7 个 change**：
+1. `v24-bugfix-interface-display-100` — 100.100 接口 24→59 + 100.4/.5/.177 接口 7-11→58-63（NETCONF get 改 + operational data namespace）
+2. `v24-bugfix-status-mapping` — OperStatus 1=UP 2=DOWN（RFC 2863 标准）+ 9 单测
+3. `v24-bugfix-ui-feedback-and-loopback` — Loopback 弱匹配 + link-mode reason_code + 改层级按钮守卫 + 4 单测 + 7 detect_layer_v2 单测
+4. `v24-feat-bridge-button` — L3 物理口加"改二层"按钮 + SSH [Y/N] 二次确认自动应答修复（v2.3.0 漏测 bug）+ 6 单测
+5. `v24-feat-async-backup-status` — 异步备份/回滚：TaskManager (ThreadPoolExecutor 串行) + 4 异步端点 + Pinia store + BackgroundTaskPanel + localStorage 持久化 + 7+12=19 单测
+6. `v24-roadmap` — v2.4 路线图聚合（4 sub-change）：
+   - `v24-container-cleanup` — 盘点脚本 + SOP + 清理 1 容器 / 2 镜像 / 1 匿名 volume（基线 3 容器 / 6 镜像 / 1 命名 volume）
+   - `v24-toolkit-ux-and-doc-discovery` — 6 脚本 `--device` 统一入口 + 回显带文档链接 + qa 容器 banner
+   - `v24-decoupling-inventory-doc` — 3 容器蓝图定稿（sdn-control + data + monitor + 内部 API + 升级回退 SOP）
+   - `v24-container-decoupling-3tier` — 蓝图定稿，**实施延后 v2.4.1**（独立 change）
+7. `45aa929` — SSH [Y/N] 二次确认自动应答（v2.3.0 漏测 bug，回归发现）
+
+**测试统计**：
+- 单元：**172 passed, 11 skipped, 0 failed**（30.83s）
+- 集成（真机 4 设备）：8 场景 PASS
+- 前端 build：✅ 通过
+
+比 v2.3.1 baseline (127 passed, 4 skipped) 新增 **+45 passed, +7 skipped**。
+
+**关键 commit 序列**：见 RELEASE-NOTES-v2.4.0.md。
+
+---
+
+**最后更新**：2026-07-02 v2.4.0 发版
