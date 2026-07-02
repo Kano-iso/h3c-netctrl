@@ -19,6 +19,7 @@ os.makedirs("./logs", exist_ok=True)
 
 from app.database import Base, engine
 from app.routers import device, log, dashboard
+from app.routers import ctrl_internal
 from app.utils.logger import setup_logging
 
 setup_logging(log_level=settings.LOG_LEVEL, log_file="./logs/ctrl.log")
@@ -49,6 +50,8 @@ app.add_middleware(InternalTokenMiddleware)
 app.include_router(device.router, prefix="/api")
 app.include_router(log.router, prefix="/api")
 app.include_router(dashboard.router, prefix="/api")
+# 内部端点
+app.include_router(ctrl_internal.router)
 
 
 @app.on_event("startup")

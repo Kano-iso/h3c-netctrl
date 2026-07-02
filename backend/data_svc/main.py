@@ -19,6 +19,7 @@ os.makedirs("./logs", exist_ok=True)
 
 from app.database import Base, engine
 from app.routers import asset, backup
+from app.routers import data_internal
 from app.utils.logger import setup_logging
 
 setup_logging(log_level=settings.LOG_LEVEL, log_file="./logs/data.log")
@@ -48,6 +49,8 @@ app.add_middleware(InternalTokenMiddleware)
 # 注册路由
 app.include_router(asset.router, prefix="/api")
 app.include_router(backup.router, prefix="/api")
+# 内部端点
+app.include_router(data_internal.router)
 
 
 @app.on_event("startup")

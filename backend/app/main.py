@@ -12,6 +12,7 @@ os.makedirs("./logs", exist_ok=True)
 
 from app.database import Base, engine
 from app.routers import device, vlan, log, dashboard, asset, execute, batch, interface, backup
+from app.routers import ctrl_internal, data_internal
 from app.utils.logger import setup_logging
 
 # 初始化日志系统
@@ -49,6 +50,10 @@ app.include_router(execute.router, prefix="/api")
 app.include_router(batch.router, prefix="/api")
 app.include_router(interface.router, prefix="/api")
 app.include_router(backup.router, prefix="/api")
+
+# 内部端点（v241-container-split，测试用，monolith 模式也注册）
+app.include_router(ctrl_internal.router)
+app.include_router(data_internal.router)
 
 
 @app.on_event("startup")
