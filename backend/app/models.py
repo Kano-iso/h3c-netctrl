@@ -6,6 +6,30 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
 
+class Task(Base):
+    """异步任务记录（v24-feat-async-backup-status）
+
+    存储备份/回滚等耗时操作的异步任务状态。
+    - task_type: "backup" | "restore"
+    - status: pending → running → success/failed/cancelled
+    - progress: 0-100 整数
+    - result_json: 任务结果 JSON 字符串（如备份返回的 backups 列表）
+    """
+    __tablename__ = "tasks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    task_type: Mapped[str] = mapped_column(String(20), nullable=False)  # "backup" | "restore"
+    device_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)
+    progress: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    result_json: Mapped[str] = mapped_column(Text, nullable=True)
+    error: Mapped[str] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+
 class Device(Base):
     __tablename__ = "devices"
 

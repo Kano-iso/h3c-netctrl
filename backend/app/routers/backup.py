@@ -21,9 +21,10 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.database import get_db
+from app.database import get_db, SessionLocal
 from app.models import Backup, Device
 from app.schemas import APIResponse
+from app.task_manager import task_manager
 from app.utils.backup_manager import BackupError, BackupManager
 from app.utils.crypto import decrypt_password
 from app.utils.log_recorder import record_log
@@ -327,3 +328,136 @@ def create_all_backups(body: Optional[BackupAllRequest] = None, db: Session = De
             "failed": failed_list,
         },
     )
+
+
+# ============ v24-feat-async-backup-status: 异步备份/回滚 ============
+
+
+def _async_backup_fn(task_id, cancel_event, progress_cb, device_id: int, types: list[str]):
+    """异步备份执行函数（在后台线程中运行）"""
+    db = SessionLocal()
+    try:
+        device, password, error = _get_device_with_password(db, device_id)
+        if error:
+            raise Exception(error.error)
+
+        progress_cb(10)
+        if cancel_event.is_set():
+            return {"cancelled": True}
+
+        mgr = _make_manager(device, password)
+        results = mgr.create_backup(types=types, db=db)
+        progress_cb(90)
+
+        if not results:
+            raise Exception("所有类型备份均失败，请查看 logs")
+        return {"backups": results, "device_id": device_id, "types_requested": types}
+    finally:
+        db.close()
+
+
+def _async_restore_fn(
+    task_id, cancel_event, progress_cb, device_id: int, backup_id: int, with_reboot: bool
+):
+    """异步回滚执行函数（在后台线程中运行）"""
+    db = SessionLocal()
+    try:
+        device, password, error = _get_device_with_password(db, device_id)
+        if error:
+            raise Exception(error.error)
+
+        progress_cb(10)
+        if cancel_event.is_set():
+            return {"cancelled": True}
+
+        mgr = _make_manager(device, password)
+        # 回滚阶段 1：SCP 推 + set as startup
+        progress_cb(30)
+        result = mgr.restore(backup_id, with_reboot=with_reboot, db=db)
+        progress_cb(90)
+
+        if not result.get("success"):
+            raise Exception(result.get("message", "回滚失败"))
+        return result
+    finally:
+        db.close()
+
+
+@router.post("/devices/{device_id}/backup-async", response_model=APIResponse)
+def create_backup_async(device_id: int, body: BackupCreateRequest, db: Session = Depends(get_db)):
+    """异步备份（v24-feat-async-backup-status）
+
+    立即返回 task_id，后台执行备份。前端轮询 GET /api/tasks/{task_id} 获取进度。
+    """
+    device, password, error = _get_device_with_password(db, device_id)
+    if error:
+        return error
+
+    types = body.types or ["startup", "running"]
+    valid_types = {"startup", "running"}
+    invalid = [t for t in types if t not in valid_types]
+    if invalid:
+        return APIResponse(success=False, error=f"不支持的备份类型: {invalid}（仅支持 startup / running）")
+
+    task_id = task_manager.submit("backup", device_id, _async_backup_fn, device_id, types)
+    logger.info(f"异步备份已提交: device_id={device_id}, task_id={task_id}")
+    return APIResponse(
+        success=True,
+        data={"task_id": task_id, "status_url": f"/api/tasks/{task_id}", "status": "pending"},
+    )
+
+
+@router.post("/devices/{device_id}/backup/{backup_id}/restore-async", response_model=APIResponse)
+def restore_backup_async(
+    device_id: int, backup_id: int, body: BackupRestoreRequest = BackupRestoreRequest(), db: Session = Depends(get_db)
+):
+    """异步回滚（v24-feat-async-backup-status）
+
+    立即返回 task_id，后台执行回滚。前端轮询 GET /api/tasks/{task_id} 获取进度。
+    """
+    device, password, error = _get_device_with_password(db, device_id)
+    if error:
+        return error
+
+    # 校验备份存在
+    backup = db.query(Backup).filter(Backup.id == backup_id, Backup.device_id == device_id).first()
+    if not backup:
+        return APIResponse(success=False, error=f"备份不存在: id={backup_id}")
+
+    task_id = task_manager.submit(
+        "restore", device_id, _async_restore_fn, device_id, backup_id, body.with_reboot
+    )
+    logger.info(f"异步回滚已提交: device_id={device_id}, backup_id={backup_id}, task_id={task_id}")
+    return APIResponse(
+        success=True,
+        data={"task_id": task_id, "status_url": f"/api/tasks/{task_id}", "status": "pending"},
+    )
+
+
+@router.get("/tasks/{task_id}", response_model=APIResponse)
+def get_task_status(task_id: int):
+    """查询异步任务状态（v24-feat-async-backup-status）
+
+    前端每 2s 轮询此端点，获取任务进度。
+    """
+    status = task_manager.get_status(task_id)
+    if not status:
+        return APIResponse(success=False, error=f"任务不存在: id={task_id}")
+    return APIResponse(success=True, data=status)
+
+
+@router.post("/tasks/{task_id}/cancel", response_model=APIResponse)
+def cancel_task(task_id: int):
+    """取消异步任务（v24-feat-async-backup-status）
+
+    协作式取消：设置 cancel_event，任务在下一个检查点退出。
+    """
+    cancelled = task_manager.cancel(task_id)
+    if not cancelled:
+        return APIResponse(
+            success=False,
+            error="任务不存在或已完成（无法取消）",
+            data={"cancelled": False},
+        )
+    return APIResponse(success=True, data={"cancelled": True})
+
