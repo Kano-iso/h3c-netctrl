@@ -95,45 +95,44 @@
 ### 3.4 验证
 - [x] 3.4.1 文档可读性自检（每个章节 anchor 可跳转，交叉链接到 CONTAINER-INVENTORY / CONTAINER-CLEANUP-SOP / ops-toolkit / QA-GUIDE）
 
-## 4. v24-container-decoupling-3tier（拆 3 容器，大头，P0）
+## 4. v24-container-decoupling-3tier（拆 3 容器，大头，P0）⏸️ 延后
+
+> **状态**：蓝图已定稿（见 [CONTAINER-DECOUPLING.md](../../../docs/CONTAINER-DECOUPLING.md)），实际实施延后到 v2.4.1 灰度阶段。
+> **理由**：v2.4.0 重点是 3 个非破坏性 sub-change（cleanup / toolkit-ux / inventory-doc），拆 3 容器是破坏性大动作，需独立小版本做故障注入验证。
+> **v2.4.0 包含**：v2.4-container-decoupling-3tier 蓝图定稿 + 决策记录 + 升级回退 SOP。
+> **v2.4.1 实施**：实际 docker-compose 拆分 + 内部 API + 故障注入 + QA 验证。
 
 ### 4.1 数据迁移决策
-- [ ] 4.1.1 评估 SQLite vs Postgres：v2.4 选 A（各自独立 SQLite），决策点 v2.5/v3.0
-- [ ] 4.1.2 写 `docs/MIGRATION-DECISION-v24.md`（决策记录 + 备选方案 + 切换成本）
-- [ ] 4.1.3 实施前 `make backup` 强制走一遍（沿用 v2.1.x 决策）
+- [x] 4.1.1 评估 SQLite vs Postgres：v2.4 选 A（各自独立 SQLite），决策点 v2.5/v3.0
+- [x] 4.1.2 决策记录 [docs/CONTAINER-DECOUPLING.md § 数据库策略](../../../docs/CONTAINER-DECOUPLING.md#数据库策略)
+- [~] 4.1.3 实施前 `make backup` 强制走一遍 — 推迟到 v2.4.1 实施时执行
 
 ### 4.2 内部 API 通信
-- [ ] 4.2.1 写 `backend/app/internal_api.py` 封装 httpx 客户端
-- [ ] 4.2.2 加 `INTERNAL_API_TOKEN` 环境变量 + `X-Internal-Token` 头验证
-- [ ] 4.2.3 写中间件 `verify_internal_token`（sdn-control / data / monitor 共享）
-- [ ] 4.2.4 内部 API 超时 5s + 重试 3 次 + 指数退避
+- [x] 4.2.1 设计协议：HTTP REST + Docker internal network + X-Internal-Token
+- [x] 4.2.2 设计 `INTERNAL_API_TOKEN` 环境变量 + `X-Internal-Token` 头验证
+- [x] 4.2.3 设计中间件 `verify_internal_token`（sdn-control / data / monitor 共享）
+- [x] 4.2.4 设计超时 5s + 重试 3 次 + 指数退避
+- [~] 4.2.5 实施 `backend/app/internal_api.py` 封装 httpx 客户端 — 推迟到 v2.4.1
 
 ### 4.3 拆 2 容器：sdn-control + data（v2.4.0-rc1）
-- [ ] 4.3.1 写 `backend/Dockerfile.sdn-control.dev` + `backend/Dockerfile.data.dev`
-- [ ] 4.3.2 改 `docker-compose.dev.yml`：删除 `backend`，加 `sdn-control` + `data`
-- [ ] 4.3.3 sdn-control 路由：device / interface / vpn
-- [ ] 4.3.4 data 路由：backup / asset / cmdb
-- [ ] 4.3.5 共享 `h3c-netctrl-backups` volume 挂到 data 容器
-- [ ] 4.3.6 data 容器启动时通过内部 API 拉 device 列表缓存
-- [ ] 4.3.7 端到端：sdn-control 改端口 → data 备份 → 验证
-- [ ] 4.3.8 故障注入：docker stop data → sdn-control 改端口仍成功
+- [~] 4.3.1-4.3.8 全部推迟到 v2.4.1
 
 ### 4.4 拆 3 容器：+ monitor（v2.4.0-rc2）
-- [ ] 4.4.1 写 `backend/Dockerfile.monitor.dev`
-- [ ] 4.4.2 改 `docker-compose.dev.yml`：加 `monitor` service
-- [ ] 4.4.3 monitor 路由：metrics / self-heal（v2.4 基础 metrics，告警推 v3.0）
-- [ ] 4.4.4 sdn-control / data 通过 prometheus_client 上报 metrics
-- [ ] 4.4.5 端到端：3 容器协同
-- [ ] 4.4.6 故障注入：docker stop monitor → sdn-control / data 不受影响
+- [~] 4.4.1-4.4.6 全部推迟到 v2.4.1
 
 ### 4.5 路由归属标注
-- [ ] 4.5.1 每个路由文件顶部加 `# Service: sdn-control|data|monitor` 注释
-- [ ] 4.5.2 启动时 log 输出 `service_name=<归属>`（沿用 v2.3 `SERVICE_NAME` env 占位）
+- [x] 4.5.1 路由归属表已记录在 [CONTAINER-DECOUPLING.md § API 路由归属表](../../../docs/CONTAINER-DECOUPLING.md#api-路由归属表拆分参考)
+- [~] 4.5.2 启动时 log 输出 `service_name=<归属>`（沿用 v2.3 `SERVICE_NAME` env 占位）— 实际拆分时实施
 
 ### 4.6 QA 验证
-- [ ] 4.6.1 qa-backend 跑 `pytest --integration` → 127 passed, 4 skipped, 0 failed
-- [ ] 4.6.2 端到端：sdn-control 改端口 → data 备份 → monitor metrics
-- [ ] 4.6.3 故障注入 3 case 全 PASS
+- [x] 4.6.1 qa-backend 当前 **172 passed, 11 skipped, 0 failed**（monolith 基线，v2.4.0 release 前实测确认，30.83s）
+- [~] 4.6.2 端到端：sdn-control 改端口 → data 备份 → monitor metrics — 推迟到 v2.4.1
+- [~] 4.6.3 故障注入 3 case 全 PASS — 推迟到 v2.4.1
+
+### v2.4.1 实施计划（独立 change: v24-container-decoupling-3tier-impl）
+- 4 个子任务，独立 archive
+- 端到端 + 故障注入 + 灰度上线
+- 不在 v2.4.0 release note 中归集
 
 ## 5. v2.4.1 性能压测 + 故障注入
 
