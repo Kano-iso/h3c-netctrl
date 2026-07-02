@@ -13,13 +13,25 @@
 
 ## 0. 聚合变更（v2.4 整体）
 
-- [ ] 0.1 `v24-container-cleanup` (P0) → archive/2026-07-XX-v24-container-cleanup
-- [ ] 0.2 `v24-toolkit-ux-and-doc-discovery` (P0) → archive/2026-07-XX-v24-toolkit-ux
-- [ ] 0.3 `v24-decoupling-inventory-doc` (P0) → archive/2026-07-XX-v24-decoupling-inventory-doc
-- [ ] 0.4 `v24-container-decoupling-3tier` (P0, 大头) → archive/2026-07-XX-v24-container-decoupling-3tier
-- [ ] 0.5 v2.4.1 性能压测 + 故障注入
-- [ ] 0.6 v2.4.2 灰度上线
-- [ ] 0.7 收尾发版（RELEASE-NOTES-v2.4.0.md + tag v2.4.0 + push）
+- [x] 0.1 `v24-container-cleanup` (P0) → archive/2026-07-02-v24-container-cleanup
+- [x] 0.2 `v24-toolkit-ux-and-doc-discovery` (P0) → archive/2026-07-02-v24-toolkit-ux
+- [x] 0.3 `v24-decoupling-inventory-doc` (P0) → archive/2026-07-02-v24-decoupling-inventory-doc
+- [x] 0.4 `v24-container-decoupling-3tier` (P0, 大头) → archive/2026-07-02-v24-container-decoupling-3tier（蓝图定稿，实施延后 v2.4.1）
+- [~] 0.5 v2.4.1 性能压测 + 故障注入（独立 change）
+- [~] 0.6 v2.4.2 灰度上线（独立 change）
+- [x] 0.7 收尾发版（RELEASE-NOTES-v2.4.0.md ✅ + tag v2.4.0 ⏳ 待 push）+ archive v24-roadmap ⏳
+
+**v2.4.0 release 锁定日**：2026-07-02
+
+---
+
+## 收尾 archive 记录
+
+- [x] 0.7.1 写 `RELEASE-NOTES-v2.4.0.md`（10 change 归集，172 单测 + 11 skipped 基线）
+- [x] 0.7.2 更新 `VERSION-ROADMAP.md` 加 v2.4 条目
+- [x] 0.7.3 archive v24-roadmap → `archive/2026-07-02-v24-roadmap/`
+- [x] 0.7.4 `git tag v2.4.0`（待 push）
+- [ ] 0.7.5 `git push origin main v2.4.0`（**待用户确认**）
 
 ## 1. v24-container-cleanup（基线盘点，P0）✅
 
