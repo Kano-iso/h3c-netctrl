@@ -6,12 +6,20 @@ WORKDIR /app
 RUN sed -i 's|deb.debian.org|mirrors.volces.com|g' /etc/apt/sources.list.d/debian.sources \
     && sed -i 's|security.debian.org|mirrors.volces.com/debian-security|g' /etc/apt/sources.list.d/debian.sources
 
-# 安装 Python 依赖
-COPY requirements.txt .
+# 安装 Python 依赖（build context = 项目根，所以路径带 backend/）
+COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -i https://mirrors.volces.com/pypi/simple/ -r requirements.txt
 
-# 复制源码（QA 容器独立构建，独立数据库）
-COPY . .
+# 复制 backend 源码（QA 容器独立构建，独立数据库）
+COPY backend/ .
 
-# 跑 pytest
+# 复制 docs（v24-toolkit-ux-and-doc-discovery：让 QA-GUIDE 链接在容器内可访问）
+COPY docs/ /opt/docs/
+
+# 复制 entrypoint 脚本（输出 QA-GUIDE 文档链接 banner）
+COPY backend/entrypoint-qa.sh /usr/local/bin/entrypoint-qa.sh
+RUN chmod +x /usr/local/bin/entrypoint-qa.sh
+
+# 跑 pytest（通过 entrypoint 输出版本 banner + 链接）
+ENTRYPOINT ["entrypoint-qa.sh"]
 CMD ["python", "-m", "pytest", "tests/", "-v", "--tb=short"]

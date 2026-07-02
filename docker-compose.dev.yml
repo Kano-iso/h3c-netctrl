@@ -55,8 +55,8 @@ services:
   qa-backend:
     profiles: ["qa"]
     build:
-      context: ./backend
-      dockerfile: Dockerfile.qa
+      context: .
+      dockerfile: backend/Dockerfile.qa
     container_name: h3c-netctrl-qa-backend
     volumes:
       - ./backend:/app
@@ -66,8 +66,8 @@ services:
   qa-frontend:
     profiles: ["qa"]
     build:
-      context: ./frontend
-      dockerfile: Dockerfile.qa
+      context: .
+      dockerfile: frontend/Dockerfile.qa
     container_name: h3c-netctrl-qa-frontend
     volumes:
       - ./frontend/src:/app/src
@@ -83,11 +83,13 @@ services:
   ops-toolkit:
     profiles: ["ops"]
     build:
-      context: ./ops-toolkit
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ops-toolkit/Dockerfile
     container_name: h3c-netctrl-ops-toolkit
     volumes:
       - ./ops-toolkit/captures:/captures
+      # docs 挂到 /opt/docs（_print_doc_links 输出路径，build 时也 COPY 了，运行时挂载保证最新）
+      - ./docs:/opt/docs:ro
     networks:
       - h3c-net
     stdin_open: true

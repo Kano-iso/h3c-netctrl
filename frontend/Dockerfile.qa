@@ -5,12 +5,20 @@ WORKDIR /app
 # 替换为淘宝镜像源加速
 RUN npm config set registry https://registry.npmmirror.com/
 
-# 先复制 package.json
-COPY package*.json ./
+# 复制前端 package.json（build context = 项目根）
+COPY frontend/package*.json ./
 RUN npm install
 
-# 复制源码
-COPY . .
+# 复制前端源码
+COPY frontend/ .
 
-# 跑 build（检查语法、import 错误、是否能编译过）
+# 复制 docs（让 QA-GUIDE 链接在容器内可访问）
+COPY docs/ /opt/docs/
+
+# 复制 entrypoint 脚本（输出 QA-GUIDE 文档链接 banner）
+COPY backend/entrypoint-qa.sh /usr/local/bin/entrypoint-qa.sh
+RUN chmod +x /usr/local/bin/entrypoint-qa.sh
+
+# 跑 build（通过 entrypoint 输出版本 banner + 链接）
+ENTRYPOINT ["entrypoint-qa.sh"]
 CMD ["npm", "run", "build"]
