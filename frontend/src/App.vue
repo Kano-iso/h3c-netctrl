@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
 import AppFooter from './components/AppFooter.vue'
+import BackgroundTaskPanel from './components/BackgroundTaskPanel.vue'
 
 const route = useRoute()
 
@@ -175,6 +176,9 @@ const Icons = {
 
     <!-- 官网式 Footer -->
     <AppFooter />
+
+    <!-- 后台任务面板（v24-feat-async-backup-status） -->
+    <BackgroundTaskPanel />
   </div>
 </template>
 

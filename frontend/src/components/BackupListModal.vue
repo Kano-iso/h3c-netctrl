@@ -2,6 +2,12 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import ConfirmModal from './ConfirmModal.vue'
 import { backupApi } from '../api/index.js'
+import { useTaskStore } from '../stores/task.js'
+
+// v24-feat-async-backup-status: feature flag 控制异步模式
+// VITE_ASYNC_BACKUP=true 启用，否则保持 v2.3 同步行为
+const ASYNC_MODE = import.meta.env.VITE_ASYNC_BACKUP === 'true'
+const taskStore = useTaskStore()
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
@@ -72,8 +78,29 @@ async function loadList() {
 // 立即备份（顶部按钮）
 async function handleCreate() {
   if (busyId.value !== null) return
-  pageLoadingId.value = 'create'
   errMsg.value = ''
+
+  // v24-feat-async-backup-status: 异步模式
+  if (ASYNC_MODE) {
+    pageLoadingId.value = 'create'
+    const r = await taskStore.submitBackup(
+      props.deviceId,
+      ['startup', 'running'],
+      `备份 ${props.deviceName || '#' + props.deviceId}`,
+    )
+    pageLoadingId.value = null
+    if (!r.success) {
+      errMsg.value = r.error || '提交备份任务失败'
+      return
+    }
+    // 立即关闭弹窗，任务在后台执行，进度在右下角面板显示
+    emit('changed', { action: 'create-async', task_id: r.task_id })
+    emit('update:visible', false)
+    return
+  }
+
+  // 同步模式（v2.3 行为）
+  pageLoadingId.value = 'create'
   const r = await backupApi.create(props.deviceId)
   pageLoadingId.value = null
   if (!r.success) {
@@ -132,6 +159,29 @@ async function onConfirmAction() {
   confirm.value.busy = true
   busyId.value = target.id
 
+  // v24-feat-async-backup-status: 回滚异步模式
+  if (ASYNC_MODE && action === 'restore') {
+    const r = await taskStore.submitRestore(
+      props.deviceId,
+      target.id,
+      true,  // with_reboot=true（与同步默认一致）
+      `回滚 ${props.deviceName || '#' + props.deviceId} → ${target.filename}`,
+    )
+    confirm.value.busy = false
+    busyId.value = null
+
+    if (!r.success) {
+      confirm.value.message = `提交回滚任务失败：${r.error || '未知错误'}\n\n${confirm.value.message}`
+      return
+    }
+    // 立即关闭弹窗，任务在后台执行
+    confirm.value.open = false
+    emit('update:visible', false)
+    emit('changed', { action: 'restore-async', task_id: r.task_id })
+    return
+  }
+
+  // 同步模式（delete / lock / unlock / restore）
   let r
   if (action === 'delete') {
     r = await backupApi.remove(props.deviceId, target.id)

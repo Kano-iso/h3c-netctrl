@@ -4,6 +4,11 @@ import PageHeader from '../components/PageHeader.vue'
 import ConfirmModal from '../components/ConfirmModal.vue'
 import BackupListModal from '../components/BackupListModal.vue'
 import { deviceApi, backupApi } from '../api/index.js'
+import { useTaskStore } from '../stores/task.js'
+
+// v24-feat-async-backup-status: feature flag
+const ASYNC_MODE = import.meta.env.VITE_ASYNC_BACKUP === 'true'
+const taskStore = useTaskStore()
 
 const loading = ref(true)
 const errMsg = ref('')
@@ -197,6 +202,23 @@ async function onConfirmAction() {
   const { action, target } = confirm.value
   if (!action) return
   confirm.value.busy = true
+
+  // v24-feat-async-backup-status: 回滚异步模式
+  if (ASYNC_MODE && action === 'restore') {
+    const r = await taskStore.submitRestore(
+      target.d.id,
+      target.b.id,
+      true,  // with_reboot=true
+      `回滚 ${target.d.name} → ${target.b.filename}`,
+    )
+    confirm.value.busy = false
+    if (!r.success) {
+      confirm.value.message = `提交回滚任务失败：${r.error || '未知错误'}\n\n${confirm.value.message}`
+      return
+    }
+    confirm.value.open = false
+    return
+  }
 
   let r
   if (action === 'delete') {

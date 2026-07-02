@@ -199,3 +199,28 @@ export const backupApi = {
       body: JSON.stringify({ with_reboot }),
     }),
 }
+
+// 异步任务管理（v24-feat-async-backup-status）
+// 提交耗时操作（备份/回滚）后台执行，前端轮询 GET /api/tasks/{id} 获取进度
+export const taskApi = {
+  // 异步备份（立即返回 task_id，后台执行）
+  backupAsync: (deviceId, types) =>
+    apiCall(`/devices/${deviceId}/backup-async`, {
+      method: 'POST',
+      body: JSON.stringify({ types: types || ['startup', 'running'] }),
+    }),
+
+  // 异步回滚（立即返回 task_id，后台执行）
+  restoreAsync: (deviceId, backupId, with_reboot = true) =>
+    apiCall(`/devices/${deviceId}/backup/${backupId}/restore-async`, {
+      method: 'POST',
+      body: JSON.stringify({ with_reboot }),
+    }),
+
+  // 查询任务状态（轮询用，每 2s 一次）
+  get: (taskId) => apiCall(`/tasks/${taskId}`),
+
+  // 取消任务（协作式取消，任务在下一个检查点退出）
+  cancel: (taskId) =>
+    apiCall(`/tasks/${taskId}/cancel`, { method: 'POST' }),
+}
