@@ -40,15 +40,13 @@ class ExecuteRequest(BaseModel):
 @router.post("/devices/{device_id}/execute", response_model=APIResponse)
 def execute_command(device_id: int, body: ExecuteRequest, db: Session = Depends(get_db)):
     """在设备上执行命令（单条 / 多条顺序执行，遇错继续）"""
-    device = db.query(Device).filter(Device.id == device_id).first()
-    if not device:
-        return APIResponse(success=False, error=f"设备不存在: id={device_id}")
-
-    try:
-        password = decrypt_password(device.password_encrypted)
-    except Exception as e:
-        logger.error(f"密码解密失败: {e}")
-        return APIResponse(success=False, error="密码解密失败")
+    # 统一设备访问（monolith 本地查 / split 走 internal_api）
+    from app.utils.device_access import get_device_with_password
+    device, password, error_resp = get_device_with_password(db, device_id)
+    if error_resp:
+        return error_resp
+    if not device or not password:
+        return APIResponse(success=False, error=f"设备不存在或密码获取失败: id={device_id}")
 
     try:
         from app.utils.ssh_executor import SSHExecutor

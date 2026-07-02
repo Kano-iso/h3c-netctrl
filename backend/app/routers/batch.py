@@ -29,7 +29,9 @@ def batch_execute(body: BatchExecuteRequest, db: Session = Depends(get_db)):
     if not body.command or not body.command.strip():
         return APIResponse(success=False, error="命令不能为空")
 
-    devices = db.query(Device).filter(Device.id.in_(body.device_ids)).all()
+    # 统一设备批量访问（monolith 本地查 / split 走 internal_api）
+    from app.utils.device_access import get_devices_batch
+    devices = get_devices_batch(db, body.device_ids)
     if not devices:
         return APIResponse(success=False, error="未找到指定设备")
 
@@ -38,7 +40,9 @@ def batch_execute(body: BatchExecuteRequest, db: Session = Depends(get_db)):
 
     def execute_on_device(device):
         try:
-            password = decrypt_password(device.password_encrypted)
+            # split 模式 device 是 SimpleNamespace，_password_decrypted 已解密
+            # monolith 模式 device 是 ORM 对象，需要 decrypt_password
+            password = getattr(device, "_password_decrypted", None) or decrypt_password(device.password_encrypted)
             from app.utils.ssh_executor import SSHExecutor
             executor = SSHExecutor(host=device.host, port=22, username=device.username, password=password)
             result = executor.execute(command)

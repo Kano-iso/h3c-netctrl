@@ -70,16 +70,13 @@ class InterfaceConfig(BaseModel):
 
 
 def _get_device_and_password(db: Session, device_id: int):
-    """根据设备 ID 获取设备信息和解密密码"""
-    device = db.query(Device).filter(Device.id == device_id).first()
-    if not device:
-        return None, None, APIResponse(success=False, error=f"设备不存在: id={device_id}")
-    try:
-        password = decrypt_password(device.password_encrypted)
-    except Exception as e:
-        logger.error(f"密码解密失败: {e}")
-        return None, None, APIResponse(success=False, error="密码解密失败")
-    return device, password, None
+    """根据设备 ID 获取设备信息和解密密码
+
+    monolith 模式：查本地 Device 表
+    split 模式（config 容器无 devices 表）：走 internal_api 调 ctrl 容器
+    """
+    from app.utils.device_access import get_device_with_password
+    return get_device_with_password(db, device_id)
 
 
 def _build_interface_filter_xml() -> str:

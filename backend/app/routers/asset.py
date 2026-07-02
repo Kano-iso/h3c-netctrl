@@ -16,10 +16,13 @@ router = APIRouter(tags=["asset"])
 
 
 def _get_device_or_error(db: Session, device_id: int):
-    device = db.query(Device).filter(Device.id == device_id).first()
-    if not device:
-        return None, APIResponse(success=False, error=f"设备不存在: id={device_id}")
-    return device, None
+    """获取设备（不需要密码）
+
+    monolith 模式：查本地 Device 表
+    split 模式（data 容器无 devices 表）：走 internal_api 调 ctrl 容器
+    """
+    from app.utils.device_access import get_device_or_error
+    return get_device_or_error(db, device_id)
 
 
 def _get_asset_or_create(db: Session, device_id: int):
