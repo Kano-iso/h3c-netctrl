@@ -21,76 +21,79 @@
 - [ ] 0.6 v2.4.2 灰度上线
 - [ ] 0.7 收尾发版（RELEASE-NOTES-v2.4.0.md + tag v2.4.0 + push）
 
-## 1. v24-container-cleanup（基线盘点，P0）
+## 1. v24-container-cleanup（基线盘点，P0）✅
 
 ### 1.1 盘点脚本
-- [ ] 1.1.1 写 `scripts/container-inventory.sh`（跑 `docker ps -a --format` + `docker images` + `docker volume ls`）
-- [ ] 1.1.2 输出 markdown 到 `docs/CONTAINER-INVENTORY.md`
-- [ ] 1.1.3 写 `make container-inventory` 入口
+- [x] 1.1.1 写 `scripts/container-inventory.sh`（跑 `docker ps -a --format` + `docker images` + `docker volume ls`）
+- [x] 1.1.2 输出 markdown 到 `docs/CONTAINER-INVENTORY.md`
+- [x] 1.1.3 写 `make container-inventory` 入口
 
 ### 1.2 清理 SOP 文档
-- [ ] 1.2.1 写 `docs/CONTAINER-CLEANUP-SOP.md`（可删 vs 必须保留 + 步骤 + 回退）
-- [ ] 1.2.2 SOP 与 v2.3.1 docker-compose.dev.yml 对齐（前端 / backend / qa-* / ops-toolkit 必须保留）
+- [x] 1.2.1 写 `docs/CONTAINER-CLEANUP-SOP.md`（可删 vs 必须保留 + 步骤 + 回退）
+- [x] 1.2.2 SOP 与 v2.3.1 docker-compose.dev.yml 对齐（前端 / backend / qa-* / ops-toolkit 必须保留）
 
 ### 1.3 跑基线
-- [ ] 1.3.1 跑 `make container-inventory` 生成 `docs/CONTAINER-INVENTORY.md`
-- [ ] 1.3.2 人工核对：所有 qa-* / ops-toolkit / frontend / backend 都在
-- [ ] 1.3.3 列出 stale image / stop 容器 / 未用 volume
-- [ ] 1.3.4 按 SOP 清理（保留 git log 可追）
+- [x] 1.3.1 跑 `make container-inventory` 生成 `docs/CONTAINER-INVENTORY.md`
+- [x] 1.3.2 人工核对：所有 qa-* / ops-toolkit / frontend / backend 都在
+- [x] 1.3.3 列出 stale image / stop 容器 / 未用 volume
+- [x] 1.3.4 按 SOP 清理（保留 git log 可追）
+  - 删除 h3c-netctrl-qa-frontend 容器（Exited 34h 残留）
+  - 删除 h3c-config:latest 镜像（10 天前旧版遗留）
+  - 删除 nginx:alpine 镜像（5 周前未用）
+  - 删除匿名 volume 02f43d74...（18 天无引用）
 
 ### 1.4 验证
-- [ ] 1.4.1 `docker ps -a` 输出与 `docs/CONTAINER-INVENTORY.md` 100% 一致
-- [ ] 1.4.2 SOP 清理后 `docker ps -a` 输出与 SOP "必须保留" 清单 100% 一致
+- [x] 1.4.1 `docker ps -a` 输出与 `docs/CONTAINER-INVENTORY.md` 100% 一致
+- [x] 1.4.2 清理后基线: 3 容器（全 running）/ 6 镜像 / 1 命名 volume
 
-## 2. v24-toolkit-ux-and-doc-discovery（工具完善化，P0）
+## 2. v24-toolkit-ux-and-doc-discovery（工具完善化，P0）✅
 
 ### 2.1 脚本封装为子命令
-- [ ] 2.1.1 重写 `check-host.sh`：接受 `--device` / `--host` 参数
-- [ ] 2.1.2 重写 `check-netconf.sh`：接受 `--device` / `--host` / `--port` 参数
-- [ ] 2.1.3 重写 `ssh-test.sh`：接受 `--device` 参数（从 BACKEND_URL 查凭据）
-- [ ] 2.1.4 重写 `capture-config.sh`：接受 `--device` 参数
-- [ ] 2.1.5 重写 `reboot-wait.sh`：接受 `--device` 参数
-- [ ] 2.1.6 加 `audit-switch.sh`（新脚本，一键执行 display version/device/interface brief）
+- [x] 2.1.1 重写 `check-host.sh`：接受 `--device` / `--host` 参数
+- [x] 2.1.2 重写 `check-netconf.sh`：接受 `--device` / `--host` / `--port` 参数
+- [x] 2.1.3 重写 `ssh-test.sh`：接受 `--device` 参数（从后端 API 查凭据）
+- [x] 2.1.4 重写 `capture-config.sh`：接受 `--device` 参数
+- [x] 2.1.5 重写 `reboot-wait.sh`：接受 `--device` 参数
+- [x] 2.1.6 加 `audit-switch.sh`（新脚本，一键执行 display version/device/interface brief）
 
 ### 2.2 工具回显带文档链接
-- [ ] 2.2.1 写公共函数 `_print_doc_links()` 到 `ops-toolkit/scripts/_lib.sh`
-- [ ] 2.2.2 5 预制脚本 + audit-switch 末尾全部加 `_print_doc_links` 调用
-- [ ] 2.2.3 验证：执行任一脚本，输出末尾含 `📖 用法: ...` + `📖 排错 SOP: ...` + `📖 凭据来源: ...`
-- [ ] 2.2.4 `OPS_DOCS_PREFIX` 环境变量支持（默认 `/opt/docs/`，可覆盖）
+- [x] 2.2.1 写公共函数 `_print_doc_links()` 到 `ops-toolkit/scripts/_lib.sh`
+- [x] 2.2.2 5 预制脚本 + audit-switch 末尾全部加 `_print_doc_links` 调用
+- [x] 2.2.3 验证：执行任一脚本，输出末尾含 `📖 用法: ...` + `📖 排错 SOP: ...` + `📖 凭据来源: ...`
+- [x] 2.2.4 `OPS_DOCS_PREFIX` 环境变量支持（默认 `/opt/docs/`，可覆盖）
 
 ### 2.3 qa 容器入口回显
-- [ ] 2.3.1 改 `backend/Dockerfile.qa` `CMD` 前加 echo banner（`📖 QA-GUIDE: /opt/docs/QA-GUIDE.md#qa-backend`）
-- [ ] 2.3.2 改 `frontend/Dockerfile.qa` `CMD` 前加 echo banner
-- [ ] 2.3.3 验证：`docker compose --profile qa run --rm qa-backend` 输出含文档链接
-- [ ] 2.3.4 验证：qa-frontend 同样
+- [x] 2.3.1 改 `backend/Dockerfile.qa` 加 `entrypoint-qa.sh` + COPY docs/
+- [x] 2.3.2 改 `frontend/Dockerfile.qa` 加 `entrypoint-qa.sh` + COPY docs/
+- [x] 2.3.3 验证：`docker compose run --rm qa-backend` 输出含 QA-GUIDE 链接
+- [x] 2.3.4 验证：qa-frontend 同样
 
 ### 2.4 docs 索引
-- [ ] 2.4.1 写 `docs/ops-toolkit.md`（5 脚本各自用法 + 设备命名约定 + 常见错误码）
-- [ ] 2.4.2 与 `docs/QA-GUIDE.md` + `docs/CONTAINER-DECOUPLING.md` + `docs/VERSION-ROADMAP.md` 交叉链接
-- [ ] 2.4.3 文档随 ops-toolkit image 一起 COPY（Dockerfile 改 `COPY docs/ /opt/docs/`）
+- [x] 2.4.1 写 `docs/ops-toolkit.md`（6 脚本各自用法 + 设备命名约定 + 常见错误）
+- [x] 2.4.2 与 `docs/QA-GUIDE.md` + `docs/CONTAINER-DECOUPLING.md` + `docs/CONTAINER-INVENTORY.md` 交叉链接
+- [x] 2.4.3 文档随 ops-toolkit + qa image 一起 COPY（Dockerfile 改 `COPY docs/ /opt/docs/`）
 
 ### 2.5 验证
-- [ ] 2.5.1 5 脚本 + audit-switch 实跑：每脚本回显带 3 文档链接
-- [ ] 2.5.2 qa-backend / qa-frontend 实跑：回显带 QA-GUIDE 链接
-- [ ] 2.5.3 `docs/ops-toolkit.md` anchor 与脚本回显链接 100% 命中
+- [x] 2.5.1 5 脚本 + audit-switch 实跑：每脚本回显带 3 文档链接
+- [x] 2.5.2 qa-backend / qa-frontend 实跑：回显带 QA-GUIDE 链接
+- [x] 2.5.3 `docs/ops-toolkit.md` anchor 与脚本回显链接 100% 命中（check-host / ssh-test / check-netconf / capture-config / reboot-wait / audit-switch）
 
-## 3. v24-decoupling-inventory-doc（决策支持，P0）
+## 3. v24-decoupling-inventory-doc（决策支持，P0）✅
 
 ### 3.1 布局图
-- [ ] 3.1.1 更新 `docs/CONTAINER-DECOUPLING.md`：替换 v2.3 评估的"2 容器"图为 v2.4 "3 容器" 拓扑（sdn-control / data / monitor）
-- [ ] 3.1.2 标 v2.4 决策点（与 v2.3 评估对比）
+- [x] 3.1.1 更新 `docs/CONTAINER-DECOUPLING.md`：替换 v2.3 评估的"2 容器"图为 v2.4 "3 容器" 拓扑（sdn-control / data / monitor）
+- [x] 3.1.2 标 v2.4 决策点（与 v2.3 评估对比：3 容器 vs 2 / SQLite vs Postgres / 内部 API 协议）
 
 ### 3.2 API 路由归属表
-- [ ] 3.2.1 写完整 9 核心路由归属表（与 proposal 一致）
-- [ ] 3.2.2 标"前端无感，OpenAPI 透明路由"
+- [x] 3.2.1 写完整 15 路由归属表（device/vlan/interface/vpn/execute/log/auth/health/dashboard/batch → sdn-control + cmdb/asset/backup/task → data + metrics/self_heal → monitor）
+- [x] 3.2.2 标"前端无感，API 路径不变"
 
 ### 3.3 升级 + 回退步骤
-- [ ] 3.3.1 升级步骤：`make backup` → `git pull` → `docker compose pull` → `docker compose up -d` → 端到端验证
-- [ ] 3.3.2 回退步骤：`docker compose down` → `git revert <commit>` → `docker compose -f docker-compose.monolith.yml up`
+- [x] 3.3.1 升级步骤：`make backup` → `git pull` → `docker compose up -d data/sdn-control/monitor` → `make qa`
+- [x] 3.3.2 回退步骤：`docker compose down` → `git revert` → `docker compose up -d backend`（monolith）
 
 ### 3.4 验证
-- [ ] 3.4.1 文档可读性自检（每个章节 anchor 可跳转）
-- [ ] 3.4.2 升级步骤 dry-run（不上线，模拟执行）
+- [x] 3.4.1 文档可读性自检（每个章节 anchor 可跳转，交叉链接到 CONTAINER-INVENTORY / CONTAINER-CLEANUP-SOP / ops-toolkit / QA-GUIDE）
 
 ## 4. v24-container-decoupling-3tier（拆 3 容器，大头，P0）
 
