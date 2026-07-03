@@ -70,6 +70,25 @@ def _internal_post(url: str, json_data: dict, timeout: float = _TIMEOUT) -> dict
     raise RuntimeError(f"内部 API 调用失败: {last_err}")
 
 
+def _internal_delete(url: str, timeout: float = _TIMEOUT) -> dict:
+    """DELETE 请求，带重试 + 超时 + 鉴权"""
+    last_err: Optional[Exception] = None
+    for attempt in range(1, _MAX_RETRIES + 1):
+        try:
+            with httpx.Client(timeout=timeout) as client:
+                resp = client.delete(url, headers=_headers())
+                resp.raise_for_status()
+                return resp.json()
+        except Exception as e:
+            last_err = e
+            if attempt < _MAX_RETRIES:
+                wait = 2 ** (attempt - 1)
+                logger.warning(f"内部 DELETE {url} 第 {attempt} 次失败: {e}，{wait}s 后重试")
+                time.sleep(wait)
+    logger.error(f"内部 DELETE {url} 重试 {_MAX_RETRIES} 次仍失败: {last_err}")
+    raise RuntimeError(f"内部 API 调用失败: {last_err}")
+
+
 # ── 业务调用 ─────────────────────────────────
 
 
@@ -104,3 +123,12 @@ def trigger_backup(device_id: int, types: list) -> dict:
 def get_assets() -> dict:
     """从 data 容器拉所有资产数据（dashboard 聚合用）"""
     return _internal_get(f"{DATA_URL}/internal/assets")
+
+
+def cleanup_device(device_id: int) -> dict:
+    """调 data 容器清理设备的 asset / backup 数据 + 本地备份文件
+
+    触发场景：split 模式下 ctrl 容器 `DELETE /api/devices/{id}` 成功后调。
+    monolith 模式不调（SQLAlchemy cascade 已自动级联清理）。
+    """
+    return _internal_delete(f"{DATA_URL}/internal/devices/{device_id}/cleanup")

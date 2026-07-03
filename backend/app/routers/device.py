@@ -117,7 +117,11 @@ def update_device(device_id: int, body: DeviceUpdate, db: Session = Depends(get_
 
 @router.delete("/devices/{device_id}", response_model=APIResponse)
 def delete_device(device_id: int, db: Session = Depends(get_db)):
-    """删除设备"""
+    """删除设备
+
+    split 模式（ctrl 容器）：device 行删成功后调 data 容器 cleanup 端点清理关联 asset/backup
+    monolith 模式：SQLAlchemy cascade 自动级联清理，不调内部 API
+    """
     device, error = _get_device_or_404(db, device_id)
     if error:
         return error
@@ -126,6 +130,37 @@ def delete_device(device_id: int, db: Session = Depends(get_db)):
     db.commit()
 
     logger.info(f"设备删除成功: id={device_id}")
+
+    # split 模式：通知 data 容器清理关联 asset/backup + 备份文件
+    # monolith 模式：SQLAlchemy cascade 已自动级联，跳过
+    import os
+    if os.getenv("SERVICE_NAME") == "ctrl":
+        try:
+            from app.internal_api import cleanup_device
+            cleanup_resp = cleanup_device(device_id)
+            logger.info(
+                f"split 模式 cleanup 调用成功: device_id={device_id} "
+                f"deleted_assets={cleanup_resp.get('data', {}).get('deleted_assets', 0)}"
+                f" deleted_backups={cleanup_resp.get('data', {}).get('deleted_backups', 0)}"
+            )
+            return APIResponse(
+                success=True,
+                data={
+                    "message": f"设备 {device_id} 已删除",
+                    "cleanup": cleanup_resp.get("data", {}),
+                },
+            )
+        except Exception as e:
+            # 设备已删事实优先，cleanup 失败仅 log warning
+            logger.warning(f"split 模式 cleanup 调用失败（已忽略）: device_id={device_id} err={e}")
+            return APIResponse(
+                success=True,
+                data={
+                    "message": f"设备 {device_id} 已删除",
+                    "warning": f"关联数据清理失败: {e}",
+                },
+            )
+
     return APIResponse(success=True, data={"message": f"设备 {device_id} 已删除"})
 
 
