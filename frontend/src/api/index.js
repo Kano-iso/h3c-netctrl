@@ -151,8 +151,12 @@ export const backupApi = {
       body: JSON.stringify({}),
     }),
 
-  // 全量备份（POST /api/backups，并发对所有设备，结果聚合）
+  // 全量备份同步（POST /api/backups，串行对所有设备，结果聚合）— 向后兼容
   createAll: (body) => apiCall('/backups', { method: 'POST', body: body || {} }),
+
+  // 全量备份异步（POST /api/backups-async，立即返回 task_id）— v241-supplement Task 8.4
+  // 前端默认走异步，避免 7 设备 × 2 type 阻塞 2-4 分钟
+  createAllAsync: (body) => apiCall('/backups-async', { method: 'POST', body: body || {} }),
 
   // 下载（返回 Blob，不走 apiCall 因为它走 .json()）
   download: async (deviceId, backupId) => {

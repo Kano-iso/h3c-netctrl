@@ -273,3 +273,89 @@ def test_cancel_task_already_terminal(client, created_device):
         cancel_data = cancel_resp.json()
         assert cancel_data["success"] is False
         assert cancel_data["data"]["cancelled"] is False
+
+
+# ======================== POST /api/backups-async（v241-supplement Task 8.4）========================
+
+
+def test_backups_async_submit_immediate_return(client, created_device):
+    """POST /api/backups-async 立即返回 task_id（不阻塞 7 设备串行）"""
+    with patch("app.routers.backup.BackupManager") as MockBM:
+        mock_mgr = MagicMock()
+
+        def slow_create(*args, **kwargs):
+            time.sleep(0.5)  # 模拟备份耗时
+            return [{"id": 1, "type": "startup", "size": 100, "content_hash": "abc",
+                     "filename": "x.cfg", "created_at": "2026-06-29T10:00:00"}]
+        mock_mgr.create_backup.side_effect = slow_create
+        MockBM.return_value = mock_mgr
+
+        start = time.time()
+        resp = client.post("/api/backups-async", json={"types": ["startup"]})
+        elapsed = time.time() - start
+        # 关键断言：< 200ms 返回（不阻塞等待所有设备）
+        assert elapsed < 0.2, f"异步端点阻塞 {elapsed}s，未立即返回"
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        assert "task_id" in data["data"]
+        assert data["data"]["status"] == "pending"
+        assert data["data"]["status_url"] == f"/api/tasks/{data['data']['task_id']}"
+
+
+def test_backups_async_invalid_type(client):
+    """POST /api/backups-async 类型非法"""
+    resp = client.post("/api/backups-async", json={"types": ["invalid"]})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["success"] is False
+    assert "不支持" in data["error"]
+
+
+def test_backups_async_success_with_2_devices(client, db):
+    """POST /api/backups-async 2 设备都成功 → task success + result 含 success_count=2"""
+    from app.models import Device
+    from app.utils.crypto import encrypt_password
+    enc1 = encrypt_password("Pass123!")
+    enc2 = encrypt_password("Pass456!")
+
+    d1 = Device(name="D1", host="1.1.1.1", port=830, username="u", password_encrypted=enc1)
+    d2 = Device(name="D2", host="1.1.1.2", port=830, username="u", password_encrypted=enc2)
+    db.add_all([d1, d2])
+    db.commit()
+
+    with patch("app.routers.backup.BackupManager") as MockBM:
+        mock_mgr = MagicMock()
+        mock_mgr.create_backup.return_value = [
+            {"id": 1, "type": "startup", "size": 100, "content_hash": "abc",
+             "filename": "x.cfg", "created_at": "2026-06-29T10:00:00"}
+        ]
+        MockBM.return_value = mock_mgr
+
+        resp = client.post("/api/backups-async", json={"types": ["startup"]})
+        task_id = resp.json()["data"]["task_id"]
+
+        task_data = _wait_task_terminal(client, task_id, timeout=10)
+        assert task_data["status"] == "success"
+        assert task_data["progress"] == 100
+        assert task_data["task_type"] == "backup_all"
+        assert task_data["result"]["total"] == 2
+        assert task_data["result"]["success_count"] == 2
+        assert task_data["result"]["failed_count"] == 0
+
+
+def test_backups_async_empty_devices(client):
+    """POST /api/backups-async 无设备时任务直接 failed（拉不到 device）"""
+    with patch("app.routers.backup._async_backup_all_fn") as MockFn:
+        # 模拟 _async_backup_all_fn 直接抛"无设备"
+        def boom(*args, **kwargs):
+            raise Exception("无设备可备份")
+        MockFn.side_effect = boom
+
+        resp = client.post("/api/backups-async", json={"types": ["startup"]})
+        task_id = resp.json()["data"]["task_id"]
+
+        task_data = _wait_task_terminal(client, task_id, timeout=5)
+        assert task_data["status"] == "failed"
+        assert "无设备" in task_data["error"]

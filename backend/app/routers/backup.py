@@ -370,6 +370,83 @@ def _async_backup_fn(task_id, cancel_event, progress_cb, device_id: int, types: 
         db.close()
 
 
+def _async_backup_all_fn(task_id, cancel_event, progress_cb, types: list[str]):
+    """异步全量备份执行函数（多设备串行）
+
+    在后台线程中运行，串行遍历所有设备，每设备走 _async_backup_fn 的核心逻辑。
+    进度更新：每完成 1 设备更新一次（10% → 90% 分配给各设备）。
+    """
+    db = SessionLocal()
+    try:
+        # 1. 拉所有设备
+        from app.utils.device_access import get_devices_batch
+        from app.utils.crypto import decrypt_password
+
+        try:
+            devices = db.query(Device).all()
+            if not devices:
+                raise Exception("无设备可备份")
+        except Exception as e:
+            logger.warning(f"本地 Device 表不可用，走内部 API: {e}")
+            from app.internal_api import get_devices
+            resp = get_devices()
+            if not resp.get("success") or not resp.get("data"):
+                raise Exception("无设备可备份")
+            from app.utils.device_access import _wrap_device_dict
+            devices = [_wrap_device_dict(d) for d in resp["data"]]
+
+        if cancel_event.is_set():
+            return {"cancelled": True}
+        progress_cb(5)
+
+        total = len(devices)
+        success_list = []
+        failed_list = []
+        # 进度区间 5% ~ 95% 留给设备备份，每设备均分
+        start_pct, end_pct = 5, 95
+        for idx, device in enumerate(devices):
+            if cancel_event.is_set():
+                return {"cancelled": True, "completed": idx, "total": total}
+
+            try:
+                password = getattr(device, "_password_decrypted", None) or decrypt_password(device.password_encrypted)
+            except Exception as e:
+                failed_list.append({"device_id": device.id, "device_name": device.name, "error": f"密码解密失败: {e}"})
+                continue
+
+            mgr = _make_manager(device, password)
+            try:
+                results = mgr.create_backup(types=types, db=db)
+                if results:
+                    success_list.append({
+                        "device_id": device.id,
+                        "device_name": device.name,
+                        "backups": results,
+                    })
+                else:
+                    failed_list.append({"device_id": device.id, "device_name": device.name, "error": "所有类型备份均失败"})
+            except BackupError as e:
+                failed_list.append({"device_id": device.id, "device_name": device.name, "error": str(e)})
+            except Exception as e:
+                logger.error(f"全量备份异常 device_id={device.id}: {e}", exc_info=True)
+                failed_list.append({"device_id": device.id, "device_name": device.name, "error": str(e)})
+
+            # 更新进度
+            pct = start_pct + int((idx + 1) / total * (end_pct - start_pct))
+            progress_cb(pct)
+
+        progress_cb(100)
+        return {
+            "total": total,
+            "success_count": len(success_list),
+            "failed_count": len(failed_list),
+            "success": success_list,
+            "failed": failed_list,
+        }
+    finally:
+        db.close()
+
+
 def _async_restore_fn(
     task_id, cancel_event, progress_cb, device_id: int, backup_id: int, with_reboot: bool
 ):
@@ -442,6 +519,34 @@ def restore_backup_async(
         "restore", device_id, _async_restore_fn, device_id, backup_id, body.with_reboot
     )
     logger.info(f"异步回滚已提交: device_id={device_id}, backup_id={backup_id}, task_id={task_id}")
+    return APIResponse(
+        success=True,
+        data={"task_id": task_id, "status_url": f"/api/tasks/{task_id}", "status": "pending"},
+    )
+
+
+@router.post("/backups-async", response_model=APIResponse)
+def create_all_backups_async(body: Optional[BackupAllRequest] = None):
+    """全量备份异步模式（v241-supplement Task 8.4）
+
+    立即返回 task_id，后台串行遍历所有设备执行备份。
+    前端轮询 GET /api/tasks/{task_id} 获取进度。
+
+    与 POST /api/backups（同步）共存：
+    - 同步端点：CLI / 脚本可继续用
+    - 异步端点：前端默认走这个，避免 7 设备 × 2 type 阻塞 2-4 分钟
+    """
+    if body is None:
+        body = BackupAllRequest()
+    types = body.types or ["startup", "running"]
+    valid_types = {"startup", "running"}
+    invalid = [t for t in types if t not in valid_types]
+    if invalid:
+        return APIResponse(success=False, error=f"不支持的备份类型: {invalid}（仅支持 startup / running）")
+
+    # device_id 传 0 表示全量（不绑定单设备）
+    task_id = task_manager.submit("backup_all", 0, _async_backup_all_fn, types)
+    logger.info(f"异步全量备份已提交: task_id={task_id}, types={types}")
     return APIResponse(
         success=True,
         data={"task_id": task_id, "status_url": f"/api/tasks/{task_id}", "status": "pending"},
