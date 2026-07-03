@@ -20,7 +20,7 @@
 | **v2.3 修 bug + 健壮性补全** | ✅ 2026-06-29 (tag: v2.3.0) | 修 link-mode 4 bug / 备份 UI type / ops-toolkit 容器 / 真机集成测试 / 容器解耦蓝图 / vitest BLOCKED | [v2.3-roadmap PRD](openspec/changes/v2.3-roadmap/proposal.md) + 6 archived changes |
 | **v2.3.1 真机回归 patch** | ✅ 2026-07-01 (tag: v2.3.1) | 修 v2.3.0 漏测：Loopback/Vsi IP 配 / 备份轮转 7→5 份 / 集成测试选口加固 | [archive/2026-07-01-fix-loopback-vsi-ipv4](openspec/changes/archive/2026-07-01-fix-loopback-vsi-ipv4/) + [archive/2026-07-01-fix-rotation-total-keep](openspec/changes/archive/2026-07-01-fix-rotation-total-keep/) + [archive/2026-07-01-v2.3-roadmap](openspec/changes/archive/2026-07-01-v2.3-roadmap/) |
 | **v2.4 优化 + 工程化加固** | ✅ 2026-07-02 (tag: v2.4.0) | 修 v2.3.0 漏测接口显示 / status 映射 / link-mode 双向 / 异步备份 / ops-toolkit UX / 容器清理 / 3 容器蓝图定稿 | [RELEASE-NOTES-v2.4.0.md](RELEASE-NOTES-v2.4.0.md) + 4 bugfix + 2 feat + 1 roadmap (含 4 sub-change) |
-| **v2.4.1 拆 3 容器实施** | ⏳ 规划 | 蓝图 v2.4.0 定稿 → v2.4.1 实施 + 故障注入 + 灰度 | [v24-roadmap § 4](openspec/changes/archive/2026-07-02-v24-roadmap/tasks.md#4-v24-container-decoupling-3tier拆-3-容器大头-p0-延后) |
+| **v2.4.1 拆 3 容器实施** | 🚧 实施中 | ctrl + config + data 3 容器拆分 + 故障注入 + 双模式共存（monolith/split） | [v241-container-split](openspec/changes/v241-container-split/)（替换 v2.4.0 蓝图的 sdn-control/data/monitor 方案） |
 | **v3.0 VPC** | ⏳ 规划 | VPC + etcd（SDN 起步） | 暂未起 spec |
 | **monitor** | ⏳ 远期 | 监控 / 告警 / dashboard 独立化 | 暂未起 spec |
 
@@ -244,6 +244,7 @@
 | 2026-06-29 | v2.3.0 tag 发版（6 archived changes + 18 commits） | session 续接 |
 | 2026-07-01 | v2.3.1 tag 发版（Loopback/Vsi IP 配修复 + 备份轮转 7→5 + 集成测试加固，3 archived + 14 commits） | session 续接 |
 | 2026-07-02 | v2.4.0 tag 发版（7 change: 4 bugfix + 2 feat + 1 roadmap，10 个 archive 子目录，23 commits） | session 续接 |
+| 2026-07-03 | v2.4.1 实施中（v241-container-split Task 1-8 完成：3 容器拆分 + 故障注入 + 真机 e2e，待 archive） | session 续接 |
 
 ---
 
@@ -298,4 +299,56 @@
 
 ---
 
-**最后更新**：2026-07-02 v2.4.0 发版
+## 9. v2.4.1 拆 3 容器实施（🚧 实施中）
+
+**主题**：把 v2.4.0 定稿的 3 容器蓝图落地为可运行代码，故障域隔离 + 双模式共存（monolith/split）渐进上线。
+
+**关联 change**：[v241-container-split](openspec/changes/v241-container-split/)
+**关联蓝图**：[docs/CONTAINER-DECOUPLING.md](docs/CONTAINER-DECOUPLING.md)
+
+### 关键设计决策
+
+| 决策点 | v2.4.0 蓝图 | v2.4.1 实施 | 理由 |
+|---|---|---|---|
+| 容器划分 | sdn-control + data + monitor | **ctrl + config + data** | sdn-control 装太多（device+interface+vlan+execute+batch+log+auth+dashboard），拆得不平均；monitor v2.4 无业务，先不立 |
+| 服务寻址 | 未明确 | **环境变量 + Docker DNS（12-factor）** | 避免硬编码 IP:Port，迁移/扩容友好 |
+| 内部通信 | HTTP REST + X-Internal-Token | **保持**（httpx + 3 次指数退避 + 5s 超时） | 简单可控 |
+| 数据库 | 3 容器各自 SQLite | **保持**（不迁 Postgres，决策点 v2.5/v3.0） | ROI 评估 |
+| 上线策略 | 一次切换 | **monolith（默认）+ split（profile: split）双模式共存** | 故障可秒级回退 |
+| 设备访问 | 未明确 | **统一 `device_access.py`**（monolith 本地查 / split 走 internal_api，SimpleNamespace 包装兼容） | 上层 router 代码无需感知模式差异 |
+
+### 3 容器职责
+
+| 容器 | 职责 | 数据库表 | 外部端口 |
+|---|---|---|---|
+| **ctrl** | 设备身份中心：device CRUD / 操作日志 / dashboard 聚合 | `devices` / `logs` / `alembic_version` | 8001 |
+| **config** | 设备配置中心：interface / vlan / execute / batch | 无业务表（设备查询走 internal_api 调 ctrl） | 8002 |
+| **data** | 数据采集存储：asset / backup / task | `assets` / `backups` / `tasks` / `alembic_version` | 8003 |
+
+### 进度（截至 2026-07-03）
+
+- ✅ Task 1：内部 API 客户端 + 鉴权中间件（httpx + 重试 + X-Internal-Token）
+- ✅ Task 2：3 容器入口（ctrl/config/data_svc main.py + Dockerfile）
+- ✅ Task 3：内部端点（ctrl_internal + data_internal）
+- ✅ Task 4：业务改造（统一设备访问 `device_access.py` + 日志兜底 `log_recorder.py` + 5 router 替换）+ 跨容器查 assets 降级
+- ✅ Task 5：docker-compose split profile + Vite proxy 按路径分发 + .env.example
+- ✅ Task 6：数据库拆分/回滚脚本（双向验证：7 devices + 586 logs + 7 assets + 35 backups + 27 tasks 一致）
+- ✅ Task 7：故障注入验证（docker stop data/ctrl/config 三场景 + 恢复后 194 passed, 11 skipped, 0 failed）
+- ✅ Task 8：真机 e2e（7 设备列表 + 63 接口 NETCONF + running 备份成功 8224 bytes）
+- 🚧 Task 9：文档更新（CONTAINER-DECOUPLING / VERSION-ROADMAP / CONTAINER-INVENTORY）
+- ⏸️ Task 10：收尾（commit + archive + Postgres 决策点评估）
+
+### 已知遗留（v2.4.2 follow-up）
+
+- Task 4.2：删除设备时通知 data 清理关联 asset/backup（需新增 data 容器 cleanup 端点）
+- Task 8.4/8.5：全量备份异步模式 e2e + 集成测试 4 设备 8 场景（留到发版前）
+- Postgres 决策点：v2.4.1 收尾时评估 v2.5/v3.0 是否迁
+
+### 测试统计（monolith 模式回归）
+
+- 单元：**194 passed, 11 skipped, 0 failed**（不破坏现有功能）
+- 真机 e2e：4 设备核心场景通过（设备管理 / 接口配置 / running 备份 / 故障注入）
+
+---
+
+**最后更新**：2026-07-03 v2.4.1 实施中（Task 1-8 完成，Task 9-10 进行中）
