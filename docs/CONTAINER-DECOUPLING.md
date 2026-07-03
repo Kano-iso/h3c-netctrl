@@ -302,7 +302,58 @@ docker compose -f docker-compose.dev.yml --profile qa up qa-backend
 
 - **Task 4.2**：删除设备时通知 data 清理关联 asset/backup（需新增 data 容器 `DELETE /internal/devices/{id}/cleanup` 端点）
 - **Task 8.4/8.5**：全量备份异步模式 e2e + 集成测试 `--integration` 4 设备 8 场景（留到发版前）
-- **Postgres 决策点**：v2.4.1 收尾时评估 v2.5/v3.0 是否迁 Postgres（当前 3 容器各自 SQLite，跨容器查询需走 internal_api，长期可能成瓶颈）
+
+---
+
+## Postgres 决策点评估（v2.4.1 收尾）
+
+**决策**：v2.5 **不迁** Postgres（继续 SQLite），v3.0 **再评估**（看 VPC 数据模型复杂度）。
+
+### 当前 SQLite 方案特征
+
+- 3 容器各自独立 SQLite 文件（ctrl.db / data.db，config 无业务表）
+- 跨容器查询走 internal_api（HTTP REST + httpx 重试）
+- 数据量小（7 devices + 586 logs + 7 assets + 35 backups + 27 tasks，< 1MB）
+- 单写者无并发冲突（每表只在一个容器写，无分布式事务）
+
+### SQLite 方案的优势
+
+1. **零运维**：无 DBA，无主从同步，无单独备份策略（docker volume 即备份）
+2. **部署简单**：文件即数据库，docker volume 挂载，故障域隔离清晰
+3. **性能足够**：小数据量 + 单写者 + 读多写少，SQLite 读并发无锁
+4. **故障恢复快**：容器挂了数据文件还在，重启即恢复
+
+### 何时需要迁 Postgres（触发条件）
+
+| 触发条件 | 当前状态 | 阈值 | 是否触发 |
+|---|---|---|---|
+| 数据量增长 | < 1MB（7 devices + 586 logs） | > 10万行 / > 1GB | ❌ 未触发 |
+| 并发写瓶颈 | 单写者（每表只在一个容器写） | 多容器并发写同一表 | ❌ 未触发 |
+| 跨容器事务需求 | 无（所有表只在一个容器写） | VPC 操作链需跨容器原子写 | ⏸️ v3.0 评估 |
+| 跨容器聚合查询复杂度 | dashboard 走 1 次 internal_api | 多次聚合 + 复杂 JOIN | ❌ 未触发（已有降级容错） |
+| 备份/恢复统一管理 | 各容器独立 SQLite 文件 | 需要统一时间点快照 | ❌ 未触发（数据量小） |
+
+### 迁 Postgres 的成本
+
+1. **运维成本**：Postgres 部署 + 主从 + 备份策略 + 监控告警
+2. **迁移工具**：SQLite → Postgres 数据迁移脚本 + Alembic dialect 调整
+3. **代码改造**：SQLAlchemy 连接串 + 部分 SQLite 特有 SQL（如 `PRAGMA foreign_keys`）
+4. **测试成本**：全量回归 194 用例 + 真机 e2e 4 设备 8 场景重跑
+5. **容器架构**：加 postgres 容器 + 数据卷管理 + 内部网络配置
+
+### ROI 评估
+
+- **v2.5 规划**：修 bug + 优化（不是新功能大版本），数据量不会显著增长 → **不迁**
+- **v3.0 规划**：VPC + etcd（SDN 起步），VPC 操作链可能涉及跨容器事务（改设备配置 → 写 VPC 元数据 → 备份 → 日志）→ **评估点**
+- **优化方向**（v2.5 替代迁 Postgres）：internal_api 加本地缓存（TTL 30s）减少跨容器调用，dashboard 降级容错已有
+
+### 决策结论
+
+| 版本 | 决策 | 理由 |
+|---|---|---|
+| **v2.5** | ❌ 不迁 Postgres | ROI 不足，SQLite 足够，优化 internal_api 缓存即可 |
+| **v3.0** | ⏸️ 评估点 | 看 VPC 数据模型是否需要跨容器事务；如需要则迁，否则继续 SQLite |
+| **触发阈值** | 数据量 > 10万行 / 跨容器事务需求 / 并发写瓶颈 | 任一触发即启动迁 Postgres 评估 |
 
 ---
 

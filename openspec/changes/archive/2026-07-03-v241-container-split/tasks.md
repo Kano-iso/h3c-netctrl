@@ -71,6 +71,6 @@
 
 ## 10. 收尾
 
-- [ ] 10.1 commit（按 task 粒度，每个 task 一个 commit）
-- [ ] 10.2 archive
-- [ ] 10.3 评估 v2.5/v3.0 是否迁 Postgres（决策点）
+- [x] 10.1 commit（按 task 粒度，每个 task 一个 commit）✅ Task 5/6/4.3-4.4/7/9 各一个 commit + archive commit
+- [x] 10.2 archive ✅ 2026-07-03 归档为 archive/2026-07-03-v241-container-split/（6 added + 2 modified specs）
+- [x] 10.3 评估 v2.5/v3.0 是否迁 Postgres（决策点）✅ 决策：v2.5 不迁，v3.0 评估点（详见 docs/CONTAINER-DECOUPLING.md "Postgres 决策点评估" 章节）
