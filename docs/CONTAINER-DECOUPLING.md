@@ -294,14 +294,24 @@ docker compose -f docker-compose.dev.yml --profile qa up qa-backend
 - ✅ 63 个接口配置下发（NETCONF 真机）
 - ✅ running 备份成功（id=102, 8224 bytes）
 - ⚠️ startup 备份失败（真机 SCP 问题，与 split 模式无关，monolith 模式同样失败）
-- ⏸️ 全量备份异步模式 e2e + 集成测试 4 设备 8 场景（留到发版前）
+- ✅ 全量备份异步模式（`POST /api/backups-async`）+ 4 设备 × 8 场景 split 集成测试（v241-supplement 补全）
 
 ---
 
-## 已知遗留（v2.4.2 follow-up）
+## 已知遗留
 
-- **Task 4.2**：删除设备时通知 data 清理关联 asset/backup（需新增 data 容器 `DELETE /internal/devices/{id}/cleanup` 端点）
-- **Task 8.4/8.5**：全量备份异步模式 e2e + 集成测试 `--integration` 4 设备 8 场景（留到发版前）
+> **2026-07-03 v241-supplement 收尾**：v2.4.1 留的 3 个 pending 全部补完（Task 4.2 / 8.4 / 8.5），不开 v2.4.2。
+>
+> 真机 e2e 全量备份异步流程（split 模式 + MCP 浏览器）留到发版前用户测试。
+
+**v2.4.1 已完成**：
+- ✅ Task 4.2：data 容器 `DELETE /internal/devices/{id}/cleanup` 端点（`backend/app/routers/data_internal.py`）
+- ✅ Task 8.4：`POST /api/backups-async` 全量异步端点（`backend/app/routers/backup.py`）
+- ✅ Task 8.5：`backend/tests/test_split_integration.py` 4 设备 8 场景 split 集成测试
+
+**v2.4.1.1 留到发版前**：
+- ⏸️ split 模式真机 4 设备 e2e（`pytest tests/test_split_integration.py -m integration -v`）
+- ⏸️ MCP 浏览器 split 模式全量备份异步 e2e（integrated_browser 跑）
 
 ---
 

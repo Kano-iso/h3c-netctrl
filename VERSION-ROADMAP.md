@@ -20,7 +20,7 @@
 | **v2.3 修 bug + 健壮性补全** | ✅ 2026-06-29 (tag: v2.3.0) | 修 link-mode 4 bug / 备份 UI type / ops-toolkit 容器 / 真机集成测试 / 容器解耦蓝图 / vitest BLOCKED | [v2.3-roadmap PRD](openspec/changes/v2.3-roadmap/proposal.md) + 6 archived changes |
 | **v2.3.1 真机回归 patch** | ✅ 2026-07-01 (tag: v2.3.1) | 修 v2.3.0 漏测：Loopback/Vsi IP 配 / 备份轮转 7→5 份 / 集成测试选口加固 | [archive/2026-07-01-fix-loopback-vsi-ipv4](openspec/changes/archive/2026-07-01-fix-loopback-vsi-ipv4/) + [archive/2026-07-01-fix-rotation-total-keep](openspec/changes/archive/2026-07-01-fix-rotation-total-keep/) + [archive/2026-07-01-v2.3-roadmap](openspec/changes/archive/2026-07-01-v2.3-roadmap/) |
 | **v2.4 优化 + 工程化加固** | ✅ 2026-07-02 (tag: v2.4.0) | 修 v2.3.0 漏测接口显示 / status 映射 / link-mode 双向 / 异步备份 / ops-toolkit UX / 容器清理 / 3 容器蓝图定稿 | [RELEASE-NOTES-v2.4.0.md](RELEASE-NOTES-v2.4.0.md) + 4 bugfix + 2 feat + 1 roadmap (含 4 sub-change) |
-| **v2.4.1 拆 3 容器实施** | 🚧 实施中 | ctrl + config + data 3 容器拆分 + 故障注入 + 双模式共存（monolith/split） | [v241-container-split](openspec/changes/v241-container-split/)（替换 v2.4.0 蓝图的 sdn-control/data/monitor 方案） |
+| **v2.4.1 拆 3 容器实施** | ✅ 2026-07-03 (tag: v2.4.1) | ctrl + config + data 3 容器拆分 + 故障注入 + 双模式共存 + cleanup 端点 + 全量异步 + split 集成测试 | [v241-container-split](openspec/changes/archive/2026-07-03-v241-container-split/) + [v241-supplement](openspec/changes/archive/2026-07-03-v241-supplement/) + [RELEASE-NOTES-v2.4.1.md](RELEASE-NOTES-v2.4.1.md) |
 | **v3.0 VPC** | ⏳ 规划 | VPC + etcd（SDN 起步） | 暂未起 spec |
 | **monitor** | ⏳ 远期 | 监控 / 告警 / dashboard 独立化 | 暂未起 spec |
 
@@ -346,9 +346,17 @@
 
 ### 测试统计（monolith 模式回归）
 
-- 单元：**194 passed, 11 skipped, 0 failed**（不破坏现有功能）
+- 单元：**194 passed, 11 skipped, 0 failed**（v241-container-split）
 - 真机 e2e：4 设备核心场景通过（设备管理 / 接口配置 / running 备份 / 故障注入）
+
+**v2.4.1 收尾（v241-supplement，2026-07-03）**：
+
+- 单元：**214 passed, 11 skipped, 0 failed**（从 194 → 214，新增 20 case）
+- 3 task 全完成：cleanup 端点 (4) + device split integration (3) + 全量异步 (4) + split 集成测试 (9)
+- 4 设备 × 8 场景 split 集成测试（mock 跨容器，monolith TestClient 跑，真机 e2e 留发版前 + MCP 浏览器）
+- Postgres 决策点评估完成：v2.5 不迁，v3.0 评估点
+- 发版 v2.4.1 tag
 
 ---
 
-**最后更新**：2026-07-03 v2.4.1 实施中（Task 1-8 完成，Task 9-10 进行中）
+**最后更新**：2026-07-03 v2.4.1 已发版（v241-supplement 完成 + 214 passed）
