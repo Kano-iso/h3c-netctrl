@@ -133,8 +133,12 @@ services:
       context: .
       dockerfile: backend/Dockerfile.qa
     container_name: h3c-netctrl-qa-backend
+    env_file:
+      - .env
     volumes:
       - ./backend:/app
+      # v2.4.2.1 paramiko 单元测试：qa 容器需要读 ops-toolkit/scripts/_paramiko_batch_exec.py
+      - ./ops-toolkit/scripts:/opt/ops-toolkit-scripts:ro
       # v2.4.2 真机 e2e 故障注入（场景 7/8）：qa 容器需要 docker stop split 容器
       # 挂 docker.sock + docker CLI（只影响 qa 容器，prod 不受影响）
       - /var/run/docker.sock:/var/run/docker.sock

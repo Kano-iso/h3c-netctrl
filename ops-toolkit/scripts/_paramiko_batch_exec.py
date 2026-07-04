@@ -100,9 +100,10 @@ def run_commands(host, port, user, password, commands, timeout, retries, continu
         summary["elapsed_ms"] = elapsed_ms
         break
 
-    # 统计
+    # 统计：success/failed 都从 results 数（filtered 后的命令数），total 保持原始命令数
+    # 一致性约束：success + failed == len(results) <= total
     summary["success"] = sum(1 for r in summary["results"] if r["success"])
-    summary["failed"] = summary["total"] - summary["success"]
+    summary["failed"] = sum(1 for r in summary["results"] if not r["success"])
     return summary
 
 
