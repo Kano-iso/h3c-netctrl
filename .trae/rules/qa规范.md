@@ -340,9 +340,12 @@ make clean   # 或 docker compose down --volumes --remove-orphans
 
 ---
 
-## 📌 文档维护义务（强化版）
+## � 文档维护义务
 
-- **本文档是必然被读到的**（每次 AI 启动必读），其他 docs/* 是"用到时参考"
+qa 规范本身的维护规则：本文档是必然被读到的（每次 AI 启动必读），**本文档之外的"项目级 / OpenSpec 闭环回归 / A/B 文档分类"等维护规范**见 [.trae/rules/project-convention.md](project-convention.md)（v2.4.2.1 拆出）。
+
+qa 规范自身同步义务（与 project-convention 互补）：
+
 - 任何工具 / 脚本 / 测试 / 排错规范变化 → **必须同步更新本文档**
 - 任何 ops-toolkit 脚本新增 → 更新 [docs/ops-toolkit.md](../../docs/ops-toolkit.md) + **本文档边界表**
 - 任何 QA 流程变化 → 更新 [docs/QA-GUIDE.md](../../docs/QA-GUIDE.md) + **本文档边界表**
