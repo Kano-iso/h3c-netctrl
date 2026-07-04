@@ -71,12 +71,13 @@ _get_device_arg() {
 #   - 等于 DEFAULT_DEVICE（test）→ 📌 默认目标
 #   - 是 IP 且不是 192.168.100.177 → ⚠️ 生产设备
 #   - 设备名 / 别名 → 静默
+# 输出走 stderr，避免污染 JSON 解析（pytest 友好）
 _print_device_banner() {
     local input="$1"
     if [[ "$input" == "${DEFAULT_DEVICE}" ]]; then
-        echo "📌 默认目标: Test-Switch-177 (192.168.100.177)"
+        echo "📌 默认目标: Test-Switch-177 (192.168.100.177)" >&2
     elif [[ "$input" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ && "$input" != "192.168.100.177" ]]; then
-        echo "⚠️  目标为生产设备: ${input}（QA 工具默认应是 .177 test 设备，注意操作）"
+        echo "⚠️  目标为生产设备: ${input}（QA 工具默认应是 .177 test 设备，注意操作）" >&2
     fi
 }
 

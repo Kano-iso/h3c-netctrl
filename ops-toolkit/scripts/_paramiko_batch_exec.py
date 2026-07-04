@@ -118,6 +118,49 @@ def run_one_command(host, port, user, password, command, timeout):
             pass
 
 
+def _clean_stdout(stdout: str, command: str) -> str:
+    """清理 H3C 设备输出噪音：首行命令回显 + 末行 prompt + 版权 banner
+
+    SSHExecutor 同款清理（backend/app/utils/ssh_executor.py），让 stdout
+    只剩命令的纯净输出，方便 pytest 断言。
+    """
+    if not stdout:
+        return stdout
+    lines = stdout.split('\n')
+
+    # 1) 去掉 H3C 登录版权 banner：找第一个 ****** 到下一个 ****** 之间整段
+    #    必须在去掉首行命令回显之前做（banner 可能在命令前）
+    banner_start = None
+    banner_end = None
+    for i, line in enumerate(lines):
+        if line.strip().startswith('*****'):
+            if banner_start is None:
+                banner_start = i
+            elif banner_end is None:
+                banner_end = i
+                break
+    if banner_start is not None and banner_end is not None and banner_end > banner_start:
+        lines = lines[:banner_start] + lines[banner_end + 1:]
+
+    # 2) 去掉首行命令回显
+    cmd_strip = command.strip()
+    if lines and cmd_strip and cmd_strip in lines[0]:
+        lines = lines[1:]
+
+    # 3) 去掉末行 prompt（<SW-Name> 或 [SW-Name]）
+    import re as _re
+    while lines and _re.search(r'[<\[]\S+[>\]]\s*$', lines[-1]):
+        lines = lines[:-1]
+
+    # 4) 去掉连续空行
+    while lines and not lines[0].strip():
+        lines = lines[1:]
+    while lines and not lines[-1].strip():
+        lines = lines[:-1]
+
+    return '\n'.join(lines).strip()
+
+
 def main():
     # 读环境变量
     host = os.environ.get('_PMK_HOST', '').strip()
@@ -176,6 +219,8 @@ def main():
         elif not continue_on_error:
             # 遇错停止
             break
+        # 清理 stdout 噪音（首行命令回显 + 末行 prompt + 版权 banner）
+        last_result['stdout'] = _clean_stdout(last_result['stdout'], command)
 
     # 输出
     summary = {
