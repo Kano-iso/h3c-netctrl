@@ -4,9 +4,9 @@
 
 按 v2.4.1 收尾节奏：每 task 一次 commit，commit 后自测。
 
-- [ ] **Task 1**: paramiko-batch-exec.sh 骨架 + _paramiko_batch_exec.py 核心（连接 + 跑 1 条命令 + 文本输出）
-- [ ] **Task 2**: Fernet 加解密（_fernet_decrypt_password 公共函数 + .env.example 加 ENCRYPTION_KEY）
-- [ ] **Task 3**: 批命令支持（--commands 数组 + --commands-file 文件）
+- [x] **Task 1**: paramiko-batch-exec.sh 骨架 + _paramiko_batch_exec.py 核心（连接 + 跑 1 条命令 + 文本输出）
+- [x] **Task 2**: Fernet 加解密（_fernet_decrypt_password 公共函数 + .env.example 加 ENCRYPTION_KEY）
+- [x] **Task 3**: 批命令支持（--commands 数组 + --commands-file 文件）
 - [ ] **Task 4**: JSON 输出（pytest 可断言）
 - [ ] **Task 5**: timeout + retry 逻辑（默认 30s/0 次）
 - [ ] **Task 6**: 真机 smoke test（pytest --integration，默认 .177）
