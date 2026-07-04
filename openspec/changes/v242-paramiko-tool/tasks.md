@@ -9,9 +9,9 @@
 - [x] **Task 3**: 批命令支持（--commands 数组 + --commands-file 文件）
 - [x] **Task 4**: JSON 输出（pytest 可断言）
 - [x] **Task 5**: timeout + retry 逻辑（默认 30s/0 次）
-- [ ] **Task 6**: 真机 smoke test（pytest --integration，默认 .177）
-- [ ] **Task 7**: 单元测试覆盖（mock，10 个 case）
-- [ ] **Task 8**: docs/ops-toolkit.md §4.7 文档
+- [x] **Task 6**: 真机 smoke test（pytest --integration，默认 .177）
+- [x] **Task 7**: 单元测试覆盖（mock，10+ 个 case）
+- [x] **Task 8**: docs/ops-toolkit.md §4.7 文档
 - [ ] **Task 9**: archive v242-paramiko-tool change + commit + tag v2.4.2.1 + RELEASE-NOTES
 
 ## Task 1: paramiko-batch-exec.sh 骨架
