@@ -141,10 +141,11 @@
 
 ## 完成标准
 
-- [ ] qa-frontend 容器跑 lint + build 都过
-- [ ] ops-toolkit 6 脚本默认指向 .177
-- [ ] 故意改 unused import → lint 失败 → build 不跑
-- [ ] qa-backend 214 passed 不破
-- [ ] `.trae/rules/qa规范.md` 重写完成
-- [ ] `docs/ops-toolkit.md` + `docs/QA-GUIDE.md` 同步
-- [ ] 3 commit（每个主线 1 个）
+- [x] qa-frontend 容器跑 lint + type-check + build 都过
+- [x] ops-toolkit 6 脚本默认指向 .177
+- [x] 故意改 unused import → lint 失败 → build 不跑
+- [x] 故意写错类型（.ts 文件）→ type-check 失败 → build 不跑
+- [x] qa-backend 214 passed 不破
+- [x] `.trae/rules/qa规范.md` 重写完成
+- [x] `docs/ops-toolkit.md` + `docs/QA-GUIDE.md` 同步
+- [x] 3 commit（每个主线 1 个）— commit 2ad6678 / ff3c986 / be8d485
