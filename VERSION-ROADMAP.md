@@ -21,6 +21,8 @@
 | **v2.3.1 真机回归 patch** | ✅ 2026-07-01 (tag: v2.3.1) | 修 v2.3.0 漏测：Loopback/Vsi IP 配 / 备份轮转 7→5 份 / 集成测试选口加固 | [archive/2026-07-01-fix-loopback-vsi-ipv4](openspec/changes/archive/2026-07-01-fix-loopback-vsi-ipv4/) + [archive/2026-07-01-fix-rotation-total-keep](openspec/changes/archive/2026-07-01-fix-rotation-total-keep/) + [archive/2026-07-01-v2.3-roadmap](openspec/changes/archive/2026-07-01-v2.3-roadmap/) |
 | **v2.4 优化 + 工程化加固** | ✅ 2026-07-02 (tag: v2.4.0) | 修 v2.3.0 漏测接口显示 / status 映射 / link-mode 双向 / 异步备份 / ops-toolkit UX / 容器清理 / 3 容器蓝图定稿 | [RELEASE-NOTES-v2.4.0.md](RELEASE-NOTES-v2.4.0.md) + 4 bugfix + 2 feat + 1 roadmap (含 4 sub-change) |
 | **v2.4.1 拆 3 容器实施** | ✅ 2026-07-03 (tag: v2.4.1) | ctrl + config + data 3 容器拆分 + 故障注入 + 双模式共存 + cleanup 端点 + 全量异步 + split 集成测试 | [v241-container-split](openspec/changes/archive/2026-07-03-v241-container-split/) + [v241-supplement](openspec/changes/archive/2026-07-03-v241-supplement/) + [RELEASE-NOTES-v2.4.1.md](RELEASE-NOTES-v2.4.1.md) |
+| **v2.4.2 QA 工程化 + 压测 + review** | ✅ 2026-07-04 (tag: v2.4.2) | ESLint 进 qa + ops-toolkit 默认 .177 + 压测 .177 max-session + split 真机 e2e + 3 容器 review 报告 + P0 vue-tsc | [RELEASE-NOTES-v2.4.2.md](RELEASE-NOTES-v2.4.2.md) + [REVIEW-v242-3container-maturity.md](docs/REVIEW-v242-3container-maturity.md) |
+| **v2.4.2.1 ops-toolkit 第 7 脚本** | ✅ 2026-07-04 (tag: v2.4.2.1) | paramiko-batch-exec.sh 单设备 SSH 批命令（复用 backend SSHExecutor + 4 级凭据 + Fernet 密文 + JSON 输出 + 11 单元 + 3 真机） | [v242-paramiko-tool](openspec/changes/archive/2026-07-04-v242-paramiko-tool/) + [RELEASE-NOTES-v2.4.2.1.md](RELEASE-NOTES-v2.4.2.1.md) |
 | **v3.0 VPC** | ⏳ 规划 | VPC + etcd（SDN 起步） | 暂未起 spec |
 | **monitor** | ⏳ 远期 | 监控 / 告警 / dashboard 独立化 | 暂未起 spec |
 
@@ -245,6 +247,8 @@
 | 2026-07-01 | v2.3.1 tag 发版（Loopback/Vsi IP 配修复 + 备份轮转 7→5 + 集成测试加固，3 archived + 14 commits） | session 续接 |
 | 2026-07-02 | v2.4.0 tag 发版（7 change: 4 bugfix + 2 feat + 1 roadmap，10 个 archive 子目录，23 commits） | session 续接 |
 | 2026-07-03 | v2.4.1 实施中（v241-container-split Task 1-8 完成：3 容器拆分 + 故障注入 + 真机 e2e，待 archive） | session 续接 |
+| 2026-07-04 | v2.4.2 发版（3 change + 1 review 报告 + P0 vue-tsc + 9 commit，214 passed） | session 续接 |
+| 2026-07-04 | v2.4.2.1 发版（1 change：v242-paramiko-tool paramiko-batch-exec.sh + 8 commit + 1 archive，225 passed） | session 续接 |
 
 ---
 
@@ -389,3 +393,55 @@
 ---
 
 **最后更新**：2026-07-04 v2.4.2 已发版（3 change + 1 review 报告 + P0 vue-tsc，214 passed）
+
+---
+
+## 11. v2.4.2.1 ops-toolkit 第 7 脚本 paramiko-batch-exec（✅ 2026-07-04 tag: v2.4.2.1）
+
+详见 [RELEASE-NOTES-v2.4.2.1.md](RELEASE-NOTES-v2.4.2.1.md) + [docs/ops-toolkit.md §4.7](docs/ops-toolkit.md#paramiko-batch-exec)。
+
+**主题**：v2.4.2 review 报告 P1 项"加 paramiko 单设备排错工具"前置闭环。**不开 v2.5**，因为这是 ops-toolkit 工具集**第 7 脚本**，与 v2.4.2 review 报告 P1 backlog 对齐。
+
+**包含 1 个 change**：
+1. **2026-07-04-v242-paramiko-tool** — paramiko-batch-exec.sh（单设备 SSH 批命令执行）
+   - 复用 backend `app/utils/ssh_executor.py`（**154 行薄壳**，不手搓 paramiko 协议）
+   - 4 级凭据优先级 + **禁止 admin fallback**（找不到凭据明确报错）
+   - Fernet 密文支持（`--pass-cipher`）+ .env `ENCRYPTION_KEY` 注入
+   - JSON 默认输出（pytest 友好）+ text 模式（人类可读）
+   - 11 单元测试（mock SSHExecutor）+ 3 真机集成测试（.177 设备）
+   - 文档：`docs/ops-toolkit.md §4.7` 完整章节（用途/示例/参数/schema/复用说明/pytest 覆盖/限制）
+
+**关键设计决策**：
+| 决策 | 方案 | 理由 |
+|---|---|---|
+| 协议实现 | 复用 backend SSHExecutor | 避免重复造 H3C kex / 分页 / [Y/N] 轮子 |
+| 凭据 fallback | **禁止 admin** | "贴心默认值"会掩盖 .env 注入失败（v2.4.2 复盘） |
+| 凭据传参 | 严禁 `-e USERNAME=xxx -e PASSWORD=xxx` | 必须 `env_file: - .env`（避免 shell history 泄露） |
+| 输出格式 | 默认 JSON | pytest 可直接 `json.load` 断言 |
+| 单设备 | **明确边界** | 批量配置是工程工具的活，不是排错工具 |
+
+**真机实测（.177 设备）**：
+```json
+{
+  "host": "192.168.100.177",
+  "total": 2,
+  "success": 2,
+  "failed": 0,
+  "elapsed_ms": 1667,
+  "results": [
+    {"command": "display version", "returncode": 0, "stdout": "H3C Comware Software, Version 7.1.070, ...", "success": true},
+    {"command": "display vlan 1", "returncode": 0, "stdout": "VLAN ID: 1\nVLAN type: Static\n...", "success": true}
+  ]
+}
+```
+
+**测试统计**：
+- 单元：214 + 11 = **225 passed**, 19 skipped（**未破坏 v2.4.2 全部测试**）
+- 真机集成：3 case PASS（display version / 批命令 / 设备别名）
+
+**关键 commit 序列**：见 RELEASE-NOTES-v2.4.2.1.md §5（10 commit + 1 chore）。
+
+**v2.5 Backlog 推进**（v2.4.2.1 闭环后）：
+- ✅ **P1 加 paramiko 单设备排错工具**（v2.4.2.1 完成）
+- 剩余 P1：internal_api 5s TTL 缓存 / split mode 设为默认 / vitest EACCES 排障 / Playwright e2e / interface-config.sh / task-monitor.sh
+- 剩余 P2/P3：见 [docs/REVIEW-v242-3container-maturity.md §4](docs/REVIEW-v242-3container-maturity.md#4-v25-候选-backlog)
