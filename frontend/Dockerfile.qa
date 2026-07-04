@@ -19,7 +19,8 @@ COPY docs/ /opt/docs/
 COPY backend/entrypoint-qa.sh /usr/local/bin/entrypoint-qa.sh
 RUN chmod +x /usr/local/bin/entrypoint-qa.sh
 
-# 跑 lint + build（v242-qa-and-tooling：先 lint 后 build，lint 不过不跑 build）
-# 通过 entrypoint 输出版本 banner + 链接
+# 跑 lint + type-check + build（v242-qa-and-tooling：先 lint 后 build，lint 不过不跑 build）
+# v242-3container-review P0：插入 type-check（vue-tsc），类型 bug 不漏到 prod
+# 顺序：lint → type-check → build，任何一步不过整体失败
 ENTRYPOINT ["entrypoint-qa.sh"]
-CMD ["sh", "-c", "npm run lint && npm run build"]
+CMD ["sh", "-c", "npm run lint && npm run type-check && npm run build"]
