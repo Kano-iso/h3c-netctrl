@@ -15,23 +15,32 @@
 | v2.1 前端重构 | ✅ 2026-06-23 | 7 项：多命令终端 / 设备 CRUD UI / 资产编辑 / 单设备采集 / 状态判定修复 | [archive 目录](openspec/changes/archive/) |
 | v2.1.x patch 灰度 | ✅ 2026-06-29 并入 v2.2.0 | 手动备份后端能力（前端在 v2.2 backup-frontend 补齐） | [v21x-patch-backup-backend](openspec/changes/archive/2026-06-28-v21x-patch-backup-backend/) |
 | **v2.2.0 网控增强** | ✅ **2026-06-29 (tag: v2.2.0)** | 备份前端 / 接口 VPN / 接口 L2-L3 + link type + IP / 联动配置 / 4 收尾 bug fix | [**RELEASE-NOTES-v2.2.0.md**](RELEASE-NOTES-v2.2.0.md) · [archive 目录](openspec/changes/archive/2026-06-28-*) |
-| v2.3 运维增强 | ⏳ 规划 | ops-toolkit 容器 / link mode 切换 / 自动化测试 / asset 容器拆分 | [VERSION-ROADMAP.md § 7](VERSION-ROADMAP.md) |
+| **v2.3.0 修 bug + 健壮性补全** | ✅ **2026-06-29 (tag: v2.3.0)** | 修 link-mode 4 bug / 备份 UI type / ops-toolkit 容器 / 真机集成测试 / 容器解耦蓝图 / vitest BLOCKED | [archive/2026-07-01-v2.3-roadmap](openspec/changes/archive/2026-07-01-v2.3-roadmap/) + 6 archived changes |
+| **v2.3.1 真机回归 patch** | ✅ **2026-07-01 (tag: v2.3.1)** | 修 v2.3.0 漏测：Loopback/Vsi IP 配 / 备份轮转 7→5 份 / 集成测试选口加固 | [RELEASE-NOTES-v2.3.1.md](RELEASE-NOTES-v2.3.1.md) · 3 archived changes |
+| **v2.4.0 优化 + 工程化加固** | ✅ **2026-07-02 (tag: v2.4.0)** | 修 v2.3.0 漏测接口显示 / status 映射 / link-mode 双向 / 异步备份 / ops-toolkit UX / 容器清理 / 3 容器蓝图定稿 | [RELEASE-NOTES-v2.4.0.md](RELEASE-NOTES-v2.4.0.md) · 4 bugfix + 2 feat + 1 roadmap |
+| **v2.4.1 拆 3 容器实施** | ✅ **2026-07-03 (tag: v2.4.1)** | ctrl + config + data 3 容器拆分 + 故障注入 + 双模式共存 + cleanup 端点 + 全量异步 + split 集成测试 | [RELEASE-NOTES-v2.4.1.md](RELEASE-NOTES-v2.4.1.md) · [v241-container-split](openspec/changes/archive/2026-07-03-v241-container-split/) + [v241-supplement](openspec/changes/archive/2026-07-03-v241-supplement/) |
+| **v2.4.2 QA 工程化 + 压测 + review** | ✅ **2026-07-04 (tag: v2.4.2)** | ESLint 进 qa + ops-toolkit 默认 .177 + 压测 .177 max-session + split 真机 e2e + 3 容器 review 报告 + P0 vue-tsc | [RELEASE-NOTES-v2.4.2.md](RELEASE-NOTES-v2.4.2.md) · [REVIEW-v242-3container-maturity.md](docs/REVIEW-v242-3container-maturity.md) |
+| **v2.4.2.1 ops-toolkit 第 7 脚本** | ✅ **2026-07-04 (tag: v2.4.2.1)** | paramiko-batch-exec.sh 单设备 SSH 批命令（复用 backend SSHExecutor + 4 级凭据 + Fernet 密文 + JSON 输出 + 11 单元 + 3 真机） | [RELEASE-NOTES-v2.4.2.1.md](RELEASE-NOTES-v2.4.2.1.md) · [v242-paramiko-tool](openspec/changes/archive/2026-07-04-v242-paramiko-tool/) |
 | v3.0 VPC | ⏳ 规划 | VPC 能力（SDN）+ etcd 协调 | 延后 |
 
 详细进度、约束、决策记录见 [VERSION-ROADMAP.md](VERSION-ROADMAP.md)。
 已归档 change 见 [openspec/changes/archive/](openspec/changes/archive/)。
 主规格沉淀见 [openspec/specs/](openspec/specs/)。
 
-## 未来架构
+## 当前架构（v2.4.2.1）
 
-详见 [docs/CONTAINER-DECOUPLING.md](docs/CONTAINER-DECOUPLING.md)（v2.1.x patch 已预留蓝图，未实际拆）。
+> 详见 [docs/CONTAINER-DECOUPLING.md](docs/CONTAINER-DECOUPLING.md)（v2.4.1 实施 3 容器，v2.4.2 灰度上线，v2.4.2.1 加 ops-toolkit 第 7 脚本）。
 
-| 容器 | 职责 | 实施 |
-|---|---|---|
-| **core** | NETCONF 配置 / 运维终端 / 设备 CRUD / 操作日志 | 当前 monolith |
-| **asset** | cmdb / 备份 / 资产采集 / 统一数据库 | v2.3 拆分 |
-| **sdn** (v3.0) | VPC + etcd 协调 | v3.0 引入 |
-| **monitor** (未来) | 实时指标 / 告警 / dashboard | 未来 |
+| 容器 | 职责 | 实施 | 状态 |
+|---|---|---|---|
+| **ctrl** | 设备身份中心（CMDB / 资产 / 设备 CRUD） | v2.4.1 实施 | ✅ 默认 split 模式 |
+| **config** | 设备配置（NETCONF 配置下发 / 接口 / VLAN / VPN） + 逻辑拓扑 | v2.4.1 实施 | ✅ 默认 split 模式 |
+| **data** | 采集 / 存储 / 聚合（备份 / 操作日志 / 资产采集） | v2.4.1 实施 | ✅ 默认 split 模式 |
+| **backend (monolith)** | ctrl + config + data 合并 | v2.4.1 双模式共存 | ✅ 兼容老调用，profile: 默认 monolith |
+| **qa-backend / qa-frontend** | pytest / npm test | v2.4.2 加 lint + build 必跑 | ✅ Archive 必跑 |
+| **ops-toolkit** | 7 个排错脚本（check-host / ssh-test / check-netconf / capture-config / reboot-wait / audit-switch / **paramiko-batch-exec**） | v2.4.1 + v2.4.2.1 | ✅ 按需启动 |
+| **sdn (v3.0)** | VPC + etcd 协调 | 规划 | ⏳ v3.0 |
+| **monitor (未来)** | 实时指标 / 告警 / dashboard | 远期 | ⏳ v3.0+ 评估 |
 
 ## 功能概览
 

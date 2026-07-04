@@ -72,7 +72,7 @@ monitor 容器 v2.4.1 暂不立（v3.0 VPC 落地时再评估）。
 
 ### Requirement: 实施标记
 
-`docs/CONTAINER-DECOUPLING.md` MUST 明确标注"本次 change 仅做预留，未实际拆容器"，并指向 v2.3 拆 asset 的入口。
+`docs/CONTAINER-DECOUPLING.md` MUST 明确标注"本次 change 仅做预留，未实际拆容器"，并指向 v2.4.1 拆 ctrl/config/data 的入口。
 
 #### Scenario: 防止误读
 - **WHEN** 团队成员阅读蓝图
