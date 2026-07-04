@@ -164,6 +164,10 @@ services:
       context: .
       dockerfile: ops-toolkit/Dockerfile
     container_name: h3c-netctrl-ops-toolkit
+    # v242-paramiko-tool: 自动注入 .env 凭据（DEVICE_USERNAME/DEVICE_PASSWORD），
+    # 工具封装：user 调 `paramiko-batch-exec.sh --device test` 即可，不用每次 -e 传凭据
+    env_file:
+      - .env
     volumes:
       - ./ops-toolkit/captures:/captures
       # docs 挂到 /opt/docs（_print_doc_links 输出路径，build 时也 COPY 了，运行时挂载保证最新）
