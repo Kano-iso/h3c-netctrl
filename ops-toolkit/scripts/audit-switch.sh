@@ -1,14 +1,15 @@
 #!/bin/bash
 # audit-switch.sh — 一键巡检交换机（display version + device + interface brief）
 # 用法:
-#   audit-switch --device <name|ip>
-#   audit-switch <ip> <user> <pass>     # 兼容 v2.3
+#   audit-switch                                # v242: 默认 test 设备
+#   audit-switch --device <name|ip|alias>
+#   audit-switch <ip> <user> <pass>             # 兼容 v2.3
 # 输出三段巡检报告
 set -euo pipefail
 
 source /scripts/_lib.sh
 
-DEVICE_INPUT=""
+DEVICE_INPUT=$(_get_device_arg "$@")
 USER=""
 PASS=""
 
@@ -21,13 +22,12 @@ while [[ $# -gt 0 ]]; do
         --pass) PASS="$2"; shift 2 ;;
         --pass=*) PASS="${1#*=}"; shift ;;
         --help|-h)
-            echo "用法: audit-switch --device <name|ip>"
+            echo "用法: audit-switch [--device <name|ip|alias>] [user] [pass]"
             _print_doc_links "audit-switch"
             exit 0
             ;;
         *)
-            if [[ -z "$DEVICE_INPUT" ]]; then DEVICE_INPUT="$1"
-            elif [[ -z "$USER" ]]; then USER="$1"
+            if [[ -z "$USER" ]]; then USER="$1"
             elif [[ -z "$PASS" ]]; then PASS="$1"
             fi
             shift
@@ -35,11 +35,8 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-if [[ -z "$DEVICE_INPUT" ]]; then
-    echo "用法: audit-switch --device <name|ip>"
-    _print_doc_links "audit-switch"
-    exit 1
-fi
+_print_device_banner "$DEVICE_INPUT"
+DEVICE_INPUT=$(_resolve_alias "$DEVICE_INPUT")
 
 read -r IP USER_RESOLVED PASS_RESOLVED < <(_parse_device_args "$DEVICE_INPUT" "$USER" "$PASS" 2>/dev/null) || {
     if [[ -n "$USER" && -n "$PASS" ]]; then IP="$DEVICE_INPUT"

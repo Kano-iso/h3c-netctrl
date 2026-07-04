@@ -15,6 +15,71 @@ OPS_DOCS_PREFIX="${OPS_DOCS_PREFIX:-/opt/docs}"
 # 后端 API 地址（ops-toolkit 容器内通过 docker network 访问 backend）
 BACKEND_URL="${BACKEND_URL:-http://backend:8000}"
 
+# === v242-qa-and-tooling: 默认设备 + 别名映射 ===
+
+# 默认设备：qa 工具反复跑，避免误连生产
+DEFAULT_DEVICE="${DEFAULT_DEVICE:-test}"
+
+# _resolve_alias <device_name_or_alias>
+# 把设备名/别名映射成 IP（已知设备的小型映射表，避免查 API）
+# 输入: test / Test-Switch-177 / leaf-04 / Spine-01 / IP
+# 输出: IP（透传 IP 格式，其他按表查）
+# 未知输入: 透传（让调用方走 _resolve_device 查 API）
+_resolve_alias() {
+    local input="$1"
+    # 已是 IP → 透传
+    if [[ "$input" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        echo "$input"
+        return 0
+    fi
+    # 小写化匹配
+    local lc
+    lc=$(echo "$input" | tr '[:upper:]' '[:lower:]')
+    case "$lc" in
+        test|test-switch|test-switch-177|test-switch-177)
+            echo "192.168.100.177" ;;
+        leaf-03|leaf03)
+            echo "192.168.100.4" ;;
+        leaf-04|leaf04)
+            echo "192.168.100.5" ;;
+        spine-01|spine01)
+            echo "192.168.100.100" ;;
+        *)
+            # 未知别名：透传，让调用方走 API 查
+            echo "$input" ;;
+    esac
+}
+
+# _get_device_arg <args...>
+# 解析 --device 参数，缺省返回 DEFAULT_DEVICE
+# 输出: 设备名/IP（未做别名映射，调用方再 _resolve_alias）
+_get_device_arg() {
+    local device=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --device) device="$2"; shift 2 ;;
+            --device=*) device="${1#*=}"; shift ;;
+            *) shift ;;
+        esac
+    done
+    echo "${device:-${DEFAULT_DEVICE}}"
+}
+
+# _print_device_banner <device_input>
+# 打印默认设备 / 显式生产 IP 的提示横幅
+# 规则：
+#   - 等于 DEFAULT_DEVICE（test）→ 📌 默认目标
+#   - 是 IP 且不是 192.168.100.177 → ⚠️ 生产设备
+#   - 设备名 / 别名 → 静默
+_print_device_banner() {
+    local input="$1"
+    if [[ "$input" == "${DEFAULT_DEVICE}" ]]; then
+        echo "📌 默认目标: Test-Switch-177 (192.168.100.177)"
+    elif [[ "$input" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ && "$input" != "192.168.100.177" ]]; then
+        echo "⚠️  目标为生产设备: ${input}（QA 工具默认应是 .177 test 设备，注意操作）"
+    fi
+}
+
 # _print_doc_links <script_name>
 # 输出文档链接段，所有脚本末尾调用
 _print_doc_links() {

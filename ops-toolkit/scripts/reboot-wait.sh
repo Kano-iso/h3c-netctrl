@@ -1,14 +1,15 @@
 #!/bin/bash
 # reboot-wait.sh — 触发 reboot + 等待 SSH 恢复（最多 120s）
 # 用法:
-#   reboot-wait --device <name|ip>
-#   reboot-wait <ip> <user> <pass>       # 兼容 v2.3
+#   reboot-wait                                  # v242: 默认 test 设备
+#   reboot-wait --device <name|ip|alias>
+#   reboot-wait <ip> <user> <pass>               # 兼容 v2.3
 # 注意: 会触发设备重启，谨慎使用
 set -euo pipefail
 
 source /scripts/_lib.sh
 
-DEVICE_INPUT=""
+DEVICE_INPUT=$(_get_device_arg "$@")
 USER=""
 PASS=""
 
@@ -21,14 +22,13 @@ while [[ $# -gt 0 ]]; do
         --pass) PASS="$2"; shift 2 ;;
         --pass=*) PASS="${1#*=}"; shift ;;
         --help|-h)
-            echo "用法: reboot-wait --device <name|ip>"
+            echo "用法: reboot-wait [--device <name|ip|alias>] [user] [pass]"
             echo "警告: 会触发设备重启"
             _print_doc_links "reboot-wait"
             exit 0
             ;;
         *)
-            if [[ -z "$DEVICE_INPUT" ]]; then DEVICE_INPUT="$1"
-            elif [[ -z "$USER" ]]; then USER="$1"
+            if [[ -z "$USER" ]]; then USER="$1"
             elif [[ -z "$PASS" ]]; then PASS="$1"
             fi
             shift
@@ -36,11 +36,8 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-if [[ -z "$DEVICE_INPUT" ]]; then
-    echo "用法: reboot-wait --device <name|ip>"
-    _print_doc_links "reboot-wait"
-    exit 1
-fi
+_print_device_banner "$DEVICE_INPUT"
+DEVICE_INPUT=$(_resolve_alias "$DEVICE_INPUT")
 
 read -r IP USER_RESOLVED PASS_RESOLVED < <(_parse_device_args "$DEVICE_INPUT" "$USER" "$PASS" 2>/dev/null) || {
     if [[ -n "$USER" && -n "$PASS" ]]; then IP="$DEVICE_INPUT"

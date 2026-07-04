@@ -1,8 +1,8 @@
 # QA 容器使用指南
 
 > **目标**：让所有 OpenSpec change 在 Apply / Archive 阶段都跑 QA 容器，避免 v2.2.0 漏 QA 环节的教训（commit 19 个没跑过 1 次 qa-backend，全靠用户实测抓 bug）。
-
----
+> **v2.4.2 起**：qa 工具默认指向 Test-Switch-177，避免误连生产设备。**MCP 浏览器** = 小测试 / 单功能验证 / 排错，**不进 qa 容器**。
+> **前端 QA 流程**：v2.4.2 起 qa-frontend 跑 **lint + build**（lint 不过 build 不跑）。
 
 ## 1. 容器清单
 
@@ -19,6 +19,21 @@ docker compose -f docker-compose.dev.yml --profile qa up <qa-backend|qa-frontend
 ```
 
 ---
+
+## 1.5 qa 默认设备（v2.4.2 改）
+
+**qa 工具 / qa 测试默认指向 Test-Switch-177 (192.168.100.177, id=7)**：
+
+- 强制理由：qa 工具"反复跑"特性，误连生产可能导致配置污染
+- ops-toolkit 6 脚本（check-host / ssh-test / check-netconf / capture-config / reboot-wait / audit-switch）：
+  - 不带 `--device` = 默认 `.177`（安全默认）
+  - `--device test` / `Test-Switch-177` / `Test-Switch` = 显式 test
+  - `--device <生产 IP>` = 显式生产（日志 warn，但不阻止）
+  - 设备名别名：`leaf-03` / `leaf-04` / `spine-01` → 对应生产 IP
+- qa-backend 真机 e2e fixture：默认 `.177`（v2.4.2 Change 1 加）
+- qa 容器入口 banner：标注默认目标
+
+> 详见 [ops-toolkit.md § 默认设备](ops-toolkit.md#-默认设备v242-改)
 
 ## 2. 跑法 SOP
 

@@ -1,8 +1,30 @@
 # Ops Toolkit 使用手册
 
 > v2.4 运维排错工具包，容器化、开箱即用。
-> 启动: `docker compose -f docker-compose.dev.yml --profile ops run --rm ops-toolkit`
+> 启动: `docker compose -f docker-compose.dev.yml --profile ops run --rm ops-toolkit <脚本>`
 > 容器内脚本目录: `/scripts/`，已软链到 `/usr/local/bin/`
+
+## 📌 默认设备（v2.4.2 改）
+
+**所有 6 个脚本默认指向 Test-Switch-177 (192.168.100.177)**：
+- 不带 `--device` = 默认 `.177`（安全默认）
+- `--device test` = 显式 test
+- `--device <生产 IP>` = 显式生产（日志 warn，但不阻止）
+- 显式生产 IP 时，**脚本会输出 ⚠️ 提示**，提醒你注意操作
+
+### 设备名→IP 别名映射（v2.4.2 新增）
+
+`--device` 支持 4 类设备的别名（小写不敏感）：
+
+| 别名 | IP | 说明 |
+|---|---|---|
+| `test` / `Test-Switch` / `Test-Switch-177` | 192.168.100.177 | **默认**（QA test 设备） |
+| `leaf-03` | 192.168.100.4 | 生产 Leaf-03 |
+| `leaf-04` | 192.168.100.5 | 生产 Leaf-04 |
+| `spine-01` | 192.168.100.100 | 生产 Spine-01 |
+| 其他设备名 | （查后端 API） | 透传给 `_resolve_device` |
+
+> 加新别名 → 改 `ops-toolkit/scripts/_lib.sh` 的 `_resolve_alias()` 函数
 
 ## 快速开始
 
@@ -11,7 +33,7 @@
 ### 凭据来源（重要）
 
 3 种方式（按优先级）：
-1. `--device <设备名>`：从后端 API 查 IP + 凭据（推荐，需 backend 容器在运行）
+1. `--device <设备名/别名>`：从别名表查 IP（已知设备）或后端 API 查 IP+凭据（推荐，需 backend 容器在运行）
 2. `--device <IP> --user <user> --pass <pass>`：显式传参
 3. 位置参数 `<ip> <user> <pass>`：兼容 v2.3 旧用法
 4. IP 模式 + 环境变量：`SSH_USER=admin SSH_PASS=xxx <脚本> <ip>`

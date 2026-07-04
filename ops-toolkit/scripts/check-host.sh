@@ -1,50 +1,34 @@
 #!/bin/bash
 # check-host.sh — 主机连通性检查（ping + SSH 22 + NETCONF 830）
 # 用法:
-#   check-host --device <name|ip> [count]
-#   check-host <ip> [count]                  # 兼容 v2.3
+#   check-host                                # v242: 默认 test 设备
+#   check-host --device <name|ip|alias> [count]
+#   check-host <ip> [count]                   # 兼容 v2.3
 # 例:
-#   check-host --device Leaf-04
+#   check-host                                # → 192.168.100.177
+#   check-host --device leaf-04               # → 192.168.100.5
 #   check-host 192.168.100.5 3
 set -euo pipefail
 
 source /scripts/_lib.sh
 
 COUNT="3"
-DEVICE_INPUT=""
+DEVICE_INPUT=$(_get_device_arg "$@")
 
-# 解析参数
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        --device) DEVICE_INPUT="$2"; shift 2 ;;
-        --device=*) DEVICE_INPUT="${1#*=}"; shift ;;
-        --help|-h)
-            echo "用法: check-host --device <name|ip> [count]"
-            echo "例:   check-host --device Leaf-04"
-            echo "      check-host 192.168.100.5 3"
-            _print_doc_links "check-host"
-            exit 0
-            ;;
-        *)
-            if [[ -z "$DEVICE_INPUT" ]]; then
-                DEVICE_INPUT="$1"
-            else
-                COUNT="$1"
-            fi
-            shift
-            ;;
+# 剩余参数（count）
+for arg in "$@"; do
+    case "$arg" in
+        --device|--device=*) ;;
+        *) [[ "$arg" != "${DEVICE_INPUT}" ]] && COUNT="$arg" ;;
     esac
 done
 
-if [[ -z "$DEVICE_INPUT" ]]; then
-    echo "用法: check-host --device <name|ip> [count]"
-    echo "例:   check-host --device Leaf-04"
-    _print_doc_links "check-host"
-    exit 1
-fi
+# 默认设备提示
+_print_device_banner "$DEVICE_INPUT"
 
-# check-host 只需 IP，不需凭据（但 _resolve_device 会校验设备名）
-# 如果是设备名，从 API 查 IP；如果是 IP，直接用
+# check-host 只需 IP，不需凭据（但 _resolve_alias 已处理别名）
+DEVICE_INPUT=$(_resolve_alias "$DEVICE_INPUT")
+
 if [[ "$DEVICE_INPUT" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     IP="$DEVICE_INPUT"
 else

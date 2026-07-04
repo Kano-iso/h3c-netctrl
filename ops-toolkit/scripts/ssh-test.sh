@@ -8,12 +8,12 @@ set -euo pipefail
 
 source /scripts/_lib.sh
 
-DEVICE_INPUT=""
+DEVICE_INPUT=$(_get_device_arg "$@")
 USER=""
 PASS=""
 CMD="display version"
 
-# 解析参数
+# 解析剩余参数（user / pass / cmd / --device 显式覆盖）
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --device) DEVICE_INPUT="$2"; shift 2 ;;
@@ -25,15 +25,15 @@ while [[ $# -gt 0 ]]; do
         --cmd) CMD="$2"; shift 2 ;;
         --cmd=*) CMD="${1#*=}"; shift ;;
         --help|-h)
-            echo "用法: ssh-test --device <name|ip> [command]"
-            echo "      ssh-test <ip> <user> <pass> [command]"
+            echo "用法: ssh-test [--device <name|ip|alias>] [user] [pass] [command]"
+            echo "例:   ssh-test                              # 默认 test 设备"
+            echo "      ssh-test --device leaf-04"
+            echo "      ssh-test 192.168.100.5 admin xxx"
             _print_doc_links "ssh-test"
             exit 0
             ;;
         *)
-            if [[ -z "$DEVICE_INPUT" ]]; then
-                DEVICE_INPUT="$1"
-            elif [[ -z "$USER" ]]; then
+            if [[ -z "$USER" ]]; then
                 USER="$1"
             elif [[ -z "$PASS" ]]; then
                 PASS="$1"
@@ -45,11 +45,10 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-if [[ -z "$DEVICE_INPUT" ]]; then
-    echo "用法: ssh-test --device <name|ip> [command]"
-    _print_doc_links "ssh-test"
-    exit 1
-fi
+_print_device_banner "$DEVICE_INPUT"
+
+# 别名解析
+DEVICE_INPUT=$(_resolve_alias "$DEVICE_INPUT")
 
 # 解析设备 → IP USER PASS
 read -r IP USER_RESOLVED PASS_RESOLVED < <(_parse_device_args "$DEVICE_INPUT" "$USER" "$PASS" 2>/dev/null) || {
