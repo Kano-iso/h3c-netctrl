@@ -198,3 +198,53 @@ ssh server session-limit 64
 - Scenarios: [backend/tests/perf/scenarios/](../../backend/tests/perf/scenarios/)
 - 设备侧修复: 待 v2.4.2 + v2.5 评估
 - 后端连接池: 待 v2.5 评估
+
+---
+
+## 10. split 模式真机 e2e（v2.4.2 主线 2）
+
+**测试文件**：[backend/tests/test_split_e2e_real.py](../../backend/tests/test_split_e2e_real.py)
+
+**测试环境**：
+- 3 容器（h3c-ctrl / h3c-config / h3c-data）+ qa-backend 容器
+- 单设备 .177 (id=7, 192.168.100.177)
+- v2.4.2 缩到单设备避免影响 .4/.5/.100 生产
+- qa-backend 挂 docker.sock + docker==7.1.0 Python SDK（场景 7/8 故障注入用）
+
+**8 场景结果**：
+
+| 场景 | 描述 | 状态 | 备注 |
+|---|---|---|---|
+| 1 | GET /api/devices split 走 ctrl | ✓ PASS | 返回 7 设备（含 .177） |
+| 2 | GET /api/devices/7/interfaces config 走 NETCONF | ✓ PASS | 返回 22 接口 |
+| 3 | POST /api/devices/7/backup data 走 SSH/SCP | ✓ PASS | running 备份成功 |
+| 4 | POST /api/backups-async 全量异步 | ✓ PASS | 7 设备 × 1 type ~60s，.177 在 success 列表 |
+| 5 | DELETE /api/devices/{id} 调 data cleanup | ✓ PASS | split 模式路由验证（不真删） |
+| 6 | GET /api/dashboard ctrl 跨容器调 data | ✓ PASS | dashboard 不抛 500 |
+| 7 | docker stop data → config 查 .177 接口 | ✓ PASS | config 容器不依赖 data，NETCONF get 仍成功 |
+| 8 | docker stop ctrl → config 查 .177 接口 | ✓ PASS | 返"内部 API 不可达"中文错误 |
+
+**总耗时**：81.32s（8/8 PASS）
+
+**设备状态**：场景 7/8 只做只读 NETCONF get，未改设备配置。设备保持原状。
+
+---
+
+## 11. MCP 浏览器 split 模式 e2e（v2.4.2 主线 3）
+
+**测试方法**：MCP browser → http://localhost:5173/#/cmdb
+
+**流程**：
+1. `VITE_SPLIT_MODE=true docker compose up -d frontend`（前端走 split 路由）
+2. 浏览器打开 CMDB（7 设备显示）
+3. 点"全量备份"按钮 → taskStore.submitBatchBackup 串行提交 7 设备 backup-async
+4. 验 task_id 创建 + 状态轮询
+5. 等所有任务 success
+
+**结果**：
+- 第一批 7 设备（task 35-41）→ 100% success
+- 第二批 7 设备（task 42-48）→ 100% success
+- 总 14/14 success
+- 截图：[docs/screenshots/v2.4.2-mcp-e2e/cmdb-split-mode.png](../../docs/screenshots/v2.4.2-mcp-e2e/cmdb-split-mode.png) + [cmdb-full-backup-success.png](../../docs/screenshots/v2.4.2-mcp-e2e/cmdb-full-backup-success.png)
+
+**结论**：split 模式 3 容器协同工作正常，前端代理按路径分发到 ctrl/config/data，taskStore 跟踪所有任务直到终态。

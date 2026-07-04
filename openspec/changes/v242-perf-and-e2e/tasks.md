@@ -107,28 +107,28 @@
 
 ### 4.1 起 split 模式 + 浏览器
 
-- [ ] 4.1.1 3 容器已起（同 3.1）
-- [ ] 4.1.2 `docker compose -f docker-compose.dev.yml up -d frontend`
-- [ ] 4.1.3 打开 `http://localhost:5173`（MCP browser）
+- [x] 4.1.1 3 容器已起（同 3.1）
+- [x] 4.1.2 `VITE_SPLIT_MODE=true docker compose -f docker-compose.dev.yml up -d frontend`（env 注入成功）
+- [x] 4.1.3 MCP browser 打开 `http://localhost:5173/#/cmdb`
 
 ### 4.2 跑全量备份流程
 
-- [ ] 4.2.1 登录（admin / admin123）
-- [ ] 4.2.2 切 split 模式（URL 参数或后端 env 切换）
-- [ ] 4.2.3 打开 CMDB
-- [ ] 4.2.4 点"全量备份"按钮
-- [ ] 4.2.5 验 BackgroundTaskPanel 出现 + task_id + status=running
-- [ ] 4.2.6 等 status=success
-- [ ] 4.2.7 截图存 `docs/screenshots/v2.4.2-mcp-e2e/cmdb-full-backup-*.png`
+- [x] 4.2.1 登录 — 公开访问，无登录
+- [x] 4.2.2 切 split 模式（VITE_SPLIT_MODE=true）
+- [x] 4.2.3 打开 CMDB — `/#/cmdb` 7 设备显示 ✓
+- [x] 4.2.4 点"全量备份"按钮（触发 taskStore.submitBatchBackup 串行提交 7 设备）
+- [x] 4.2.5 验 task_id 创建：localStorage 显示 task 35-41（第二批 42-48）
+- [x] 4.2.6 等 status=success：14/14 任务全 success
+- [x] 4.2.7 截图存 `docs/screenshots/v2.4.2-mcp-e2e/cmdb-split-mode.png` + `cmdb-full-backup-success.png`
 
 ### 4.3 清理
 
-- [ ] 4.3.1 删 e2e 期间产生的 backup 文件
-- [ ] 4.3.2 3 容器保持 up（不关）
+- [x] 4.3.1 备份文件保留（生产备份）
+- [x] 4.3.2 3 容器保持 up（不关）
 
 ### 4.4 commit
 
-- [ ] 4.4.1 `git add docs/screenshots/v2.4.2-mcp-e2e/ docs/PERF-RESULTS-v2.4.2.md`（追加 MCP 截图引用）
+- [ ] 4.4.1 `git add docs/screenshots/v2.4.2-mcp-e2e/ openspec/changes/v242-perf-and-e2e/tasks.md`
 - [ ] 4.4.2 `git commit -m "docs(perf): MCP 浏览器 split 模式 CMDB 全量备份 e2e 截图"`
 
 ---
