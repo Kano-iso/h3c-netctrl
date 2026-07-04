@@ -13,4 +13,7 @@ pytest>=7.0.0
 httpx>=0.24.0
 # v2.4.2: 性能压测（locust 装在 qa-backend 容器，不进生产 backend）
 locust==2.31.0
+# v2.4.2: 真机 e2e 故障注入（test_split_e2e_real.py 场景 7/8）— Python SDK 调宿主机 docker
+# （配合 docker.sock 挂载，无需 docker CLI）
+docker==7.1.0
 # lxml 已移除：v2.2 backup 回滚改用纯文本 + SCP，不需要 XML 解析

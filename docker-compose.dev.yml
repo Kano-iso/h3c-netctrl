@@ -135,6 +135,9 @@ services:
     container_name: h3c-netctrl-qa-backend
     volumes:
       - ./backend:/app
+      # v2.4.2 真机 e2e 故障注入（场景 7/8）：qa 容器需要 docker stop split 容器
+      # 挂 docker.sock + docker CLI（只影响 qa 容器，prod 不受影响）
+      - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - h3c-net
 

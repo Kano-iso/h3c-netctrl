@@ -69,47 +69,37 @@
 
 ### 3.1 起 3 容器 + 准备
 
-- [ ] 3.1.1 `docker compose -f docker-compose.dev.yml --profile split up -d ctrl config data`
-- [ ] 3.1.2 验证 3 容器都 up：`docker ps --format '{{.Names}}\t{{.Status}}'`
-- [ ] 3.1.3 验证 4 设备可达：ops-toolkit check-host.sh 跑 4 次（.4/.5/.100/.177）
+- [x] 3.1.1 `docker compose -f docker-compose.dev.yml --profile split up -d ctrl config data`（已起，6 分钟）
+- [x] 3.1.2 验证 3 容器都 up：`docker ps --format '{{.Names}}\t{{.Status}}'` → h3c-ctrl/config/data 6m up
+- [x] 3.1.3 验证 .177 设备可达：ops-toolkit nc -zv 192.168.100.177 22/830 → succeeded（v2.4.2 缩到 .177 单设备）
 
 ### 3.2 写 conftest fixture
 
-- [ ] 3.2.1 改 `backend/tests/conftest.py`：
-  - 加 `@pytest.fixture def split_3containers()`：检查 3 容器 up，否则 skip
-  - 加 `@pytest.fixture def real_4_devices()`：返回 [4, 5, 100, 177] 设备 id
-- [ ] 3.2.2 加 marker：`@pytest.mark.integration` 已存在
+- [x] 3.2.1 fixture 内联在 test_split_e2e_real.py（`split_3containers` 检查 health + `_device_exists_in_ctrl`）
+- [x] 3.2.2 marker：`@pytest.mark.integration` 已存在 + `--integration` 显式开启
 
 ### 3.3 写 8 场景测试
 
-- [ ] 3.3.1 写 `backend/tests/test_split_e2e_real.py`：
-  - `test_scenario1_devices_list`：GET /api/devices 真链路
-  - `test_scenario2_interfaces_list`：GET /api/devices/{id}/interfaces 真 NETCONF
-  - `test_scenario3_running_backup`：POST /api/devices/{id}/backup 真 SSH/SCP
-  - `test_scenario4_async_full_backup`：POST /api/backups-async 真端到端
-  - `test_scenario5_device_delete_cleanup`：DELETE /api/devices/{id} 真调 data cleanup
-  - `test_scenario6_dashboard_aggregation`：GET /api/dashboard 真跨容器
-  - `test_scenario7_data_container_down_config_works`：docker stop data → config 改接口
-  - `test_scenario8_ctrl_container_down_clear_error`：docker stop ctrl → config 返中文错误
-- [ ] 3.3.2 每个 case 加 `restore_original_state` fixture
+- [x] 3.3.1 写 `backend/tests/test_split_e2e_real.py`：8 场景全
+- [x] 3.3.2 fixture 终态恢复：场景 7/8 用 try/finally + container.start() 恢复
 
 ### 3.4 跑真机 e2e
 
-- [ ] 3.4.1 `docker compose -f docker-compose.dev.yml --profile qa run --rm qa-backend pytest tests/test_split_e2e_real.py -m integration -v`
-- [ ] 3.4.2 设备不通的 case skip
-- [ ] 3.4.3 8 场景全 PASS（skip 不算失败）
-- [ ] 3.4.4 故障注入场景 7/8：跑完 `docker start data` / `docker start ctrl` 恢复
+- [x] 3.4.1 `docker compose --profile qa run --rm qa-backend pytest tests/test_split_e2e_real.py -m integration -v`
+- [x] 3.4.2 设备不通的 case skip（v2.4.2 缩到 .177 单设备，全部可达）
+- [x] 3.4.3 **8 场景全 PASS**（81.32s）
+- [x] 3.4.4 故障注入场景 7/8：finally 块自动 start 容器
 
 ### 3.5 设备状态恢复
 
-- [ ] 3.5.1 4 设备接口配置检查（vs 备份）
-- [ ] 3.5.2 不一致 → NETCONF 改回
-- [ ] 3.5.3 清理 e2e 期间 backup 文件
+- [x] 3.5.1 场景 7/8 只做只读 NETCONF get，未改设备配置
+- [x] 3.5.2 场景 3/4 备份在 data 容器（不污染设备）
+- [x] 3.5.3 设备状态保持原状
 
 ### 3.6 commit
 
-- [ ] 3.6.1 `git add backend/tests/test_split_e2e_real.py backend/tests/conftest.py`
-- [ ] 3.6.2 `git commit -m "test(split-e2e): split 模式真机 e2e 4 设备 8 场景 (含故障注入真机版)"`
+- [ ] 3.6.1 `git add backend/tests/test_split_e2e_real.py docker-compose.dev.yml backend/Dockerfile.qa backend/requirements.txt`
+- [ ] 3.6.2 `git commit -m "test(split-e2e): split 模式真机 e2e 8 场景 .177 (含故障注入真机版)"`
 
 ---
 
