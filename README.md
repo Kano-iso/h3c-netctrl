@@ -178,9 +178,15 @@ docker compose -f docker-compose.dev.yml --profile ops run --rm ops-toolkit /scr
 
 # 触发 reboot + 等待 SSH 恢复（最多 120s）
 docker compose -f docker-compose.dev.yml --profile ops run --rm ops-toolkit /scripts/reboot-wait.sh 192.168.100.4 admin password
+
+# 单设备 SSH 批命令（v2.4.2.1，复用 backend SSHExecutor，H3C 兼容）
+#   凭据默认读 .env 注入的 DEVICE_USERNAME/DEVICE_PASSWORD，不用每次 -e 传
+docker compose -f docker-compose.dev.yml --profile ops run --rm ops-toolkit \
+    paramiko-batch-exec.sh --device test --command "display version"
 ```
 
 预装工具：ping / nc / sshpass / ncclient / netmiko / paramiko。
+**7 个预制脚本**：check-host / ssh-test / check-netconf / capture-config / reboot-wait / audit-switch / **paramiko-batch-exec（v2.4.2.1 新增）**。详细用法见 [docs/ops-toolkit.md](docs/ops-toolkit.md)。
 
 ## QA
 
