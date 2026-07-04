@@ -12,16 +12,18 @@
 
 **v2.4.2 压测目标 100/50 并发均未达预期**，但**找到了设备真实容量上限**：
 
-| 场景 | 阈值 | 实测稳定点 | 设备上限 | 状态 |
+| 场景 | 阈值 | 实测稳定点 | 设备上限（精确定位） | 状态 |
 |---|---|---|---|---|
-| NETCONF 接口查询 | P99 < 5s, 失败率 < 1% | **5 并发**（P99=1.9s, 0% 失败） | max-session ~ 8 | 部分达成 |
-| SSH 备份 | P99 < 30s, 失败率 < 1% | **10 并发**（P99=9.6s, 0% 失败） | max-session ~ 16-20 | 部分达成 |
+| NETCONF 接口查询 | P99 < 5s, 失败率 < 1% | **7 并发**（P99=5.9s, 0% 失败） | **max-session = 7**（8 首次失败） | 部分达成 |
+| SSH 备份 | P99 < 30s, 失败率 < 1% | **6 并发**（P99=9.6s, 0% 失败） | **max-session = 6**（7 首次失败） | 部分达成 |
 
 **关键发现**：
-- H3C V7 测试机 .177 NETCONF max-session 默认 ~ 8（远低于 100 目标）
-- H3C V7 测试机 .177 SSH max-session 默认 ~ 16-20（远低于 50 目标）
-- **后端性能本身没问题**（5 并发稳定通过），瓶颈在设备侧
+- H3C V7 测试机 .177 NETCONF max-session = **7**（8 首次失败，10 失败率 28%）
+- H3C V7 测试机 .177 SSH max-session = **6**（7 首次失败，8 失败率 8.3%）
+- 粗档位"max-session ~ 8 / ~ 16-20"是插值猜的，细档位实测**显著低于此**——v2.4.2 补
+- **后端性能本身没问题**（6-7 并发稳定通过），瓶颈在设备侧
 - 100 并发时暴露出 v2.4.1 monolith 模式 bug：sqlite lock 时错误走 internal_api 兜底
+- mixed 模式（weight 3:1）测不出单类瓶颈，**ssh-only 模式**才能定位 SSH 临界点——v2.4.2 补方法学
 
 ---
 
@@ -134,28 +136,123 @@ P99:  9200ms  ✓ < 30s
 
 ---
 
-## 5. 设备容量总结
+## 5. 设备容量总结（v2.4.2 补：粗档位 vs 细档位）
 
-| 资源 | 上限 | 验证 |
-|---|---|---|
-| NETCONF max-session | ~ 8 | 20 并发 52% 失败，10 并发 9% 失败，5 并发 0% 失败 |
-| SSH max-session | ~ 16-20 | 20 并发 8.79% 失败，10 并发 0% 失败 |
+| 资源 | 粗档位结论（v2.4.2 首发） | **细档位精确定位**（v2.4.2 补） | 验证 |
+|---|---|---|---|
+| NETCONF max-session | ~ 8 | **7** | 5/6/7 并发 0% 失败；**8 并发首次失败**（1/32 = 3%）；9 并发 7.9%；10 并发 28%；12 并发 15% |
+| SSH max-session | ~ 16-20 | **6** | 3/4/5/6 并发 0% 失败；**7 并发首次失败**（1/19 = 5%）；8 并发 8.3% |
 
-**调整建议**（生产部署参考）：
+**修正结论**：原报告"NETCONF ~ 8 / SSH ~ 16-20"是 5/10/20/100 粗档位插值，**显著高估了 SSH 上限**（实际 6 不是 16-20）。细档位精确定位后，v2.5 调参建议需要按新数据校准。
+
+**调整建议**（生产部署参考，按精确定位）：
 ```bash
-# 设备侧调高 session 上限（H3C V7 命令）
-netconf ssh server session-limit 32
-ssh server session-limit 64
-```
+# 设备侧调高 session 上限（H3C V7 命令）—— 实际需要从 7/6 提到 16-20 才能扛 10+ 并发
+netconf ssh server session-limit 16
+ssh server session-limit 16
 
-**后端侧建议**（v2.5 评估）：
-- 实现 NETCONF 连接池（避免每次 new client）—— 当前每次请求 new NetconfClient，无池化
-- 实现 SSH 连接池（避免每次 new paramiko.SSHClient）—— 当前每次 new client
-- 请求级 session 限制（每个 device 同时最多 N 个 in-flight 请求）
+# 后端侧建议（v2.5 评估）：
+# - 实现 NETCONF / SSH 连接池（避免每次 new client）—— 当前每次请求 new，无池化
+# - 请求级 session 限制（每个 device 同时最多 N 个 in-flight 请求）
+# - 6-7 并发是后端稳定点，超出会触发设备 session 拒绝
+```
 
 ---
 
-## 6. v2.4.1 monolith bug 暴露
+## 6. 细档位压测数据（v2.4.2 补）
+
+> **背景**：原报告 §3 §4 的粗档位（5/10/20/100）结论"max-session ~ 8 / ~ 16-20"是插值猜的，user 质疑"是不是没测出真实上限就下结论"。补细档位压测。
+
+### 6.1 NETCONF 接口查询细档位（mixed 模式，weight 3:1）
+
+跑法：`bash backend/tests/perf/scenarios/finetune_interfaces.sh`（qa-backend 容器内），每档 30s，每档间不 sleep（依赖 30s 压测自然冷却）。
+
+| 档位 | 30s reqs | GET reqs | GET 失败 | GET 失败率 | GET P99 | 状态 |
+|---|---|---|---|---|---|---|
+| 5  | 34 | 30 | 0 | 0%   | 2.3s | ✓ |
+| 6  | 35 | 27 | 0 | 0%   | 5.4s | ✓ |
+| 7  | 43 | 33 | 0 | 0%   | 5.9s | ✓ **稳定点** |
+| **8**  | 43 | 32 | 1 | 3.1% | 5.6s | ⚠️ **临界点** |
+| 9  | 51 | 38 | 3 | 7.9% | 5.2s | ❌ |
+| 10 | 49 | 35 | 10 | 28%  | 5.3s | ❌ |
+| 12 | 59 | ? | 9  | 15%  | 9.7s | ❌ |
+
+**精确定位**：NETCONF max-session = **7**（7 全过，8 首次失败）
+
+### 6.2 SSH 备份细档位（ssh-only 模式）
+
+**重要方法学**：原 locustfile mixed 模式 weight 3:1，10 并发时只有 1.6 个 SshBackupUser，**测不出 SSH 真实瓶颈**。细档位改用 `--class-picker SshBackupUser` 单独跑。
+
+跑法：`bash backend/tests/perf/scenarios/finetune_backup.sh`，每档 30s + 20s sleep（防 H3C V7 session 锁）。
+
+| 档位 | 30s reqs | 失败 | 失败率 | P99 | 状态 |
+|---|---|---|---|---|---|
+| 3  | 6  | 0 | 0%   | 9.5s | ✓ |
+| 4  | 8  | 0 | 0%   | 9.5s | ✓ |
+| 5  | 10 | 0 | 0%   | 9.5s | ✓ |
+| **6**  | 15 | 0 | 0%   | 9.6s | ✓ **稳定点** |
+| **7**  | 19 | 1 | 5.3% | 9.8s | ⚠️ **临界点** |
+| 8  | 24 | 2 | 8.3% | 9.6s | ❌ |
+
+**精确定位**：SSH max-session = **6**（6 全过，7 首次失败）
+
+### 6.3 修正后的 v2.5 调参建议
+
+| 项 | 粗档位建议 | 细档位修正后建议 |
+|---|---|---|
+| 设备 `netconf ssh server session-limit` | 32 | **16**（7×2 = 14 → 留 buffer 取 16） |
+| 设备 `ssh server session-limit` | 64 | **16**（6×2 = 12 → 留 buffer 取 16） |
+| 后端 per-device 限流 | 10 | **6**（与设备 SSH 上限对齐） |
+| batch 全量备份串行度 | 4-6 | **2-3**（避免 7 设备同时 backup 触发 SSH 满） |
+
+---
+
+## 7. 测试方法学说明（v2.4.2 补）
+
+### 7.1 mixed 模式 vs ssh-only 模式
+
+原 locustfile.py（[locustfile.py:23-44](../../backend/tests/perf/locustfile.py)）有 2 个 User 类：
+
+```python
+class NetconfConfigUser(HttpUser):
+    @task(3)  # weight 3
+    def list_interfaces(self): ...
+
+class SshBackupUser(HttpUser):
+    @task(1)  # weight 1
+    def create_backup(self): ...
+```
+
+**问题**：locust 按 weight 比例分配用户。10 并发时只有 ~1.6 个 SshBackupUser，**SSH 真实并发永远上不去**。
+
+**修正**：细档位用 `--class-picker SshBackupUser` 单独跑 SSH 备份，**才能定位 SSH 临界点**。
+
+### 7.2 mixed 模式的适用场景
+
+mixed 模式（weight 3:1）**适合模拟真实用户行为**（90% 查询 + 10% 备份）但**不适合定位单类瓶颈**。两者目标不同：
+
+- 真实用户行为模拟 → mixed 模式
+- 定位某类资源上限 → ssh-only / netconf-only 模式
+
+### 7.3 细档位压测脚本
+
+新增 2 个细档位脚本（v2.4.2 补 commit）：
+- `backend/tests/perf/scenarios/finetune_interfaces.sh`：NETCONF 5/6/7/8/9/10/12 档（mixed 模式）
+- `backend/tests/perf/scenarios/finetune_backup.sh`：SSH 3/4/5/6/7/8 档（ssh-only 模式 + sleep 20）
+
+**v2.5 改进**：
+- 加 `--class-picker NetconfConfigUser` 跑 netconf-only 模式
+- 加档位自动化扫描（5→20 二分法找临界点）
+
+---
+
+## 8. 原始粗档位数据（保留，对比用）
+
+> §3 §4 的粗档位数据保留作为"插值猜的"基线参考。**业务决策以 §6 细档位数据为准**。
+
+---
+
+## 9. v2.4.1 monolith bug 暴露（粗档位原始发现）
 
 100 并发时，35 次请求报 "Temporary failure in name resolution"，根因：
 
@@ -167,7 +264,7 @@ ssh server session-limit 64
 
 ---
 
-## 7. 阈值达成情况
+## 10. 阈值达成情况
 
 | 阈值 | 目标 | 实际 | 状态 |
 |---|---|---|---|
@@ -182,7 +279,7 @@ ssh server session-limit 64
 
 ---
 
-## 8. 复测建议
+## 11. 复测建议
 
 如要达成 100/50 并发目标：
 1. **设备侧**：先 `netconf ssh server session-limit 64` + `ssh server session-limit 128` 调高
@@ -191,7 +288,7 @@ ssh server session-limit 64
 
 ---
 
-## 9. 关联
+## 12. 关联
 
 - OpenSpec Change: [v242-perf-and-e2e/proposal.md](../../openspec/changes/v242-perf-and-e2e/proposal.md)
 - locustfile: [backend/tests/perf/locustfile.py](../../backend/tests/perf/locustfile.py)
@@ -201,7 +298,7 @@ ssh server session-limit 64
 
 ---
 
-## 10. split 模式真机 e2e（v2.4.2 主线 2）
+## 13. split 模式真机 e2e（v2.4.2 主线 2）
 
 **测试文件**：[backend/tests/test_split_e2e_real.py](../../backend/tests/test_split_e2e_real.py)
 
@@ -230,7 +327,7 @@ ssh server session-limit 64
 
 ---
 
-## 11. MCP 浏览器 split 模式 e2e（v2.4.2 主线 3）
+## 14. MCP 浏览器 split 模式 e2e（v2.4.2 主线 3）
 
 **测试方法**：MCP browser → http://localhost:5173/#/cmdb
 
