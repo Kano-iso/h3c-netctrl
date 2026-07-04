@@ -147,6 +147,17 @@ def main():
         else:
             print(f"❌ {summary['success']}/{summary['total']} 成功, {summary['failed']} 失败 (总耗时 {summary['elapsed_ms']}ms)")
 
+    # 文档发现原则：跑完命令末尾输出文档链接（stderr，不污染 JSON）
+    # 与 _lib.sh:_print_doc_links 保持一致（其他 6 个脚本走 stdout，因为不返 JSON）
+    script_name = os.environ.get("_PMK_SCRIPT_NAME", "paramiko-batch-exec")
+    docs_prefix = os.environ.get("OPS_DOCS_PREFIX", "/opt/docs")
+    print("", file=sys.stderr)
+    print("── 文档 ─────────────────────────────────", file=sys.stderr)
+    print(f"📖 用法:        {docs_prefix}/ops-toolkit.md#{script_name}", file=sys.stderr)
+    print(f"📖 排错 SOP:    {docs_prefix}/CONTAINER-CLEANUP-SOP.md", file=sys.stderr)
+    print(f"📖 凭据来源:    {docs_prefix}/ops-toolkit.md#凭据来源", file=sys.stderr)
+    print("─────────────────────────────────────────", file=sys.stderr)
+
     sys.exit(0 if summary["failed"] == 0 else 1)
 
 

@@ -178,5 +178,7 @@ export _PMK_TIMEOUT="$TIMEOUT"
 export _PMK_OUTPUT_FORMAT="$OUTPUT_FORMAT"
 export _PMK_RETRIES="$RETRIES"
 export _PMK_CONTINUE_ON_ERROR="$CONTINUE_ON_ERROR"
+# v2.4.2.1 文档发现：Python 末尾调 _print_doc_links 逻辑需要 script name
+export _PMK_SCRIPT_NAME="paramiko-batch-exec"
 
 exec python3 /scripts/_paramiko_batch_exec.py
