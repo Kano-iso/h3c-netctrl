@@ -7,11 +7,15 @@
 # 用法:
 #   paramiko-batch-exec.sh --device <name|ip> --command "display version"
 #   paramiko-batch-exec.sh --device test --command "display version" --output-format json
-#   paramiko-batch-exec.sh --device 192.168.100.5 --user admin --pass xxx --command "display vlan 100"
+#   paramiko-batch-exec.sh --device 192.168.100.5 --command "display vlan 100"  # 凭据走 .env 注入（SSH_USER/SSH_PASS）
+#   paramiko-batch-exec.sh --device test --command "display version" --user python --pass-cipher "gAAA..."
 #
 # 例:
-#   paramiko-batch-exec.sh --device test --command "display version"
+#   paramiko-batch-exec.sh --device test --command "display version"  # 凭据自动读 .env（DEVICE_USERNAME/DEVICE_PASSWORD）
 #   paramiko-batch-exec.sh --device leaf-04 --command "display version" --output-format json
+#
+# 凭据优先级: --user/--pass/--pass-cipher > $SSH_USER/$SSH_PASS > $DEVICE_USERNAME/$DEVICE_PASSWORD（.env 注入）
+# 禁止 admin fallback：找不到凭据时明确报错（避免 .env 注入失败被掩盖）
 #
 # Task 1: 单命令 + 文本/JSON 输出
 # Task 3: --commands "cmd1" "cmd2" + --commands-file
@@ -41,7 +45,7 @@ usage() {
   --command <cmd>               单条命令（Task 1 用法）
   --commands <cmd1> <cmd2> ...  批命令（Task 3 用法，与 --commands-file 互斥）
   --commands-file <path>        命令文件（每行 1 条，# 开头为注释）
-  --user <user>                 SSH 用户（默认 admin）
+  --user <user>                 SSH 用户（默认从 $SSH_USER / $DEVICE_USERNAME 读）
   --pass <pass>                 SSH 密码（明文，不推荐，建议 --pass-cipher）
   --pass-cipher <gAAAAA...>     SSH 密码 Fernet 密文（推荐，密钥从 $ENCRYPTION_KEY 读）
   --timeout <seconds>           单命令 timeout（默认 30s）

@@ -102,13 +102,36 @@ _resolve_device() {
 
     # 判断是否 IP 格式（简单正则）
     if [[ "$input" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-        # IP 模式：凭据从环境变量
+        # IP 模式：凭据从环境变量（禁止 admin fallback，找不到就明确报错）
         local ip="$input"
-        local user="${SSH_USER:-${DEVICE_USER:-admin}}"
-        local pass="${SSH_PASS:-${DEVICE_PASS:-}}"
-        if [[ -z "$pass" ]]; then
-            echo "⚠️  IP 模式未提供凭据，请设置 SSH_USER + SSH_PASS 环境变量" >&2
-            echo "   例: SSH_USER=admin SSH_PASS=xxx $0 $ip" >&2
+        # 优先级: SSH_USER > DEVICE_USERNAME > DEVICE_USER
+        local user
+        if [[ -n "${SSH_USER:-}" ]]; then
+            user="$SSH_USER"
+        elif [[ -n "${DEVICE_USERNAME:-}" ]]; then
+            user="$DEVICE_USERNAME"
+        elif [[ -n "${DEVICE_USER:-}" ]]; then
+            user="$DEVICE_USER"
+        else
+            echo "❌ IP 模式未提供用户名（禁止 admin fallback），请设置以下任一环境变量:" >&2
+            echo "   - SSH_USER（推荐）" >&2
+            echo "   - DEVICE_USERNAME（.env 注入）" >&2
+            echo "   - DEVICE_USER" >&2
+            return 1
+        fi
+        # 优先级: SSH_PASS > DEVICE_PASSWORD > DEVICE_PASS
+        local pass
+        if [[ -n "${SSH_PASS:-}" ]]; then
+            pass="$SSH_PASS"
+        elif [[ -n "${DEVICE_PASSWORD:-}" ]]; then
+            pass="$DEVICE_PASSWORD"
+        elif [[ -n "${DEVICE_PASS:-}" ]]; then
+            pass="$DEVICE_PASS"
+        else
+            echo "❌ IP 模式未提供密码，请设置以下任一环境变量:" >&2
+            echo "   - SSH_PASS（推荐）" >&2
+            echo "   - DEVICE_PASSWORD（.env 注入）" >&2
+            echo "   - DEVICE_PASS" >&2
             return 1
         fi
         echo "$ip $user $pass"
