@@ -146,6 +146,41 @@ except Exception as e:
     fi
 }
 
+# _fernet_decrypt <cipher_text>
+# 用 $ENCRYPTION_KEY 环境变量（.env 注入）解 Fernet 密文
+# 输出: 明文密码（stdout）
+# 失败: 返回非零 + stderr 提示
+#
+# 用法:
+#   PASS=$(_fernet_decrypt "$PASS_CIPHER") || exit 1
+#
+# 密钥生成:
+#   python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+# 加密密码:
+#   python3 -c "from cryptography.fernet import Fernet; print(Fernet(b'KEY').encrypt(b'PASS').decode())"
+_fernet_decrypt() {
+    local cipher="$1"
+    if [[ -z "${ENCRYPTION_KEY:-}" ]]; then
+        echo "❌ ENCRYPTION_KEY 环境变量未设置（容器启动应通过 env_file: .env 自动注入）" >&2
+        return 1
+    fi
+    # 用环境变量传 key + sys.argv 传密文，避免 shell 注入
+    ENCRYPTION_KEY="$ENCRYPTION_KEY" python3 -c '
+import os, sys
+from cryptography.fernet import Fernet, InvalidToken
+try:
+    key = os.environ["ENCRYPTION_KEY"].encode()
+    cipher = sys.argv[1].encode()
+    print(Fernet(key).decrypt(cipher).decode())
+except InvalidToken:
+    print("❌ Fernet 解密失败：密钥错误或密文已损坏", file=sys.stderr)
+    sys.exit(1)
+except Exception as e:
+    print(f"❌ Fernet 解密失败: {e}", file=sys.stderr)
+    sys.exit(1)
+' "$cipher"
+}
+
 # _die <message>
 _die() {
     echo "❌ $1" >&2

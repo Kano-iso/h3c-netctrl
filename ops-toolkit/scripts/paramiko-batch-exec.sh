@@ -24,6 +24,7 @@ source /scripts/_lib.sh
 DEVICE_INPUT=""
 USER=""
 PASS=""
+PASS_CIPHER=""  # Task 2: Fernet 密文（避免明文密码进 history）
 COMMANDS=()  # 数组
 COMMANDS_FILE=""
 OUTPUT_FORMAT="text"
@@ -42,7 +43,7 @@ usage() {
   --commands-file <path>        命令文件（每行 1 条，# 开头为注释）
   --user <user>                 SSH 用户（默认 admin）
   --pass <pass>                 SSH 密码（明文，不推荐，建议 --pass-cipher）
-  --pass-cipher <gAAAAA...>     SSH 密码密文（Fernet，Task 2 实现）
+  --pass-cipher <gAAAAA...>     SSH 密码 Fernet 密文（推荐，密钥从 $ENCRYPTION_KEY 读）
   --timeout <seconds>           单命令 timeout（默认 30s）
   --retries <n>                 失败重试次数（默认 0，Task 5 实现）
   --output-format <text|json>   输出格式（默认 text）
@@ -60,8 +61,10 @@ while [[ $# -gt 0 ]]; do
         --user) USER="$2"; shift 2 ;;
         --user=*) USER="${1#*=}"; shift ;;
         --pass) PASS="$2"; shift 2 ;;
-        --pass=*) PASS="${1#*=}"; shift ;;
-        --command) COMMANDS+=("$2"); shift 2 ;;
+  --pass=*) PASS="${1#*=}"; shift ;;
+  --pass-cipher) PASS_CIPHER="$2"; shift 2 ;;  # Task 2: Fernet 密文
+  --pass-cipher=*) PASS_CIPHER="${1#*=}"; shift ;;
+  --command) COMMANDS+=("$2"); shift 2 ;;
         --command=*) COMMANDS+=("${1#*=}"); shift ;;
         --commands)
             shift
@@ -105,8 +108,15 @@ else
 fi
 
 # 显式 --user/--pass
-[[ -n "$USER" && -z "$PASS" ]] && _die "指定 --user 必须同时指定 --pass（或 --pass-cipher）"
-[[ -z "$USER" && -n "$PASS" ]] && _die "指定 --pass 必须同时指定 --user"
+[[ -n "$USER" && -z "$PASS" && -z "$PASS_CIPHER" ]] && _die "指定 --user 必须同时指定 --pass 或 --pass-cipher"
+[[ -z "$USER" && ( -n "$PASS" || -n "$PASS_CIPHER" ) ]] && _die "指定 --pass / --pass-cipher 必须同时指定 --user"
+# --pass 和 --pass-cipher 互斥（一个明文一个密文）
+[[ -n "$PASS" && -n "$PASS_CIPHER" ]] && _die "--pass 和 --pass-cipher 互斥（推荐 --pass-cipher）"
+
+# Task 2: --pass-cipher 优先级最高（明文密文参数 > 明文参数 > env vars）
+if [[ -n "$PASS_CIPHER" ]]; then
+    PASS="$(_fernet_decrypt "$PASS_CIPHER")" || _die "Fernet 解密失败"
+fi
 
 # 无显式凭据时读环境变量（默认走 .env 的 DEVICE_USERNAME/DEVICE_PASSWORD，开箱即用）
 # 优先级: SSH_USER > DEVICE_USERNAME > admin
