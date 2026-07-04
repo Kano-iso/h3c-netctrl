@@ -12,6 +12,11 @@ RUN pip install --no-cache-dir ncclient netmiko paramiko
 
 RUN mkdir -p /scripts /captures /opt/docs
 
+# v242-paramiko-tool: 复用 backend SSHExecutor（不手搓 paramiko 代码）
+# ssh_executor.py 只依赖 logging/re/time/paramiko，容器内都已具备
+# 单独 COPY 一个文件，比挂 backend/ 整个目录干净（避免依赖 backend 其他模块）
+COPY backend/app/utils/ssh_executor.py /opt/ssh_executor.py
+
 # 预制脚本
 COPY ops-toolkit/scripts/ /scripts/
 RUN chmod +x /scripts/*.sh && cp /scripts/*.sh /usr/local/bin/

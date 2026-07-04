@@ -134,13 +134,23 @@ try:
     items = data.get('data', data) if isinstance(data, dict) else data
     if isinstance(items, list) and len(items) > 0:
         d = items[0]
-        print(f\"{d['ip_address']} {d.get('username','admin')} {d.get('password','')}\")
+        # 用户名从设备表读（不能 fallback 到 admin，admin 应该是显式 admin，不是占位符）
+        u = d.get('username','') or ''
+        p = d.get('password','') or ''
+        if not u or not p:
+            sys.exit(2)
+        print(f'{d[\"ip_address\"]} {u} {p}')
     else:
         sys.exit(1)
 except Exception as e:
     sys.exit(1)
 " 2>/dev/null) || {
-            echo "❌ 设备 '${device_name}' 未找到或凭据缺失" >&2
+            local rc=$?
+            if [[ $rc -eq 2 ]]; then
+                echo "❌ 设备 '${device_name}' 凭据缺失（DB username/password 为空）" >&2
+            else
+                echo "❌ 设备 '${device_name}' 未找到" >&2
+            fi
             return 1
         }
         echo "$parsed"

@@ -119,7 +119,7 @@ if [[ -n "$PASS_CIPHER" ]]; then
 fi
 
 # 无显式凭据时读环境变量（默认走 .env 的 DEVICE_USERNAME/DEVICE_PASSWORD，开箱即用）
-# 优先级: SSH_USER > DEVICE_USERNAME > admin
+# 优先级: SSH_USER > DEVICE_USERNAME > DEVICE_USER > 报错
 if [[ -z "$USER" ]]; then
     if [[ -n "${SSH_USER:-}" ]]; then
         USER="$SSH_USER"
@@ -128,10 +128,13 @@ if [[ -z "$USER" ]]; then
     elif [[ -n "${DEVICE_USER:-}" ]]; then
         USER="$DEVICE_USER"
     else
-        USER="admin"
+        _die "未提供用户名。请以下任一方式:
+  - .env 配置 DEVICE_USERNAME=<username>（推荐，env_file 自动注入）
+  - 环境变量: SSH_USER=<username>
+  - 命令行: --user <username> --pass <pass>"
     fi
 fi
-# 优先级: SSH_PASS > DEVICE_PASSWORD > DEVICE_PASS
+# 优先级: SSH_PASS > DEVICE_PASSWORD > DEVICE_PASS > 报错
 if [[ -z "$PASS" ]]; then
     if [[ -n "${SSH_PASS:-}" ]]; then
         PASS="$SSH_PASS"
@@ -139,15 +142,13 @@ if [[ -z "$PASS" ]]; then
         PASS="$DEVICE_PASSWORD"
     elif [[ -n "${DEVICE_PASS:-}" ]]; then
         PASS="$DEVICE_PASS"
+    else
+        _die "未提供密码。请以下任一方式:
+  - .env 配置 DEVICE_PASSWORD=<password>（推荐，env_file 自动注入）
+  - 环境变量: SSH_PASS=<password>
+  - 命令行: --user <username> --pass <pass>（明文，会进 shell history）
+  - 命令行: --user <username> --pass-cipher <gAAAAA...>（Fernet 密文，Task 2）"
     fi
-fi
-
-if [[ -z "$PASS" ]]; then
-    _die "未提供凭据。请以下任一方式:
-  - --user <user> --pass <pass>（明文，不推荐）
-  - --user <user> --pass-cipher <gAAAAA...>（Fernet 密文，Task 2）
-  - .env 配置 DEVICE_USERNAME + DEVICE_PASSWORD（开箱即用）
-  - SSH_USER + SSH_PASS 环境变量"
 fi
 
 # === 命令文件解析 ===
