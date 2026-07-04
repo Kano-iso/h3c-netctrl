@@ -11,4 +11,6 @@ python-dotenv==1.1.0
 alembic==1.13.3
 pytest>=7.0.0
 httpx>=0.24.0
+# v2.4.2: 性能压测（locust 装在 qa-backend 容器，不进生产 backend）
+locust==2.31.0
 # lxml 已移除：v2.2 backup 回滚改用纯文本 + SCP，不需要 XML 解析
