@@ -359,4 +359,33 @@
 
 ---
 
-**最后更新**：2026-07-03 v2.4.1 已发版（v241-supplement 完成 + 214 passed）
+## 10. v2.4.2 QA 工程化 + 压测 + review（✅ 2026-07-04 tag: v2.4.2）
+
+详见 [RELEASE-NOTES-v2.4.2.md](RELEASE-NOTES-v2.4.2.md) + [docs/REVIEW-v242-3container-maturity.md](docs/REVIEW-v242-3container-maturity.md)。
+
+**主题**：v2.4.1 3 容器拆分实施 1 周后的成熟度 review + QA 工程化加固。**不开 v2.5**，因为 review 报告结论是"v2.4.2 可发版，P0（vue-tsc）必须做"。
+
+**包含 3 个 change + 1 报告**：
+1. **2026-07-04-v242-qa-and-tooling** — ESLint 进 qa 容器 + ops-toolkit 默认 test 设备 + qa 规范改写
+2. **2026-07-04-v242-perf-and-e2e** — locust 压测 .177（5/10 并发达标，100/50 失败暴露设备 max-session） + split 模式真机 e2e 8 场景 + MCP 浏览器 e2e
+3. **2026-07-04-v242-3container-review** — 3 容器 + 双 qa + ops-toolkit 成熟度 review 报告 + **P0 vue-tsc 实施**（qa-frontend 加 type-check）
+
+**测试统计**：
+- 单元：214 passed, 19 skipped, 33.42s（不变）
+- qa-frontend：lint + type-check + build 三步全过，3s
+- split 真机 e2e：8 场景全 PASS, 81.32s
+- locust 5 并发 NETCONF：45 reqs / 0% fail / P99 1.9s ✓
+- locust 10 并发 SSH 备份：31 reqs / 0% fail / P99 9.6s ✓
+- MCP 浏览器 split 模式 CMDB 全量备份：14/14 任务 success
+
+**关键 commit 序列**：见 RELEASE-NOTES-v2.4.2.md §5（9 commit + 1 chore）。
+
+**v2.5 Backlog 入口**（review 报告 §4）：
+- P0：vue-tsc（已做）
+- P1：internal_api 5s TTL 缓存 / split mode 设为默认 / vitest EACCES 排障 / Playwright e2e / interface-config.sh / task-monitor.sh
+- P2：SimpleNamespace 兼容层去掉 / 4 设备真机 e2e / pytest in-memory / debug 脚本归位
+- P3：Postgres 决策 / qa-backend 加 docker CLI / help <script> 子命令
+
+---
+
+**最后更新**：2026-07-04 v2.4.2 已发版（3 change + 1 review 报告 + P0 vue-tsc，214 passed）
