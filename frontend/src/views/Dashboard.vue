@@ -2,7 +2,7 @@
 import { ref, onMounted } from 'vue'
 import PageHeader from '../components/PageHeader.vue'
 import { dashboardApi, assetApi, deviceApi } from '../api/index.js'
-import { getStatusInfo, getStatusDot, getStatusLabel } from '../utils/status.js'
+import { getStatusLabel } from '../utils/status.js'
 
 const loading = ref(true)
 const error = ref('')

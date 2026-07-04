@@ -19,6 +19,7 @@ COPY docs/ /opt/docs/
 COPY backend/entrypoint-qa.sh /usr/local/bin/entrypoint-qa.sh
 RUN chmod +x /usr/local/bin/entrypoint-qa.sh
 
-# 跑 build（通过 entrypoint 输出版本 banner + 链接）
+# 跑 lint + build（v242-qa-and-tooling：先 lint 后 build，lint 不过不跑 build）
+# 通过 entrypoint 输出版本 banner + 链接
 ENTRYPOINT ["entrypoint-qa.sh"]
-CMD ["npm", "run", "build"]
+CMD ["sh", "-c", "npm run lint && npm run build"]

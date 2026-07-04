@@ -1,6 +1,5 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
-import ConfirmModal from './ConfirmModal.vue'
 import { vpnApi } from '../api/index.js'
 
 const props = defineProps({

@@ -27,7 +27,6 @@ const editingAsset = ref({ deviceId: null, deviceName: '', asset: {} })
 const fullBackingUp = ref(false)
 const fullResult = ref(null)
 const fullResultOpen = ref(false)
-const fullResultConfirm = ref(false)  // 防止全量备份确认误点（暂用 false）
 
 async function loadAssets() {
   loading.value = true

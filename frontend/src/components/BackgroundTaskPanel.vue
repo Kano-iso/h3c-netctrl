@@ -8,7 +8,6 @@ const taskStore = useTaskStore()
 
 const expanded = ref(false)
 
-const running = computed(() => taskStore.runningTasks)
 const recent = computed(() => taskStore.recentTasks)
 const hasRunning = computed(() => taskStore.hasRunning)
 const runningCount = computed(() => taskStore.runningCount)

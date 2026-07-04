@@ -177,7 +177,7 @@ async function openBindVpn(iface) {
   showVpnModal.value = true
 }
 
-async function onVpnModalConfirm(payload) {
+async function onVpnModalConfirm(_payload) {
   showVpnModal.value = false
   await loadInterfaces()
   await loadVpnInstances()

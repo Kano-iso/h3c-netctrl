@@ -78,7 +78,7 @@ const execute = async () => {
   if (isMulti) {
     r = await executeApi.run(selectedDeviceId.value, { commands: cmds, delay_ms: dms })
     if (r.success && r.data && Array.isArray(r.data.results)) {
-      r.data.results.forEach((res, i) => {
+      r.data.results.forEach((res, _i) => {
         output.value.push({
           type: 'output',
           text: res.output || '(无输出)',

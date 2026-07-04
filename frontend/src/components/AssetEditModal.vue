@@ -2,7 +2,6 @@
 import { ref, watch } from 'vue'
 import Select from './Select.vue'
 import { assetApi } from '../api/index.js'
-import { getStatusLabel } from '../utils/status.js'
 
 const props = defineProps({
   open: { type: Boolean, default: false },

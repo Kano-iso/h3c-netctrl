@@ -30,7 +30,6 @@ const emit = defineEmits(['update:modelValue', 'change'])
 const open = ref(false)
 const triggerRef = ref(null)
 const menuRef = ref(null)
-const menuStyle = ref({})
 
 const getValue = (opt) => (props.valueKey ? opt[props.valueKey] : opt)
 const getLabel = (opt) => {
