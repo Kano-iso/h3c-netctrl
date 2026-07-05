@@ -47,11 +47,21 @@ TBD - created by archiving change fix-asset-status-and-cmdb-layout. Update Purpo
 - **WHEN** 表格显示且任意行操作列含两个按钮
 - **THEN** 整列宽度 MUST 稳定在 128px 之内，不应撑大整行
 
-### Requirement: 已有错误数据不主动修复
+### Requirement: 过期资产自动降级
 
-数据库中已存在的错误 `status`（如设备 id=7 因 SSH 失败被错误标记为 online）MUST NOT 由本次 change 自动修正。前端用户触发"全量刷新"或单设备"采集"时由正常流程覆盖。
+数据库中已存在的"陈旧" `status='online'` 资产（即 `updated_at` 距今超过 `ASSET_STALE_HOURS` 阈值）MUST 在 data 容器启动时被自动降级为 `status='offline'`。降级通过 `app/main.py::degrade_stale_assets` 执行，幂等可重入（重复启动影响行数 = 0）。前端用户触发"全量刷新"或单设备"采集"时由正常 refresh 流程覆盖（成功→online + updated_at 更新；失败→offline）。
 
-#### Scenario: 静默修正
-- **WHEN** 用户在 CMDB 顶部点击"全量刷新"按钮
-- **THEN** 所有设备的 `status` 在采集成功后更新；不可达设备的 `status` 在采集失败后被改为 `offline`（无需手工 SQL）
+阈值由 `ASSET_STALE_HOURS`（默认 1h）和 `ASSET_STALE_ENABLED`（默认 True）控制，关闭时跳过降级和 dashboard 过滤。
+
+#### Scenario: 启动时自动降级
+- **WHEN** data 容器启动时存在 asset 满足 `status='online' AND updated_at` 距今 > 阈值
+- **THEN** 该 asset 的 `status` 在启动后变为 `'offline'`
+
+#### Scenario: 幂等
+- **WHEN** 重复启动 data 容器，无 matching 行
+- **THEN** UPDATE 影响行数 = 0，不抛异常
+
+#### Scenario: 关闭时跳过
+- **WHEN** `ASSET_STALE_ENABLED=False`
+- **THEN** 启动时即使存在陈旧 online 资产，status 也不变
 
