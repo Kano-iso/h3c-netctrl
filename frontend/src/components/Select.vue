@@ -3,8 +3,12 @@
 // 用法：
 //   <Select v-model="selected" :options="devices" label-key="name" value-key="id" placeholder="选择设备" />
 //   <Select v-model="..." :options="..." :custom-label="(d) => `${d.name} · ${d.host}`" />
+// v2.6: placeholder 缺省值走 i18n，调用方可传 :placeholder="$t('...')" 覆盖
 
 import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const props = defineProps({
   modelValue: { type: [String, Number, null], default: null },
@@ -19,7 +23,8 @@ const props = defineProps({
   statusClass: { type: Function, default: null },
   // 状态文本：传入 (option) => string 返回状态文字
   statusText: { type: Function, default: null },
-  placeholder: { type: String, default: '请选择…' },
+  // v2.6: 缺省值走 i18n，调用方可显式传入字符串覆盖
+  placeholder: { type: String, default: () => '' },
   disabled: { type: Boolean, default: false },
   width: { type: String, default: 'w-56' },  // 触发器宽度
   align: { type: String, default: 'left' },  // 下拉弹出方向：left | right
@@ -37,6 +42,10 @@ const getLabel = (opt) => {
   return opt[props.labelKey]
 }
 const getSub = (opt) => props.subLabel ? props.subLabel(opt) : ''
+
+// v2.6: 缺省 placeholder 走 i18n
+// eslint-disable-next-line no-unused-vars
+const finalPlaceholder = () => props.placeholder || t('component.select.placeholder')
 
 const selected = computed(() =>
   props.options.find(opt => getValue(opt) === props.modelValue) || null
@@ -105,7 +114,7 @@ onBeforeUnmount(() => { document.removeEventListener('mousedown', onDocClick) })
         :class="align === 'right' ? 'right-0' : 'left-0'"
         style="min-width: 100%;"
       >
-        <div v-if="options.length === 0" class="px-4 py-3 text-xs text-ink-500 text-center">无选项</div>
+        <div v-if="options.length === 0" class="px-4 py-3 text-xs text-ink-500 text-center">{{ t('component.select.no_options') }}</div>
         <button
           v-for="opt in options"
           :key="getValue(opt)"

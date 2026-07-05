@@ -1,8 +1,11 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import ConfirmModal from './ConfirmModal.vue'
 import { backupApi } from '../api/index.js'
 import { useTaskStore } from '../stores/task.js'
+
+const { t } = useI18n()
 
 // v24-feat-async-backup-status: feature flag 控制异步模式
 // VITE_ASYNC_BACKUP=true 启用，否则保持 v2.3 同步行为
@@ -29,7 +32,7 @@ const confirm = ref({
   open: false,
   title: '',
   message: '',
-  confirmText: '确定',
+  confirmText: '',
   variant: 'default',
   busy: false,
   action: null,  // 'delete' | 'lock' | 'unlock' | 'restore' | 'create'
@@ -65,7 +68,7 @@ async function loadList() {
   const r = await backupApi.list(props.deviceId)
   loading.value = false
   if (!r.success) {
-    errMsg.value = r.error || '加载备份列表失败'
+    errMsg.value = r.error || t('backup.load_failed_devices')
     backups.value = []
     return
   }
@@ -86,11 +89,11 @@ async function handleCreate() {
     const r = await taskStore.submitBackup(
       props.deviceId,
       ['startup', 'running'],
-      `备份 ${props.deviceName || '#' + props.deviceId}`,
+      t('backup.async_label', { name: props.deviceName || '#' + props.deviceId }),
     )
     pageLoadingId.value = null
     if (!r.success) {
-      errMsg.value = r.error || '提交备份任务失败'
+      errMsg.value = r.error || t('backup.submit_failed')
       return
     }
     // 立即关闭弹窗，任务在后台执行，进度在右下角面板显示
@@ -104,7 +107,7 @@ async function handleCreate() {
   const r = await backupApi.create(props.deviceId)
   pageLoadingId.value = null
   if (!r.success) {
-    errMsg.value = r.error || '备份失败'
+    errMsg.value = r.error || t('backup.op_failed', { error: t('common.dash') })
     return
   }
   await loadList()
@@ -115,9 +118,9 @@ async function handleCreate() {
 function askDelete(b) {
   confirm.value = {
     open: true,
-    title: '删除备份',
-    message: `确定删除备份 ${b.filename}？\n此操作不可恢复。`,
-    confirmText: '删除',
+    title: t('backup.confirm_delete_title'),
+    message: t('backup.confirm_delete_msg', { name: props.deviceName, filename: b.filename }),
+    confirmText: t('backup.confirm_delete_btn'),
     variant: 'danger',
     busy: false,
     action: 'delete',
@@ -129,9 +132,11 @@ function askToggleLock(b) {
   const willLock = !b.locked
   confirm.value = {
     open: true,
-    title: willLock ? '锁定备份' : '解锁备份',
-    message: `确定${willLock ? '锁定' : '解锁'}备份 ${b.filename}？\n${willLock ? '锁定后不参与轮转，不会被自动删除。' : '解锁后将参与自动轮转。'}`,
-    confirmText: '确认',
+    title: willLock ? t('backup.confirm_lock_title') : t('backup.confirm_unlock_title'),
+    message: willLock
+      ? t('backup.confirm_lock_msg', { name: props.deviceName, filename: b.filename })
+      : t('backup.confirm_unlock_msg', { name: props.deviceName, filename: b.filename }),
+    confirmText: t('backup.confirm_toggle_btn'),
     variant: 'default',
     busy: false,
     action: willLock ? 'lock' : 'unlock',
@@ -142,9 +147,15 @@ function askToggleLock(b) {
 function askRestore(b) {
   confirm.value = {
     open: true,
-    title: '回滚到该备份',
-    message: `确定回滚到备份 ${b.filename}？\n设备配置将被覆盖，并触发 reboot（60-120s SSH 重连 + 验证生效）。\n\n时间：${formatTime(b.created_at)}\n大小：${formatSize(b.size)}\nHash：${shortHash(b.content_hash)}\n\n⚠️ 设备将重启，请确认维护窗口。`,
-    confirmText: '回滚并重启',
+    title: t('backup.confirm_restore_title'),
+    message: t('backup.confirm_restore_msg', {
+      name: props.deviceName,
+      filename: b.filename,
+      time: formatTime(b.created_at),
+      size: formatSize(b.size),
+      hash: shortHash(b.content_hash),
+    }),
+    confirmText: t('backup.confirm_restore_btn'),
     variant: 'danger',
     busy: false,
     action: 'restore',
@@ -165,13 +176,13 @@ async function onConfirmAction() {
       props.deviceId,
       target.id,
       true,  // with_reboot=true（与同步默认一致）
-      `回滚 ${props.deviceName || '#' + props.deviceId} → ${target.filename}`,
+      t('backup.async_restore_label', { name: props.deviceName || '#' + props.deviceId, filename: target.filename }),
     )
     confirm.value.busy = false
     busyId.value = null
 
     if (!r.success) {
-      confirm.value.message = `提交回滚任务失败：${r.error || '未知错误'}\n\n${confirm.value.message}`
+      confirm.value.message = `${t('backup.submit_restore_failed', { error: r.error || t('backup.unknown_error') })}\n\n${confirm.value.message}`
       return
     }
     // 立即关闭弹窗，任务在后台执行
@@ -196,7 +207,7 @@ async function onConfirmAction() {
 
   if (!r.success) {
     // 错误显示在 ConfirmModal 内
-    confirm.value.message = `操作失败：${r.error || '未知错误'}\n\n${confirm.value.message}`
+    confirm.value.message = `${t('backup.op_failed', { error: r.error || t('backup.unknown_error') })}\n\n${confirm.value.message}`
     return
   }
 
@@ -218,7 +229,7 @@ async function handleDownload(b) {
   const r = await backupApi.download(props.deviceId, b.id)
   busyId.value = null
   if (!r.success) {
-    errMsg.value = r.error || '下载失败'
+    errMsg.value = r.error || t('backup.download_failed')
     return
   }
   // 触发浏览器下载
@@ -269,10 +280,10 @@ const isEmpty = computed(() => !loading.value && backups.value.length === 0)
           <div class="px-5 py-4 border-b border-canvas-300 flex items-start justify-between gap-4">
             <div>
               <h3 class="text-base font-semibold text-ink-900">
-                备份列表 · {{ deviceName }}
+                {{ t('form.backup_list.title', { name: deviceName }) }}
               </h3>
               <div class="text-xs text-ink-500 font-mono mt-0.5">
-                设备 ID {{ deviceId }} · 每设备自动保留最新 5 份未锁定备份
+                {{ t('backup.subtitle') }}
               </div>
             </div>
             <div class="flex items-center gap-2 shrink-0">
@@ -282,9 +293,9 @@ const isEmpty = computed(() => !loading.value && backups.value.length === 0)
                 @click="handleCreate"
               >
                 <svg v-if="pageLoadingId === 'create'" class="size-3.5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg>
-                {{ pageLoadingId === 'create' ? '备份中…' : '立即备份' }}
+                {{ pageLoadingId === 'create' ? t('backup.btn_backup_running', '备份中…') : t('backup.run_full') }}
               </button>
-              <button class="btn-soft !text-xs" :disabled="!!busyId" @click="close">关闭</button>
+              <button class="btn-soft !text-xs" :disabled="!!busyId" @click="close">{{ t('form.backup_list.close') }}</button>
             </div>
           </div>
 
@@ -296,21 +307,21 @@ const isEmpty = computed(() => !loading.value && backups.value.length === 0)
           <!-- 内容 -->
           <div class="flex-1 overflow-y-auto">
             <div v-if="loading && backups.length === 0" class="px-5 py-12 text-center text-sm text-ink-500">
-              加载中…
+              {{ t('common.loading') }}
             </div>
             <div v-else-if="isEmpty" class="px-5 py-12 text-center text-sm text-ink-500">
-              暂无备份 · 点击右上"立即备份"开始
+              {{ t('form.backup_list.no_records') }} · {{ t('backup.run_full') }}
             </div>
             <table v-else class="w-full text-sm">
               <thead class="sticky top-0 bg-canvas-50">
                 <tr class="text-[11px] text-ink-500 uppercase tracking-wider border-b border-canvas-300">
-                  <th class="px-4 py-2.5 text-left font-medium">文件名</th>
-                  <th class="px-4 py-2.5 text-left font-medium">时间</th>
-                  <th class="px-4 py-2.5 text-left font-medium">类型</th>
-                  <th class="px-4 py-2.5 text-right font-medium">大小</th>
-                  <th class="px-4 py-2.5 text-left font-medium">Hash</th>
-                  <th class="px-4 py-2.5 text-center font-medium w-20">状态</th>
-                  <th class="px-4 py-2.5 text-right font-medium w-56">操作</th>
+                  <th class="px-4 py-2.5 text-left font-medium">{{ t('backup.col_filename') }}</th>
+                  <th class="px-4 py-2.5 text-left font-medium">{{ t('backup.col_time') }}</th>
+                  <th class="px-4 py-2.5 text-left font-medium">{{ t('backup.col_type') }}</th>
+                  <th class="px-4 py-2.5 text-right font-medium">{{ t('backup.col_size') }}</th>
+                  <th class="px-4 py-2.5 text-left font-medium">{{ t('backup.col_hash') }}</th>
+                  <th class="px-4 py-2.5 text-center font-medium w-20">{{ t('backup.col_status') }}</th>
+                  <th class="px-4 py-2.5 text-right font-medium w-56">{{ t('backup.col_actions') }}</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-canvas-300">
@@ -324,12 +335,12 @@ const isEmpty = computed(() => !loading.value && backups.value.length === 0)
                     <span
                       v-if="b.locked"
                       class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-warn/10 text-warn"
-                      title="已锁定，不参与轮转"
+                      :title="t('backup.title_locked')"
                     >
                       <svg class="size-2.5" viewBox="0 0 24 24" fill="currentColor"><path d="M6 10V8a6 6 0 1112 0v2h1a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2v-8a2 2 0 012-2h1zm2 0h8V8a4 4 0 10-8 0v2z"/></svg>
-                      锁定
+                      {{ t('backup.status_locked') }}
                     </span>
-                    <span v-else class="text-[10px] text-ink-400">-</span>
+                    <span v-else class="text-[10px] text-ink-400">{{ t('backup.status_unlocked_chip') }}</span>
                   </td>
                   <td class="px-4 py-2.5 text-right">
                     <div class="inline-flex items-center gap-1.5">
@@ -337,28 +348,28 @@ const isEmpty = computed(() => !loading.value && backups.value.length === 0)
                         class="text-xs text-accent hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
                         :disabled="busyId !== null"
                         @click="handleDownload(b)"
-                      >下载</button>
+                      >{{ t('backup.btn_download') }}</button>
                       <span class="text-canvas-300">|</span>
                       <button
                         class="text-xs hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
                         :class="b.locked ? 'text-warn' : 'text-ink-700'"
                         :disabled="busyId !== null"
                         @click="askToggleLock(b)"
-                      >{{ b.locked ? '解锁' : '锁定' }}</button>
+                      >{{ b.locked ? t('backup.btn_unlock') : t('backup.btn_lock') }}</button>
                       <span class="text-canvas-300">|</span>
                       <button
                         class="text-xs hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
                         :class="b.locked ? 'text-canvas-300 cursor-not-allowed' : 'text-bad'"
                         :disabled="busyId !== null || b.locked"
-                        :title="b.locked ? '已锁定，禁止删除' : '删除此备份'"
+                        :title="b.locked ? t('backup.title_locked_no_delete') : t('backup.title_delete')"
                         @click="askDelete(b)"
-                      >删除</button>
+                      >{{ t('backup.btn_delete') }}</button>
                       <span class="text-canvas-300">|</span>
                       <button
                         class="text-xs text-bad hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
                         :disabled="busyId !== null"
                         @click="askRestore(b)"
-                      >回滚</button>
+                      >{{ t('backup.btn_restore') }}</button>
                     </div>
                   </td>
                 </tr>
@@ -367,7 +378,7 @@ const isEmpty = computed(() => !loading.value && backups.value.length === 0)
           </div>
 
           <div class="px-5 py-2.5 border-t border-canvas-300 text-[11px] text-ink-500 flex items-center justify-between">
-            <span>共 {{ backups.length }} 份备份</span>
+            <span>{{ t('backup.count_per_device', { n: backups.length }) }}</span>
             <span class="font-mono">设备 {{ deviceName || deviceId }}</span>
           </div>
         </div>

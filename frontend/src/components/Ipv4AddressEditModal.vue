@@ -1,7 +1,10 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import ConfirmModal from './ConfirmModal.vue'
 import { interfaceApi } from '../api/index.js'
+
+const { t } = useI18n()
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
@@ -46,11 +49,11 @@ function close() {
 function requestApply() {
   if (!canApply.value) {
     if (isProtected.value) {
-      errMsg.value = '该接口是受保护口，禁止配置 IP'
+      errMsg.value = t('form.ipv4.protected_blocked')
     } else if (!ipValid.value) {
-      errMsg.value = 'IP 格式不合法（如 192.168.1.1）'
+      errMsg.value = t('form.ipv4.bad_ip')
     } else if (!maskValid.value) {
-      errMsg.value = 'mask 格式不合法（如 255.255.255.0）'
+      errMsg.value = t('form.ipv4.bad_mask')
     }
     return
   }
@@ -67,7 +70,7 @@ async function confirmApply() {
   )
   submitting.value = false
   if (!r.success) {
-    errMsg.value = r.error || '配 IP 失败'
+    errMsg.value = r.error || t('form.ipv4.apply_failed')
     return
   }
   emit('confirm', { action: 'set', ip: newIp.value, mask: newMask.value })
@@ -80,11 +83,11 @@ function cancelApplyConfirm() {
 // 2) 用户点"清空所有 IP" → 二次确认 → 真正调 API
 function requestClear() {
   if (isProtected.value) {
-    errMsg.value = '该接口是受保护口，禁止清空 IP'
+    errMsg.value = t('form.ipv4.protected_blocked')
     return
   }
   if (!hasCurrentIp.value) {
-    errMsg.value = '该接口当前没有 IP'
+    errMsg.value = t('form.ipv4.no_ip')
     return
   }
   errMsg.value = ''
@@ -98,7 +101,7 @@ async function confirmClear() {
   const r = await interfaceApi.clearIpv4Address(props.deviceId, props.iface.if_index)
   submitting.value = false
   if (!r.success) {
-    errMsg.value = r.error || '清空 IP 失败'
+    errMsg.value = r.error || t('form.ipv4.clear_failed')
     return
   }
   emit('confirm', { action: 'clear' })
@@ -116,9 +119,9 @@ function cancelClearConfirm() {
         <div class="absolute inset-0 bg-ink-950/40 backdrop-blur-sm" @click="close"></div>
         <div class="relative panel w-full max-w-md shadow-2xl" role="dialog">
           <div class="px-5 py-4 border-b border-canvas-300">
-            <h3 class="text-base font-semibold text-ink-900">配置 IPv4 地址</h3>
+            <h3 class="text-base font-semibold text-ink-900">{{ t('form.ipv4.title', { iface: iface?.name }) }}</h3>
             <div class="text-xs text-ink-500 font-mono mt-0.5">
-              接口 {{ iface?.name }} · if_index {{ iface?.if_index }} · L3
+              {{ t('iface.modal_iface_id', { name: iface?.name, idx: iface?.if_index }) }} · L3
             </div>
           </div>
 
@@ -127,8 +130,8 @@ function cancelClearConfirm() {
             <div v-if="isProtected" class="p-3 rounded-xl bg-bad/8 border border-bad/30 flex gap-2.5">
               <span class="text-bad text-base">🛡</span>
               <div class="text-xs text-bad flex-1">
-                <div class="font-semibold">该接口已被标记为受保护</div>
-                <div class="text-bad/80 mt-0.5">保护口通常是上行/管理口，误改可能导致设备失联，禁止配置 IP。</div>
+                <div class="font-semibold">{{ t('iface.protected_warn_title') }}</div>
+                <div class="text-bad/80 mt-0.5">{{ t('iface.protected_warn_desc') }}</div>
               </div>
             </div>
 
@@ -139,9 +142,9 @@ function cancelClearConfirm() {
 
             <!-- 当前 IP 列表 -->
             <div>
-              <div class="text-xs font-medium text-ink-700 mb-1.5">当前 IP（{{ currentIps.length }}）</div>
+              <div class="text-xs font-medium text-ink-700 mb-1.5">{{ t('form.ipv4.current_ip') }}（{{ currentIps.length }}）</div>
               <div v-if="currentIps.length === 0" class="p-3 rounded-xl bg-canvas-100 text-xs text-ink-500">
-                该接口尚未配置 IP
+                {{ t('form.ipv4.no_ip') }}
               </div>
               <div v-else class="space-y-1.5">
                 <div
@@ -157,30 +160,30 @@ function cancelClearConfirm() {
             <!-- 替换/新增 IP -->
             <div>
               <div class="text-xs font-medium text-ink-700 mb-1.5">
-                {{ hasCurrentIp ? '替换为新 IP' : '配置新 IP' }}
+                {{ hasCurrentIp ? t('form.ipv4.replace_ip', '替换为新 IP') : t('form.ipv4.new_ip_label') }}
               </div>
               <div class="grid grid-cols-[1fr_1fr] gap-2">
                 <div>
-                  <label class="text-[10px] font-medium text-ink-500 mb-1 block">IP 地址</label>
+                  <label class="text-[10px] font-medium text-ink-500 mb-1 block">{{ t('form.ipv4.new_ip_label') }}</label>
                   <input
                     v-model="newIp"
-                    placeholder="192.168.1.1"
+                    :placeholder="t('form.ipv4.new_ip_ph')"
                     class="input font-mono"
                     :disabled="submitting || isProtected"
                   />
                 </div>
                 <div>
-                  <label class="text-[10px] font-medium text-ink-500 mb-1 block">子网掩码</label>
+                  <label class="text-[10px] font-medium text-ink-500 mb-1 block">{{ t('form.ipv4.mask_label') }}</label>
                   <input
                     v-model="newMask"
-                    placeholder="255.255.255.0"
+                    :placeholder="t('form.ipv4.mask_ph')"
                     class="input font-mono"
                     :disabled="submitting || isProtected"
                   />
                 </div>
               </div>
               <div class="text-[10px] text-ink-500 mt-1.5">
-                {{ hasCurrentIp ? '⚠️ 应用后该接口的现有 IP 将被替换' : '应用后该接口将拥有此 IP' }}
+                {{ hasCurrentIp ? t('form.ipv4.warn_replace', '⚠️ 应用后该接口的现有 IP 将被替换') : t('form.ipv4.warn_new', '应用后该接口将拥有此 IP') }}
               </div>
             </div>
           </div>
@@ -192,17 +195,17 @@ function cancelClearConfirm() {
               :disabled="submitting || isProtected"
               @click="requestClear"
             >
-              清空所有 IP
+              {{ t('form.ipv4.clear_all') }}
             </button>
             <div v-else></div>
             <div class="flex gap-2">
-              <button class="btn-soft !text-xs" :disabled="submitting" @click="close">取消</button>
+              <button class="btn-soft !text-xs" :disabled="submitting" @click="close">{{ t('form.ipv4.cancel') }}</button>
               <button
                 class="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
                 :disabled="!canApply || submitting"
                 @click="requestApply"
               >
-                {{ submitting ? '下发中…' : '应用' }}
+                {{ submitting ? t('iface.btn_applying') : t('form.ipv4.apply') }}
               </button>
             </div>
           </div>
@@ -214,11 +217,11 @@ function cancelClearConfirm() {
   <!-- 应用 IP 二次确认 -->
   <ConfirmModal
     :open="showSetConfirm"
-    title="配置 IPv4 地址"
+    :title="hasCurrentIp ? t('form.ipv4.confirm_set_title') : t('form.ipv4.title', { iface: iface?.name })"
     :message="hasCurrentIp
-      ? `确认要替换接口 ${iface?.name}（if_index ${iface?.if_index}）的 IP 吗？\n\n当前 IP：${currentIps.join(', ')}\n新 IP：${newIp} / ${newMask}\n\n操作不可撤销。`
-      : `确认要给接口 ${iface?.name}（if_index ${iface?.if_index}）配置 IP ${newIp} / ${newMask} 吗？`"
-    confirm-text="确认配置"
+      ? t('form.ipv4.confirm_set_msg', { iface: iface?.name, idx: iface?.if_index, old: currentIps.join(', '), new: `${newIp} / ${newMask}` })
+      : t('form.ipv4.confirm_set_msg_simple', { iface: iface?.name, idx: iface?.if_index, ip: `${newIp} / ${newMask}` })"
+    :confirm-text="t('form.ipv4.apply')"
     variant="default"
     @confirm="confirmApply"
     @cancel="cancelApplyConfirm"
@@ -227,9 +230,9 @@ function cancelClearConfirm() {
   <!-- 清空 IP 二次确认 -->
   <ConfirmModal
     :open="showClearConfirm"
-    title="清空 IP 地址"
-    :message="`确认要清空接口 ${iface?.name}（if_index ${iface?.if_index}）的所有 IPv4 地址吗？\n\n当前 IP：${currentIps.join(', ')}\n\n清空后该接口将无 IP，依赖 IP 的路由/VPN 可能受影响。\n\n操作不可撤销。`"
-    confirm-text="确认清空"
+    :title="t('form.ipv4.confirm_clear_title')"
+    :message="t('form.ipv4.confirm_clear_msg', { iface: iface?.name, idx: iface?.if_index, old: currentIps.join(', ') })"
+    :confirm-text="t('form.ipv4.clear_all')"
     variant="danger"
     @confirm="confirmClear"
     @cancel="cancelClearConfirm"

@@ -1,9 +1,12 @@
 <script setup>
 // 后台任务面板（v24-feat-async-backup-status）
 // 右下角浮动卡片，显示运行中任务 + 最近历史，支持取消/清除
+// v2.6: 全部状态/类型/按钮文案走 i18n
 import { ref, computed, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useTaskStore } from '../stores/task.js'
 
+const { t } = useI18n()
 const taskStore = useTaskStore()
 
 const expanded = ref(false)
@@ -14,18 +17,21 @@ const runningCount = computed(() => taskStore.runningCount)
 
 // 任务状态 → 显示样式
 function statusMeta(status) {
+  const label = t(`component.bg_task.task_status.${status}`, status)
   switch (status) {
-    case 'pending':   return { label: '排队',   color: 'text-ink-500',   bg: 'bg-canvas-200',   spin: false }
-    case 'running':   return { label: '执行中', color: 'text-accent',    bg: 'bg-accent/10',    spin: true  }
-    case 'success':   return { label: '成功',   color: 'text-good',      bg: 'bg-good/10',      spin: false }
-    case 'failed':    return { label: '失败',   color: 'text-bad',       bg: 'bg-bad/10',       spin: false }
-    case 'cancelled': return { label: '已取消', color: 'text-ink-500',  bg: 'bg-canvas-200',   spin: false }
-    default:          return { label: status,   color: 'text-ink-500',   bg: 'bg-canvas-200',   spin: false }
+    case 'pending':   return { label, color: 'text-ink-500',   bg: 'bg-canvas-200',   spin: false }
+    case 'running':   return { label, color: 'text-accent',    bg: 'bg-accent/10',    spin: true  }
+    case 'success':   return { label, color: 'text-good',      bg: 'bg-good/10',      spin: false }
+    case 'failed':    return { label, color: 'text-bad',       bg: 'bg-bad/10',       spin: false }
+    case 'cancelled': return { label, color: 'text-ink-500',  bg: 'bg-canvas-200',   spin: false }
+    default:          return { label, color: 'text-ink-500',   bg: 'bg-canvas-200',   spin: false }
   }
 }
 
-function typeLabel(t) {
-  return t === 'backup' ? '备份' : t === 'restore' ? '回滚' : t
+function typeLabel(type) {
+  return type === 'backup' ? t('component.bg_task.task_type_backup')
+       : type === 'restore' ? t('component.bg_task.task_type_restore')
+       : type
 }
 
 async function onCancel(taskId) {
@@ -93,29 +99,29 @@ onMounted(() => {
           <Transition name="expand">
             <div v-if="expanded" class="max-h-[320px] overflow-y-auto divide-y divide-canvas-200">
               <div v-if="recent.length === 0" class="px-4 py-6 text-center text-xs text-ink-500">
-                暂无任务记录
+                {{ t('component.bg_task.empty') }}
               </div>
               <div
-                v-for="t in recent"
-                :key="t.task_id"
+                v-for="task in recent"
+                :key="task.task_id"
                 class="px-4 py-2.5 hover:bg-canvas-50/60 transition"
               >
                 <div class="flex items-center justify-between gap-2">
                   <div class="flex items-center gap-2 min-w-0">
-                    <span :class="['chip !text-[10px] !px-1.5 !py-0', statusMeta(t.status).bg, statusMeta(t.status).color]">
-                      <svg v-if="statusMeta(t.status).spin" class="size-2.5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M21 12a9 9 0 11-6.219-8.56" stroke-linecap="round"/></svg>
-                      {{ statusMeta(t.status).label }}
+                    <span :class="['chip !text-[10px] !px-1.5 !py-0', statusMeta(task.status).bg, statusMeta(task.status).color]">
+                      <svg v-if="statusMeta(task.status).spin" class="size-2.5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M21 12a9 9 0 11-6.219-8.56" stroke-linecap="round"/></svg>
+                      {{ statusMeta(task.status).label }}
                     </span>
-                    <span class="text-[11px] text-ink-500 font-mono">{{ typeLabel(t.task_type) }}</span>
-                    <span class="text-[12px] text-ink-900 truncate">{{ t._label || `#${t.task_id}` }}</span>
+                    <span class="text-[11px] text-ink-500 font-mono">{{ typeLabel(task.task_type) }}</span>
+                    <span class="text-[12px] text-ink-900 truncate">{{ task._label || `#${task.task_id}` }}</span>
                   </div>
                   <div class="flex items-center gap-1 shrink-0">
-                    <span class="text-[10px] text-ink-400 font-mono">{{ formatTime(t.updated_at) }}</span>
+                    <span class="text-[10px] text-ink-400 font-mono">{{ formatTime(task.updated_at) }}</span>
                     <button
-                      v-if="['success','failed','cancelled'].includes(t.status)"
+                      v-if="['success','failed','cancelled'].includes(task.status)"
                       class="size-5 rounded-full hover:bg-canvas-200 flex items-center justify-center text-ink-400 hover:text-ink-700 transition"
-                      @click="onRemove(t.task_id)"
-                      title="移除记录"
+                      @click="onRemove(task.task_id)"
+                      :title="t('component.bg_task.remove_title')"
                     >
                       <svg class="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"/></svg>
                     </button>
@@ -123,40 +129,40 @@ onMounted(() => {
                 </div>
 
                 <!-- 进度条（running/pending） -->
-                <div v-if="t.status === 'running' || t.status === 'pending'" class="mt-1.5">
+                <div v-if="task.status === 'running' || task.status === 'pending'" class="mt-1.5">
                   <div class="flex items-center gap-2">
                     <div class="flex-1 h-1 rounded-full bg-canvas-200 overflow-hidden">
                       <div
                         class="h-full bg-accent transition-all duration-300"
-                        :style="{ width: `${t.progress || 0}%` }"
+                        :style="{ width: `${task.progress || 0}%` }"
                       ></div>
                     </div>
-                    <span class="text-[10px] text-ink-500 font-mono w-8 text-right">{{ t.progress || 0 }}%</span>
+                    <span class="text-[10px] text-ink-500 font-mono w-8 text-right">{{ task.progress || 0 }}%</span>
                   </div>
                 </div>
 
                 <!-- 错误信息（failed） -->
-                <div v-else-if="t.status === 'failed' && t.error" class="mt-1 text-[11px] text-bad break-all line-clamp-2">
-                  {{ t.error }}
+                <div v-else-if="task.status === 'failed' && task.error" class="mt-1 text-[11px] text-bad break-all line-clamp-2">
+                  {{ task.error }}
                 </div>
 
                 <!-- 成功结果摘要 -->
-                <div v-else-if="t.status === 'success' && t.result" class="mt-1 text-[11px] text-ink-500">
-                  <template v-if="t.task_type === 'backup' && t.result.backups">
-                    新增 {{ t.result.backups.length }} 份备份
+                <div v-else-if="task.status === 'success' && task.result" class="mt-1 text-[11px] text-ink-500">
+                  <template v-if="task.task_type === 'backup' && task.result.backups">
+                    {{ t('component.bg_task.result_new_backups', { n: task.result.backups.length }) }}
                   </template>
-                  <template v-else-if="t.task_type === 'restore'">
-                    {{ t.result.message || '回滚完成' }}
+                  <template v-else-if="task.task_type === 'restore'">
+                    {{ task.result.message || t('component.bg_task.result_restore_done') }}
                   </template>
-                  <template v-else>完成</template>
+                  <template v-else>{{ t('component.bg_task.result_done') }}</template>
                 </div>
 
                 <!-- 取消按钮（running） -->
-                <div v-if="t.status === 'running' || t.status === 'pending'" class="mt-1.5">
+                <div v-if="task.status === 'running' || task.status === 'pending'" class="mt-1.5">
                   <button
                     class="text-[10px] text-bad hover:underline"
-                    @click="onCancel(t.task_id)"
-                  >取消</button>
+                    @click="onCancel(task.task_id)"
+                  >{{ t('component.bg_task.cancel') }}</button>
                 </div>
               </div>
             </div>

@@ -13,6 +13,18 @@ import { useLocaleStore, LOCALE_STORAGE_KEY } from '../stores/locale.js'
 import { i18n as globalI18n } from '../i18n'
 
 describe('vitest smoke test', () => {
+  // v2.6: Select 使用 useI18n()，mount 时需要 i18n 插件
+  let i18n
+
+  beforeEach(() => {
+    i18n = createI18n({
+      legacy: false,
+      locale: 'zh-CN',
+      fallbackLocale: 'zh-CN',
+      messages: { 'zh-CN': zhCN, 'en-US': enUS },
+    })
+  })
+
   it('happy-dom 环境可用（document 定义存在）', () => {
     expect(document).toBeDefined()
     expect(document.createElement).toBeDefined()
@@ -28,6 +40,7 @@ describe('vitest smoke test', () => {
         modelValue: null,
         placeholder: '请选择设备',
       },
+      global: { plugins: [i18n] },
     })
     expect(wrapper.text()).toContain('请选择设备')
   })
@@ -41,6 +54,7 @@ describe('vitest smoke test', () => {
         ],
         modelValue: null,
       },
+      global: { plugins: [i18n] },
     })
     // 初始菜单不展开
     expect(wrapper.findAll('button').length).toBe(1) // 只有触发器按钮
