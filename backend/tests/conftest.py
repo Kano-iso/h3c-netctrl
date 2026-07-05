@@ -9,6 +9,10 @@ os.environ["DB_PATH"] = "/tmp/test_h3c.db"
 
 from app.main import app
 from app.database import Base, engine, SessionLocal
+# v2.6 i18n: conftest 显式 import app.models 确保所有 Base 子类（含 Task）注册到 metadata，
+# 不依赖 app.main 的 import chain（main.py 不显式 import models）。否则 setup_db 的
+# Base.metadata.create_all(bind=engine) 漏建 tasks 表，test_task_manager 报 no such table。
+import app.models  # noqa: F401
 
 
 # ======================== integration marker（v2.3 QA 规范化） ========================
