@@ -96,6 +96,10 @@ export default {
     network_failed:        '网络请求失败，请检查后端服务是否运行',
     download_failed_http:  '下载失败: HTTP {status}',
     download_failed_network: '下载失败，请检查后端服务是否运行',
+    // v2.6.1 fix-asset-collect-failure: asset 路由错误（与后端 i18n_keys 对齐）
+    asset_route_refresh_failed:     '采集失败：{error}',
+    asset_route_update_failed:      '资产更新失败：{error}',
+    asset_route_device_not_found:   '设备 {id} 不存在',
   },
   // v2.6 Task 5: Dashboard 总览
   dashboard: {

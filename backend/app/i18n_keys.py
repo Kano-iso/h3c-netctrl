@@ -102,6 +102,10 @@ class Asset:
     NOT_FOUND = I18nKey("asset.not_found")                    # 资产记录不存在
     COLLECT_FAILED = I18nKey("asset.collect_failed")          # 资产采集失败: {error}
     UPDATE_FAILED = I18nKey("asset.update_failed")            # 资产更新失败
+    # v2.6.1 fix-asset-collect-failure: 路由层错误（用于 routers/asset.py 错误响应）
+    ROUTE_REFRESH_FAILED = I18nKey("asset.route.refresh_failed")     # 采集失败：{error}
+    ROUTE_UPDATE_FAILED = I18nKey("asset.route.update_failed")       # 资产更新失败：{error}
+    ROUTE_DEVICE_NOT_FOUND = I18nKey("asset.route.device_not_found") # 设备 {id} 不存在
 
 
 # ===== 备份（backup）=====
@@ -281,6 +285,10 @@ FALLBACK_MESSAGES = {
     Asset.NOT_FOUND: "资产记录不存在",
     Asset.COLLECT_FAILED: "资产采集失败: {error}",
     Asset.UPDATE_FAILED: "资产更新失败: {error}",
+    # v2.6.1 fix-asset-collect-failure 路由层错误
+    Asset.ROUTE_REFRESH_FAILED: "采集失败：{error}",
+    Asset.ROUTE_UPDATE_FAILED: "资产更新失败：{error}",
+    Asset.ROUTE_DEVICE_NOT_FOUND: "设备 {id} 不存在",
     # backup
     Backup.NOT_FOUND: "备份不存在: id={id}",
     Backup.CREATE_FAILED: "备份创建失败: {error}",

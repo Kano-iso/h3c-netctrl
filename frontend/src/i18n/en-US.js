@@ -91,6 +91,10 @@ export default {
     network_failed:          'Network request failed, please check if the backend service is running',
     download_failed_http:    'Download failed: HTTP {status}',
     download_failed_network: 'Download failed, please check if the backend service is running',
+    // v2.6.1 fix-asset-collect-failure: asset 路由错误（与后端 i18n_keys 对齐）
+    asset_route_refresh_failed:     'Collection failed: {error}',
+    asset_route_update_failed:      'Asset update failed: {error}',
+    asset_route_device_not_found:   'Device {id} not found',
   },
   // v2.6 Task 5: Dashboard overview
   dashboard: {
