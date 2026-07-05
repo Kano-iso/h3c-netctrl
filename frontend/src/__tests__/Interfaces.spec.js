@@ -142,4 +142,31 @@ describe('Interfaces 组件', () => {
     }
     // 即便找不到 search input（取决于实现），搜索过滤 computed 也应能工作
   })
+
+  // v2.6 i18n: 切换 en-US 后表格列头 / 提示信息 / 设备标签变英文
+  it('case 7: i18n — 切换 en-US 后 Interfaces 显示英文（All / No interface data / Device: Switch-A）', async () => {
+    const enI18n = createI18n({
+      legacy: false,
+      locale: 'en-US',
+      fallbackLocale: 'zh-CN',
+      messages: { 'zh-CN': zhCN, 'en-US': enUS },
+    })
+    deviceApi.list.mockResolvedValue({ success: true, data: [{ id: 1, name: 'Switch-A' }] })
+    interfaceApi.list.mockResolvedValue({ success: true, data: [] })
+    const enWrapper = mount(Interfaces, {
+      global: {
+        plugins: [enI18n],
+        stubs: { PageHeader: stub, Select: stub, ConfirmModal: confirmStub },
+      },
+    })
+    await flushPromises()
+    const text = enWrapper.text()
+    // filter All 按钮
+    expect(text).toContain('All')
+    // 空状态文案
+    expect(text).toContain('No interface data for this device')
+    // 设备标签模板
+    expect(text).toContain('Device: Switch-A')
+    enWrapper.unmount()
+  })
 })

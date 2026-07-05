@@ -201,4 +201,34 @@ describe('Backup.vue 组件测试', () => {
     // handleDownload → backupApi.download(deviceId, backupId)
     expect(backupApi.download).toHaveBeenCalledWith(1, 101)
   })
+
+  // v2.6 i18n: 切换 en-US 后关键按钮/筛选项变英文
+  it('i18n: 切换 en-US 后 backup 页面显示英文（Run Full Backup / All / Download / No backups）', async () => {
+    const enI18n = createI18n({
+      legacy: false,
+      locale: 'en-US',
+      fallbackLocale: 'zh-CN',
+      messages: { 'zh-CN': zhCN, 'en-US': enUS },
+    })
+    // 关键：空备份列表 → 显示 No backups 英文文案
+    deviceApi.list.mockResolvedValue({ success: true, data: [device1] })
+    backupApi.list.mockResolvedValue({
+      success: true,
+      data: { device_id: 1, total: 0, backups: [] },
+    })
+    const wrapper = mount(Backup, {
+      global: {
+        plugins: [enI18n],
+        stubs: { ConfirmModal: ConfirmModalStub, PageHeader: PageHeaderStub, BackupListModal: true },
+      },
+    })
+    await flushPromises()
+    const text = wrapper.text()
+    // 立即全量备份按钮（actions slot，stub 不影响 button 渲染）
+    expect(text).toContain('Run Full Backup')
+    // 类型筛选 All / startup / running
+    expect(text).toContain('All')
+    // 空状态文案
+    expect(text).toContain('No backups')
+  })
 })

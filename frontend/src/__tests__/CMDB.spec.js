@@ -183,4 +183,26 @@ describe('CMDB.vue 组件测试', () => {
     await flushPromises()
     expect(assetApi.update).toHaveBeenCalledWith(1, expect.objectContaining({ tags: '核心,生产,核心交换机' }))
   })
+
+  // v2.6 i18n: 切换 en-US 后关键按钮/标题变英文
+  it('i18n: 切换 en-US 后 CMDB 页面显示英文（CMDB / Refresh All / Full Backup）', async () => {
+    const enI18n = createI18n({
+      legacy: false,
+      locale: 'en-US',
+      fallbackLocale: 'zh-CN',
+      messages: { 'zh-CN': zhCN, 'en-US': enUS },
+    })
+    if (wrapper) { wrapper.unmount(); wrapper = null }
+    wrapper = mount(CMDB, {
+      attachTo: document.body,
+      global: { plugins: [enI18n] },
+    })
+    await flushPromises()
+    const text = wrapper.text()
+    // PageHeader 真实渲染（CMDB 测试不 stub PageHeader）
+    expect(text).toContain('CMDB')
+    // 工具栏按钮：Refresh All / Full Backup
+    expect(text).toContain('Refresh All')
+    expect(text).toContain('Full Backup')
+  })
 })

@@ -233,4 +233,35 @@ describe('Devices 组件', () => {
     expect(wrapper.text()).not.toContain('Leaf-02')
     expect(wrapper.text()).toContain('Leaf-01')
   })
+
+  // v2.6 i18n: 切换 en-US 后按钮/筛选/列头变英文（PageHeader title 被 stub 跳过）
+  it('case 7: i18n — 切换 en-US 后 Devices 显示英文（New Device / All / Online / Offline / Device / Actions）', async () => {
+    const enI18n = createI18n({
+      legacy: false,
+      locale: 'en-US',
+      fallbackLocale: 'zh-CN',
+      messages: { 'zh-CN': zhCN, 'en-US': enUS },
+    })
+    deviceApi.list.mockResolvedValue({ success: true, data: DEVICES })
+    assetApi.get.mockResolvedValue({ success: true, data: {} })
+    const enWrapper = mount(Devices, {
+      global: {
+        plugins: [enI18n],
+        stubs: { PageHeader: { template: '<div><slot /><slot name="actions" /></div>' } },
+      },
+    })
+    await flushPromises()
+    const text = enWrapper.text()
+    // "新建设备" 按钮
+    expect(text).toContain('New Device')
+    // 状态过滤按钮
+    expect(text).toContain('All')
+    expect(text).toContain('Online')
+    expect(text).toContain('Offline')
+    expect(text).toContain('Maintenance')
+    // 表格列头
+    expect(text).toContain('Device')
+    expect(text).toContain('Actions')
+    enWrapper.unmount()
+  })
 })

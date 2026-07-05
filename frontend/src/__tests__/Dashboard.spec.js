@@ -215,4 +215,29 @@ describe('Dashboard.vue 组件测试', () => {
     // deviceApi.list 也会被 loadDevicesOverview 再次调用（至少 1 次）
     expect(deviceApi.list).toHaveBeenCalled()
   })
+
+  // v2.6 i18n: 切换 en-US 后 Dashboard 标题/KPI 标签变英文
+  it('i18n: 切换 en-US 后 Dashboard 显示英文（Network Operations Overview / Managed Devices / Refresh）', async () => {
+    const enI18n = createI18n({
+      legacy: false,
+      locale: 'en-US',
+      fallbackLocale: 'zh-CN',
+      messages: { 'zh-CN': zhCN, 'en-US': enUS },
+    })
+    const enWrapper = mount(Dashboard, {
+      global: {
+        plugins: [enI18n],
+        stubs: { RouterLink: RouterLinkStub },
+        mocks: {
+          $router: { push: vi.fn() },
+          $route: { path: '/', name: 'dashboard' },
+        },
+      },
+    })
+    await flushPromises()
+    const text = enWrapper.text()
+    expect(text).toContain('Network Operations Overview')
+    expect(text).toContain('Managed Devices')
+    expect(text).toContain('Refresh')
+  })
 })
