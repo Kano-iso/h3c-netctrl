@@ -58,17 +58,23 @@
 
 ## 快速启动
 
+> **v2.5 BREAKING**：默认模式从 monolith 翻转为 3 容器 split。
+> 如需 monolith，用 `docker compose -f docker-compose.dev.yml --profile core up -d`。
+
 ```bash
 # 1. 配置环境变量
 cp .env.example .env
 # 编辑 .env，填入 ENCRYPTION_KEY（生成命令见 .env.example 注释）
 
-# 2. 启动服务
+# 2. 启动服务（默认 3 容器 split 模式：ctrl / config / data）
 docker compose -f docker-compose.dev.yml up -d
+# 如需 monolith 模式（仅起 backend + frontend，不起 split 3 容器）：
+docker compose -f docker-compose.dev.yml --profile core up -d backend frontend
 
 # 3. 访问
 # 前端：http://localhost:5173
-# 后端 API 文档：http://localhost:8000/docs
+# ctrl API 文档（split 模式）：http://localhost:8001/docs
+# backend API 文档（core 模式）：http://localhost:8000/docs
 ```
 
 ## 访问入口

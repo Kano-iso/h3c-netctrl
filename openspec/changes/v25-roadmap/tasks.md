@@ -9,9 +9,12 @@
 
 ## 2. split-default-mode（profile 翻转，BREAKING）
 
-- [ ] 2.1 `docker-compose.dev.yml` 翻转 profile：ctrl/config/data 移除 `profiles: ["split"]`，backend 加 `profiles: ["core"]`
-- [ ] 2.2 frontend `depends_on` 改为 ctrl + `frontend/vite.config.js` 加双模式 proxy（`VITE_API_MODE=split|core`）
-- [ ] 2.3 `README.md` 快速启动章节更新 + `.env.example` 加 `VITE_API_MODE=split`
+- [x] 2.1 `docker-compose.dev.yml` 翻转 profile：ctrl/config/data 移除 `profiles: ["split"]`，backend 加 `profiles: ["core"]`
+- [x] 2.2 frontend `depends_on` 改为 ctrl + `frontend/vite.config.js` 加双模式 proxy（`VITE_API_MODE=split|core`）
+- [x] 2.3 `README.md` 快速启动章节更新 + `.env.example` 加 `VITE_API_MODE=split`
+
+**Commit**: 待提交
+**验证**: docker compose config 确认默认起 split 3 容器，--profile core 起 backend；qa-backend 233 passed / 0 failed
 
 ## 3. vitest EACCES 排障 + 框架配置
 

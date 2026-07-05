@@ -1,12 +1,13 @@
 # ============================================================
-# 容器拆分蓝图（v2.4.1 实施）
-# 默认 monolith 模式：backend service 全量
-# 3 容器模式：docker compose --profile split up -d ctrl config data
+# 容器拆分蓝图（v2.4.1 实施，v2.5 默认翻转）
+# 默认 3 容器 split 模式：ctrl / config / data
+# monolith 模式：docker compose --profile core up -d backend
 # 详见 VERSION-ROADMAP.md
 # ============================================================
 services:
-  # ── monolith 模式（默认） ──
+  # ── monolith 模式（profile: core，v2.5 从默认翻转为可选） ──
   backend:
+    profiles: ["core"]
     build:
       context: ./backend
       dockerfile: Dockerfile.dev
@@ -26,9 +27,8 @@ services:
     networks:
       - h3c-net
 
-  # ── 3 容器模式（profile: split，v2.4.1） ──
+  # ── 3 容器 split 模式（默认，v2.4.1 实施，v2.5 翻转为默认） ──
   ctrl:
-    profiles: ["split"]
     build:
       context: ./backend
       dockerfile: ctrl/Dockerfile
@@ -53,7 +53,6 @@ services:
       - h3c-net
 
   config:
-    profiles: ["split"]
     build:
       context: ./backend
       dockerfile: config/Dockerfile
@@ -78,7 +77,6 @@ services:
       - h3c-net
 
   data:
-    profiles: ["split"]
     build:
       context: ./backend
       dockerfile: data_svc/Dockerfile
@@ -120,8 +118,10 @@ services:
       - ./frontend/package.json:/app/package.json
       - ./frontend/package-lock.json:/app/package-lock.json
       - ./frontend/.env:/app/.env
+    # v2.5: depends_on 改为 ctrl（split 模式默认）。
+    # core 模式（--profile core）下 ctrl 不在启动列表，depends_on 不阻塞，frontend 仍能起。
     depends_on:
-      - backend
+      - ctrl
     restart: unless-stopped
     networks:
       - h3c-net
