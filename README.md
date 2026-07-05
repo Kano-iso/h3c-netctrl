@@ -22,6 +22,7 @@
 | **v2.4.2 QA 工程化 + 压测 + review** | ✅ **2026-07-04 (tag: v2.4.2)** | ESLint 进 qa + ops-toolkit 默认 .177 + 压测 .177 max-session + split 真机 e2e + 3 容器 review 报告 + P0 vue-tsc | [RELEASE-NOTES-v2.4.2.md](RELEASE-NOTES-v2.4.2.md) · [REVIEW-v242-3container-maturity.md](docs/REVIEW-v242-3container-maturity.md) |
 | **v2.4.2.1 ops-toolkit 第 7 脚本** | ✅ **2026-07-04 (tag: v2.4.2.1)** | paramiko-batch-exec.sh 单设备 SSH 批命令（复用 backend SSHExecutor + 4 级凭据 + Fernet 密文 + JSON 输出 + 11 单元 + 3 真机） | [RELEASE-NOTES-v2.4.2.1.md](RELEASE-NOTES-v2.4.2.1.md) · [v242-paramiko-tool](openspec/changes/archive/2026-07-04-v242-paramiko-tool/) |
 | **v2.5.0 P1 工程化收口** | ✅ **2026-07-05 (tag: v2.5.0)** | **split 模式为默认（BREAKING）** + internal-api 5s TTL 缓存 + vitest 30 单元 + Playwright 37 e2e + ops-toolkit 第 8/9 脚本（interface-config + task-monitor） | [RELEASE-NOTES-v2.5.0.md](RELEASE-NOTES-v2.5.0.md) · [v25-roadmap](openspec/changes/archive/2026-07-05-v25-roadmap/) |
+| **v2.6.0 i18n 中英双语** | ✅ **2026-07-06 (tag: v2.6.0)** | vue-i18n v9 + 顶导「中 \| EN」切换 + localStorage 持久化 + **400+ 翻译 key（zh-CN + en-US）** + 后端 `APIResponse.error_key` schema 扩展（**BREAKING**，向后兼容） + 9 router 改造 + 26 后端单测 + 25 前端测试 | [RELEASE-NOTES-v2.6.0.md](RELEASE-NOTES-v2.6.0.md) · [v26-i18n](openspec/changes/archive/2026-07-06-v26-i18n/) · [docs/i18n-guide.md](docs/i18n-guide.md) |
 | v3.0 VPC | ⏳ 规划 | VPC 能力（SDN）+ etcd 协调 | 延后 |
 
 详细进度、约束、决策记录见 [VERSION-ROADMAP.md](VERSION-ROADMAP.md)。
@@ -91,7 +92,7 @@ docker compose -f docker-compose.dev.yml --profile core up -d backend frontend
 
 | 层 | 技术 |
 |----|------|
-| 前端 | Vue 3 + Vite + Vue Router + Bootstrap 5 |
+| 前端 | Vue 3 + Vite + Vue Router + Bootstrap 5 + **vue-i18n v9**（v2.6 i18n 切换）+ Pinia |
 | 后端 | FastAPI + SQLAlchemy + ncclient + paramiko |
 | 数据库 | SQLite + Alembic 迁移管理 |
 | 加密 | Fernet 对称加密（密码存储） |
@@ -238,3 +239,4 @@ docker compose -f docker-compose.dev.yml run --rm --entrypoint "pytest -m integr
 | V2.1 | 多命令终端、设备 CRUD UI、资产编辑、单设备采集、状态判定修复 | - |
 | V2.2.0 | **备份前端（3 入口 + 1 Modal）、接口 VPN 联动 + L2/L3 + link type + IP 编辑能力、4 收尾 bug fix** | [**RELEASE-NOTES-v2.2.0.md**](RELEASE-NOTES-v2.2.0.md) |
 | V2.5.0 | **split 模式为默认（BREAKING）+ internal-api 5s TTL 缓存 + vitest 30 单元 + Playwright 37 e2e + ops-toolkit 第 8/9 脚本（interface-config + task-monitor）** | [**RELEASE-NOTES-v2.5.0.md**](RELEASE-NOTES-v2.5.0.md) |
+| V2.6.0 | **vue-i18n v9 + 顶导「中 \| EN」切换 + 400+ 翻译 key（zh-CN + en-US）+ 后端 `APIResponse.error_key` BREAKING schema 扩展 + 9 router 改造** | [**RELEASE-NOTES-v2.6.0.md**](RELEASE-NOTES-v2.6.0.md) |

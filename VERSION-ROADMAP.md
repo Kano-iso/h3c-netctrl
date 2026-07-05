@@ -24,6 +24,7 @@
 | **v2.4.2 QA 工程化 + 压测 + review** | ✅ 2026-07-04 (tag: v2.4.2) | ESLint 进 qa + ops-toolkit 默认 .177 + 压测 .177 max-session + split 真机 e2e + 3 容器 review 报告 + P0 vue-tsc | [RELEASE-NOTES-v2.4.2.md](RELEASE-NOTES-v2.4.2.md) + [REVIEW-v242-3container-maturity.md](docs/REVIEW-v242-3container-maturity.md) |
 | **v2.4.2.1 ops-toolkit 第 7 脚本** | ✅ 2026-07-04 (tag: v2.4.2.1) | paramiko-batch-exec.sh 单设备 SSH 批命令（复用 backend SSHExecutor + 4 级凭据 + Fernet 密文 + JSON 输出 + 11 单元 + 3 真机） | [v242-paramiko-tool](openspec/changes/archive/2026-07-04-v242-paramiko-tool/) + [RELEASE-NOTES-v2.4.2.1.md](RELEASE-NOTES-v2.4.2.1.md) |
 | **v2.5.0 P1 工程化收口** | ✅ 2026-07-05 (tag: v2.5.0) | split 模式默认（**BREAKING**） + internal-api 5s TTL 缓存 + vitest 30 case + Playwright 37 case + ops-toolkit 第 8/9 脚本（interface-config + task-monitor） | [archive/2026-07-05-v25-roadmap](openspec/changes/archive/2026-07-05-v25-roadmap/) + [RELEASE-NOTES-v2.5.0.md](RELEASE-NOTES-v2.5.0.md) |
+| **v2.6.0 i18n 中英双语** | ✅ 2026-07-06 (tag: v2.6.0) | vue-i18n v9 + 顶导「中 \| EN」切换 + localStorage 持久化 + **400+ 翻译 key（zh-CN + en-US）** + 后端 `APIResponse.error_key` schema 扩展（**BREAKING**） + 9 router 改造 + 26 后端单测 + 25 前端测试 | [archive/2026-07-06-v26-i18n](openspec/changes/archive/2026-07-06-v26-i18n/) + [RELEASE-NOTES-v2.6.0.md](RELEASE-NOTES-v2.6.0.md) + [docs/i18n-guide.md](docs/i18n-guide.md) |
 | **v3.0 VPC** | ⏳ 规划 | VPC + etcd（SDN 起步） | 暂未起 spec |
 | **monitor** | ⏳ 远期 | 监控 / 告警 / dashboard 独立化 | 暂未起 spec |
 
@@ -247,6 +248,8 @@
 | 2026-07-03 | v2.4.1 实施中（v241-container-split Task 1-8 完成：3 容器拆分 + 故障注入 + 真机 e2e，待 archive） | session 续接 |
 | 2026-07-04 | v2.4.2 发版（3 change + 1 review 报告 + P0 vue-tsc + 9 commit，214 passed） | session 续接 |
 | 2026-07-04 | v2.4.2.1 发版（1 change：v242-paramiko-tool paramiko-batch-exec.sh + 8 commit + 1 archive，225 passed） | session 续接 |
+| 2026-07-05 | v2.5.0 tag 发版（split 默认 BREAKING + internal-api-cache + vitest 30 + playwright 37 + ops-toolkit 8/9 脚本，1 change + 15 commit，233 passed） | session 续接 |
+| 2026-07-06 | v2.6.0 tag 发版（vue-i18n v9 + 顶导「中 \| EN」切换 + 400+ key + APIResponse.error_key BREAKING schema + 9 router 改造，1 change + 14 commit，291 passed） | session 续接 |
 
 ---
 
@@ -493,6 +496,70 @@ $ docker compose -f docker-compose.dev.yml run --rm ops-toolkit \
 
 **v3.0 推进**（v2.5 闭环后）：
 - v3.0 VPC（SDN + etcd 协调）正式开始
+- 监控容器拆分（等需求明确后启动）
+
+---
+
+## 13. v2.6.0 i18n 中英双语（✅ 2026-07-06 tag: v2.6.0）
+
+详见 [RELEASE-NOTES-v2.6.0.md](RELEASE-NOTES-v2.6.0.md) + [archive/2026-07-06-v26-i18n/](openspec/changes/archive/) + [docs/i18n-guide.md](docs/i18n-guide.md)。
+
+**主题**：v2.5.0 P1 工程化收口后 3 容器 + split 默认 + 测试体系（vitest + playwright）全部稳定。
+但 UI 与后端错误仍为中文单语，无法对外演示/英文用户使用。v3.0 VPC 起步面向多语用户（容器 + 监控），前端双语能力是基础设施前置。
+需求：导航栏右上角加中英切换按钮，扫遍全项目（11 views + 10 components + App + Footer + 9 router error + 测试断言），做好中英切换。
+
+**包含 1 个 change + 14 commit**：
+1. **2026-07-06-v26-i18n** — i18n 完整闭环
+   - vue-i18n v9 集成骨架（legacy: false composition API）+ locale 探测
+   - 顶导右上角「中 | EN」切换按钮 + Pinia store + localStorage 持久化
+   - 11 views 全 i18n（Dashboard / Devices / Interfaces / CMDB / Backup / Batch / OpsTerminal / Logs / Topology / AIAssistant / VLAN 弹窗）
+   - 10 components 全 i18n（ConfirmModal / PageHeader / Select / DeviceFormModal / AssetEditModal / Ipv4AddressEditModal / VpnInstanceBindModal / BackupListModal / BackgroundTaskPanel / 工具栏）
+   - App.vue + AppFooter.vue + utils/status.js + api/index.js 全 i18n
+   - **400+ 翻译 key**（zh-CN + en-US 对齐）
+   - 后端 `APIResponse` 新增 `error_key` + `error_params` 字段（**BREAKING SCHEMA**，向后兼容）
+   - `backend/app/i18n_keys.py`（新建）：84 个 key 集中表 + `error_response()` helper + `FALLBACK_MESSAGES` 中文降级
+   - 9 router 改造（device / interface / vlan / asset / backup / batch / execute / log / dashboard）
+   - **26 后端单测** + **20 vitest** + **5 playwright i18n-switch**（共 51 新测试）
+
+**关键设计决策**：
+| 决策 | 方案 | 理由 |
+|---|---|---|
+| i18n 库 | vue-i18n v9（legacy: false） | Vue 3 官方库，composition API 友好 |
+| 状态管理 | Pinia store（locale.js） | 响应式 + 模块化 |
+| 持久化 | localStorage（key: `locale`） | 简单够用，无需后端参与 |
+| 切换按钮位置 | 顶导右上角 K 用户头像前 | 用户视线第一落点 |
+| 默认 locale | zh-CN | 项目当前用户群 |
+| 后端 i18n 路径 | APIResponse 加 error_key + error_params | 与现有 success/data/error 兼容（向后兼容） |
+| 后端降级策略 | FALLBACK_MESSAGES 字典 | 旧客户端拿到 error 字段仍可显示中文 |
+| 集中管理 key | `i18n_keys.py` class + SimpleNamespace | 防止拼写错误 + IDE 自动补全 |
+| 工具模块翻译 | 自建 `i18n/t.js`（非 i18n.global.t） | 避免 component scope 外响应式滞后 |
+| conftest import 顺序 | 先 `import app.models` 再 `from app.main import app` | PEP 328 binding statement 不覆盖 app 变量 |
+
+**真机实测（localhost:5173）**：
+```text
+# 1. 默认中文
+访问 → 顶导 "总览 / 运维操作 / 运营管理 / 排查诊断" + 按钮"中 | EN"
+Dashboard: "网络运维总览 / 7 台设备 · 7 在线 / 在管设备 / 在线设备 / 今日操作 / 刷新 / 新建任务"
+
+# 2. 点击切换
+顶导 → "Dashboard / Operations / Management / Troubleshooting" + 按钮"中 | EN"（EN 高亮）
+Dashboard: "Network Operations Overview / 7 devices · 7 online / Managed Devices / Online Devices / Today's Operations / Refresh / New Task"
+
+# 3. 刷新页面保持英文
+localStorage: {"locale": "en-US"} 保留
+```
+
+**测试统计**：
+- **backend 单元**：265 + 26 = **291 passed**, 23 skipped（**未破坏 v2.5.0 全部测试**）
+- **frontend 单元（vitest）**：33 + 20 = **53 case** 全过
+- **frontend e2e（playwright）**：37 + 5 = **42 e2e** 全过
+- **真机集成**：1 case PASS（MCP 浏览器验证切换按钮 + 文案响应 + localStorage 持久化）
+
+**关键 commit 序列**：见 RELEASE-NOTES-v2.6.0.md §7（14 commit：1 vue-i18n 骨架 + 1 切换 UI + 1 App/Footer + 1 utils/api + 5 views + 1 components + 1 BREAKING schema + 1 tasks chore + 2 test + 2 fix conftest）。
+
+**v3.0 推进**（v2.6 闭环后）：
+- v3.0 VPC（SDN + etcd 协调）正式开始
+- i18n 拓展到 4 语言（zh-CN / en-US / ja-JP / ko-KR），面向亚太/全球用户
 - 监控容器拆分（等需求明确后启动）
 
 ---
