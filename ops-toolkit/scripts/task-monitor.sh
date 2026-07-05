@@ -26,7 +26,10 @@
 #   task-monitor.sh task-restore-001 --interval 5 --json
 set -euo pipefail
 
-source /scripts/_lib.sh
+# _lib.sh 路径：与脚本同目录（兼容 qa-backend 挂载点 /opt/ops-toolkit-scripts/）
+_LIB_SH="$(cd "$(dirname "$0")" && pwd)/_lib.sh"
+[[ -f "$_LIB_SH" ]] || _LIB_SH="/scripts/_lib.sh"
+source "$_LIB_SH"
 
 # 后端 API（task 走 data 容器）
 API_BASE="${API_BASE:-http://data:8000/api}"
@@ -258,7 +261,9 @@ while true; do
     ELAPSED=$((NOW_TS - START_TS))
     if [[ "$ELAPSED" -ge "$TIMEOUT" ]]; then
         [[ "$JSON_OUTPUT" != "true" ]] && echo ""
-        _die "任务 ${TASK_ID} 在 ${TIMEOUT}s 内未完成（当前状态: ${status} ${progress}%）"
+        echo "❌ 任务 ${TASK_ID} 在 ${TIMEOUT}s 内未完成（当前状态: ${status} ${progress}%）" >&2
+        _print_doc_links "task-monitor"
+        exit 2
     fi
 
     # --follow 模式下即使完成也不退（在终态分支已 exit），继续轮询就 break 即可

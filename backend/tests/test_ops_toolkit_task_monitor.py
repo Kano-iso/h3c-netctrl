@@ -27,16 +27,6 @@ _TASK_MONITOR_SH = f"{_OPS_TOOLKIT_SCRIPTS}/task-monitor.sh"
 
 # === Helper ===
 
-def _write_mock_curl(wrapper_dir, response_body="running", http_code="200", progress=50):
-    """写一个 mock curl 脚本，返回指定 status"""
-    mock_curl = os.path.join(wrapper_dir, "curl")
-    with open(mock_curl, "w") as f:
-        f.write("#!/bin/bash\n")
-        f.write(f"# mock curl: 返回 status={response_body} progress={progress}\n")
-        f.write(f"echo '{json.dumps({{\"success\": True, \"data\": {{\"task_id\": \"mock-task-001\", \"status\": \"{response_body}\", \"progress\": {progress}, \"message\": \"mock 消息\"}}}}, ensure_ascii=False)}'\n")
-    os.chmod(mock_curl, 0o755)
-
-
 def _run_task_monitor(args, mock_status="running", mock_progress=50, mock_http=200, timeout=10):
     """跑 task-monitor.sh，mock backend API 返回指定状态"""
     if not os.path.exists(_TASK_MONITOR_SH):
@@ -298,4 +288,6 @@ def test_task_monitor_sources_lib():
 
     with open(_TASK_MONITOR_SH) as f:
         content = f.read()
-    assert "source /scripts/_lib.sh" in content
+    # v2.5 兼容 qa-backend 挂载点
+    assert "_lib.sh" in content
+    assert "source" in content
