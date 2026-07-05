@@ -12,39 +12,40 @@ const { t } = useI18n()
 const localeStore = useLocaleStore()
 const { current: locale } = storeToRefs(localeStore)
 
-// 三大功能组（i18n 化在 Task 3 完成，此处保留硬编码作为占位）
-const groups = [
+// 三大功能组（computed：locale 切换时 label/desc 实时翻译）
+// 详见: openspec/changes/v26-i18n/specs/frontend-i18n-migration/spec.md
+const groups = computed(() => [
   {
     key: 'ops',
-    label: '运维操作',
-    desc: '直接对设备下发配置',
+    label: t('nav.groups.ops.label'),
+    desc: t('nav.groups.ops.desc'),
     items: [
-      { name: 'devices',    label: '设备',     desc: '设备清单 · 连接测试',     icon: 'devices' },
-      { name: 'ops',        label: '运维终端', desc: '命令派发式执行',          icon: 'terminal' },
-      { name: 'interfaces', label: '接口',     desc: 'Access / Trunk 配置',     icon: 'interface' },
-      { name: 'batch',      label: '批量操作', desc: '多设备并行执行',          icon: 'batch' }
+      { name: 'devices',    label: t('nav.items.devices.label'),    desc: t('nav.items.devices.desc'),    icon: 'devices' },
+      { name: 'ops',        label: t('nav.items.ops.label'),        desc: t('nav.items.ops.desc'),        icon: 'terminal' },
+      { name: 'interfaces', label: t('nav.items.interfaces.label'), desc: t('nav.items.interfaces.desc'), icon: 'interface' },
+      { name: 'batch',      label: t('nav.items.batch.label'),      desc: t('nav.items.batch.desc'),      icon: 'batch' }
     ]
   },
   {
     key: 'ops-mgmt',
-    label: '运营管理',
-    desc: '资产盘点 · 配置存档',
+    label: t('nav.groups.ops-mgmt.label'),
+    desc: t('nav.groups.ops-mgmt.desc'),
     items: [
-      { name: 'cmdb',       label: 'CMDB', desc: '资产台账', icon: 'cmdb' },
-      { name: 'backup',     label: '备份回滚', desc: '定时备份 · 一键回滚', icon: 'backup', future: true }
+      { name: 'cmdb',       label: t('nav.items.cmdb.label'),       desc: t('nav.items.cmdb.desc'),       icon: 'cmdb' },
+      { name: 'backup',     label: t('nav.items.backup.label'),     desc: t('nav.items.backup.desc'),     icon: 'backup', future: true }
     ]
   },
   {
     key: 'debug',
-    label: '排查诊断',
-    desc: '日志 · 拓扑 · AI 辅助',
+    label: t('nav.groups.debug.label'),
+    desc: t('nav.groups.debug.desc'),
     items: [
-      { name: 'logs',       label: '操作日志', desc: '执行历史 · 错误定位',     icon: 'logs' },
-      { name: 'topology',   label: '拓扑视图', desc: 'LLDP 邻居可视化',         icon: 'topology', future: true },
-      { name: 'ai',         label: 'AI 助手', desc: '自然语言排错',            icon: 'ai', future: true }
+      { name: 'logs',       label: t('nav.items.logs.label'),       desc: t('nav.items.logs.desc'),       icon: 'logs' },
+      { name: 'topology',   label: t('nav.items.topology.label'),   desc: t('nav.items.topology.desc'),   icon: 'topology', future: true },
+      { name: 'ai',         label: t('nav.items.ai.label'),         desc: t('nav.items.ai.desc'),         icon: 'ai', future: true }
     ]
   }
-]
+])
 
 const openGroup = ref(null)
 const currentName = computed(() => route.name)
@@ -147,7 +148,7 @@ const Icons = {
                   <div class="flex-1 min-w-0">
                     <div class="flex items-center gap-2">
                       <span :class="['text-[13px] font-medium', currentName === it.name ? 'text-accent' : 'text-ink-900']">{{ it.label }}</span>
-                      <span v-if="it.future" class="text-[9px] font-medium px-1.5 py-[1px] rounded-full bg-canvas-200 text-ink-500 leading-none">未来</span>
+                      <span v-if="it.future" class="text-[9px] font-medium px-1.5 py-[1px] rounded-full bg-canvas-200 text-ink-500 leading-none">{{ t('common.future') }}</span>
                     </div>
                     <div class="text-[11px] text-ink-500 mt-0.5 truncate">{{ it.desc }}</div>
                   </div>
