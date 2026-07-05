@@ -97,13 +97,14 @@ _resolve_device_id() {
             _die "无法访问 backend API: ${API_BASE}/devices（确认 config/backend 容器在运行）"
         }
         # 用 python 解析（容器内无 jq）
+        # 注意：env var 必须在 python 命令前（pipeline 右侧）
         local device_id
-        device_id=$(echo "$resp" | BACKEND_URL="$API_BASE" python3 -c '
-import sys, os, json
+        device_id=$(echo "$resp" | BACKEND_IP="$ip" python3 -c '
+import sys, json, os
 try:
     data = json.load(sys.stdin)
     items = data.get("data", data) if isinstance(data, dict) else data
-    target_ip = os.environ.get("BACKEND_IP", "")
+    target_ip = os.environ.get("BACKEND_IP", "") or (sys.argv[1] if len(sys.argv) > 1 else "")
     for d in items:
         if d.get("host") == target_ip or d.get("ip_address") == target_ip:
             print(d["id"])
@@ -111,7 +112,7 @@ try:
     sys.exit(1)
 except Exception:
     sys.exit(1)
-' BACKEND_URL="$API_BASE" BACKEND_IP="$ip" 2>/dev/null) || {
+' "$ip" 2>/dev/null) || {
             _die "未找到 IP=${ip} 对应的设备（backend 设备列表里没有）"
         }
         echo "$device_id"
@@ -123,18 +124,23 @@ except Exception:
             _die "无法访问 backend API 查设备名 '${input}'"
         }
         local device_id
-        device_id=$(echo "$resp" | python3 -c '
-import sys, json
+        device_id=$(echo "$resp" | BACKEND_NAME="$input" python3 -c '
+import sys, json, os
 try:
     data = json.load(sys.stdin)
     items = data.get("data", data) if isinstance(data, dict) else data
+    target = os.environ.get("BACKEND_NAME", "") or (sys.argv[1] if len(sys.argv) > 1 else "")
     if isinstance(items, list) and len(items) > 0:
+        for d in items:
+            if d.get("name") == target:
+                print(d["id"])
+                sys.exit(0)
         print(items[0]["id"])
         sys.exit(0)
     sys.exit(1)
 except Exception:
     sys.exit(1)
-' 2>/dev/null) || _die "未找到设备 '${input}'"
+' "$input" 2>/dev/null) || _die "未找到设备 '${input}'"
         echo "$device_id"
     fi
 }
