@@ -2,11 +2,15 @@
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+import { storeToRefs } from 'pinia'
+import { useLocaleStore } from './stores/locale.js'
 import AppFooter from './components/AppFooter.vue'
 import BackgroundTaskPanel from './components/BackgroundTaskPanel.vue'
 
 const route = useRoute()
 const { t } = useI18n()
+const localeStore = useLocaleStore()
+const { current: locale } = storeToRefs(localeStore)
 
 // 三大功能组（i18n 化在 Task 3 完成，此处保留硬编码作为占位）
 const groups = [
@@ -164,6 +168,25 @@ const Icons = {
             <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
             <span class="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-bad ring-2 ring-canvas"></span>
           </button>
+
+          <!-- 中英切换按钮（v2.6 i18n） -->
+          <button
+            type="button"
+            @click="localeStore.toggleLocale()"
+            :aria-label="t('app.toggle_locale')"
+            :title="t('app.switch_to')"
+            data-testid="locale-toggle"
+            class="h-8 px-2.5 rounded-full bg-canvas-200/60 hover:bg-canvas-200 flex items-center gap-1 text-[12px] font-medium transition"
+          >
+            <span :class="locale === 'zh-CN' ? 'text-accent-600 font-semibold' : 'text-ink-500'">
+              {{ t('app.locale_zh') }}
+            </span>
+            <span class="text-ink-300">|</span>
+            <span :class="locale === 'en-US' ? 'text-accent-600 font-semibold' : 'text-ink-500'">
+              {{ t('app.locale_en') }}
+            </span>
+          </button>
+
           <div class="size-8 rounded-full bg-gradient-to-br from-accent-300 via-accent-500 to-accent-700 flex items-center justify-center text-[11px] font-semibold text-white shadow-sm ml-1">K</div>
         </div>
       </div>

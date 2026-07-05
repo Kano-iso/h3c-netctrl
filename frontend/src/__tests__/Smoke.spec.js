@@ -1,12 +1,16 @@
 // v2.5 vitest 框架 smoke test
 // 验证：happy-dom 环境 + @vue/test-utils mount + Select 组件渲染
 // v2.6 加 i18n smoke test：vue-i18n 实例创建 + locale 切换响应式
-import { describe, it, expect, beforeEach } from 'vitest'
+// v2.6 加 locale store test：localStorage 持久化 + toggleLocale 切换
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
+import { createPinia, setActivePinia } from 'pinia'
 import Select from '../components/Select.vue'
 import zhCN from '../i18n/zh-CN.js'
 import enUS from '../i18n/en-US.js'
+import { useLocaleStore, LOCALE_STORAGE_KEY } from '../stores/locale.js'
+import { i18n as globalI18n } from '../i18n'
 
 describe('vitest smoke test', () => {
   it('happy-dom 环境可用（document 定义存在）', () => {
@@ -101,5 +105,56 @@ describe('i18n smoke test (v2.6)', () => {
     )
     // vue-i18n fallback 返回 key 本身（无翻译时）
     expect(wrapper.text()).toBe('nonexistent.key')
+  })
+})
+
+// v2.6 locale store test：localStorage 持久化 + toggleLocale 切换
+// 关键路径：i18n/index.js 启动时读 localStorage → setLocale 写 localStorage
+describe('locale store (v2.6)', () => {
+  beforeEach(() => {
+    // 重置 i18n 全局状态（locale store 共享全局 i18n singleton）
+    setActivePinia(createPinia())
+    localStorage.removeItem(LOCALE_STORAGE_KEY)
+    globalI18n.global.locale.value = 'zh-CN'
+  })
+
+  it('setLocale 切换 locale 并持久化到 localStorage', () => {
+    const store = useLocaleStore()
+    // 默认 zh-CN
+    expect(store.current).toBe('zh-CN')
+
+    // 切到 en-US
+    store.setLocale('en-US')
+    expect(store.current).toBe('en-US')
+    expect(localStorage.getItem(LOCALE_STORAGE_KEY)).toBe('en-US')
+
+    // 切回 zh-CN
+    store.setLocale('zh-CN')
+    expect(store.current).toBe('zh-CN')
+    expect(localStorage.getItem(LOCALE_STORAGE_KEY)).toBe('zh-CN')
+  })
+
+  it('toggleLocale 在 zh-CN ↔ en-US 之间切换', () => {
+    const store = useLocaleStore()
+    expect(store.current).toBe('zh-CN')
+
+    // 第一次 toggle：zh-CN → en-US
+    store.toggleLocale()
+    expect(store.current).toBe('en-US')
+    expect(localStorage.getItem(LOCALE_STORAGE_KEY)).toBe('en-US')
+
+    // 第二次 toggle：en-US → zh-CN
+    store.toggleLocale()
+    expect(store.current).toBe('zh-CN')
+    expect(localStorage.getItem(LOCALE_STORAGE_KEY)).toBe('zh-CN')
+  })
+
+  it('setLocale 拒绝不支持的 locale（保持当前值）', () => {
+    const store = useLocaleStore()
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    store.setLocale('fr-FR')  // 不支持
+    expect(store.current).toBe('zh-CN')  // 不变
+    expect(warnSpy).toHaveBeenCalled()
+    warnSpy.mockRestore()
   })
 })

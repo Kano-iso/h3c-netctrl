@@ -159,6 +159,11 @@ services:
       - ./frontend/postcss.config.js:/app/postcss.config.js
       - ./frontend/tailwind.config.js:/app/tailwind.config.js
       - ./frontend/playwright.config.js:/app/playwright.config.js
+      # v2.6: 挂 package.json + package-lock.json 让 entrypoint 自动 npm install 同步新依赖
+      - ./frontend/package.json:/app/package.json
+      - ./frontend/package-lock.json:/app/package-lock.json
+      # 挂 entrypoint 让后续调整不用重 build 镜像
+      - ./backend/entrypoint-qa.sh:/usr/local/bin/entrypoint-qa.sh
       - ./frontend/tests:/app/tests
     networks:
       - h3c-net
