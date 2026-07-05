@@ -84,11 +84,11 @@
 
 ## 9. v2.5.0 发版闭环
 
-- [ ] 9.1 `qa-backend` 全量回归（225 → 预计 255+ passed，baseline 对比 0 failed）
-- [ ] 9.2 `qa-frontend` 完整流程（lint → build → vitest → playwright 全过）
-- [ ] 9.3 真机集成（.177 跑 `interface-config.sh` + `task-monitor.sh`）
-- [ ] 9.4 `RELEASE-NOTES-v2.5.0.md`（顶部 **BREAKING** 标注 split 默认 + commit 序列 + 测试统计 + 真机示例）
-- [ ] 9.5 `VERSION-ROADMAP.md` 加 §v2.5 章节 + §1 全景表加 1 行
-- [ ] 9.6 `README.md` 顶部版本表 + 当前架构表 + QA 章节（split 默认 / vitest / playwright）同步
-- [ ] 9.7 change archive（`git mv openspec/changes/v25-roadmap/ → archive/2026-07-XX-v25-roadmap/`）
+- [x] 9.1 `qa-backend` 全量回归（225 → **265 passed** / 23 skipped / 0 failed，+ 8 internal-api-cache + 17 interface-config + 15 task-monitor）
+- [x] 9.2 `qa-frontend` 完整流程（lint → build → vitest 33 → playwright 37 全过）
+- [x] 9.3 真机集成（.177 跑 `interface-config.sh` + `task-monitor.sh`，env var 注入修复 commit `0349e55`）
+- [x] 9.4 `RELEASE-NOTES-v2.5.0.md`（顶部 **BREAKING** 标注 split 默认 + commit 序列 + 测试统计 + 真机示例）commit `fff1e6e`
+- [x] 9.5 `VERSION-ROADMAP.md` 加 §v2.5 章节 + §1 全景表加 1 行 commit `fff1e6e`
+- [x] 9.6 `README.md` 顶部版本表 + 当前架构表 + QA 章节（split 默认 / vitest / playwright）同步 commit `fff1e6e`
+- [ ] 9.7 change archive（`git mv openspec/changes/v25-roadmap/ → archive/2026-07-05-v25-roadmap/`）
 - [ ] 9.8 git tag v2.5.0 + push（**需用户确认**）
