@@ -36,10 +36,17 @@ def pytest_collection_modifyitems(config, items):
 
 @pytest.fixture(autouse=True)
 def setup_db():
-    """每个测试前重建数据库表"""
+    """每个测试前重建数据库表 + 清 internal_api 缓存
+
+    清缓存（v2.5）：避免上一个 test 写入的 GET 缓存污染下一个 test，
+    例如 test_internal_get_success 和 test_internal_get_retry_then_success 用同 URL。
+    """
+    from app.internal_api import clear_cache
+    clear_cache()
     Base.metadata.create_all(bind=engine)
     yield
     Base.metadata.drop_all(bind=engine)
+    clear_cache()
 
 
 @pytest.fixture
