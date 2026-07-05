@@ -18,9 +18,13 @@
 
 ## 3. vitest EACCES 排障 + 框架配置
 
-- [ ] 3.1 `frontend/Dockerfile.qa` 加 `RUN chown -R node:node /app` 解决 EACCES
-- [ ] 3.2 装 `vitest` / `@vue/test-utils` / `happy-dom` + `vite.config.js` 加 `test:` 块 + `package.json` 加 `test:unit` script
-- [ ] 3.3 qa-frontend 入口加 `test:unit` step（lint → build → vitest，build 不过 vitest 不跑）+ 1 个 smoke test 验证
+- [x] 3.1 `frontend/Dockerfile.qa` 加 `RUN chown -R node:node /app` 解决 EACCES
+- [x] 3.2 装 `vitest` / `@vue/test-utils` / `happy-dom` + `vite.config.js` 加 `test:` 块 + `package.json` 加 `test:unit` script
+- [x] 3.3 qa-frontend 入口加 `test:unit` step（lint → build → vitest，build 不过 vitest 不跑）+ 1 个 smoke test 验证
+
+**Commit**: 待提交
+**验证**: qa-frontend lint + type-check + build + test:unit 全过（3 smoke test passed）
+**附带修复**: Select.vue nextTick 未 import 的真实 bug（smoke test 暴露）
 
 ## 4. vitest 30 case 覆盖 5 核心组件
 

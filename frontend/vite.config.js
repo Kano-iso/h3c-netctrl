@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite'
+import { defineConfig } from 'vitest/config'
 import vue from '@vitejs/plugin-vue'
 
 // v2.5: 双模式 proxy，由 VITE_API_MODE 控制（split | core，默认 split）
@@ -38,5 +38,9 @@ export default defineConfig({
       // 兜底：其他 /api 请求走 backend（core 模式）或 ctrl（split 模式，ctrl 兜底）
       '/api': { target: targetFor(BACKEND), changeOrigin: true },
     },
+  },
+  test: {
+    environment: 'happy-dom',
+    include: ['src/**/__tests__/**/*.spec.js'],
   },
 })

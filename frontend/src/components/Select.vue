@@ -4,7 +4,7 @@
 //   <Select v-model="selected" :options="devices" label-key="name" value-key="id" placeholder="选择设备" />
 //   <Select v-model="..." :options="..." :custom-label="(d) => `${d.name} · ${d.host}`" />
 
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 
 const props = defineProps({
   modelValue: { type: [String, Number, null], default: null },
