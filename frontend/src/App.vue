@@ -1,12 +1,14 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import AppFooter from './components/AppFooter.vue'
 import BackgroundTaskPanel from './components/BackgroundTaskPanel.vue'
 
 const route = useRoute()
+const { t } = useI18n()
 
-// 三大功能组
+// 三大功能组（i18n 化在 Task 3 完成，此处保留硬编码作为占位）
 const groups = [
   {
     key: 'ops',
@@ -96,7 +98,7 @@ const Icons = {
         <!-- 总览（独立 tab） -->
         <RouterLink :to="{ name: 'dashboard' }"
           :class="['nav-item', currentName === 'dashboard' ? 'active' : '']">
-          总览
+          {{ t('nav.dashboard') }}
         </RouterLink>
 
         <!-- 三大分组（下拉） -->
