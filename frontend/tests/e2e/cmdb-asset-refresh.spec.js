@@ -33,7 +33,7 @@ test.describe('CMDB 资产采集', () => {
   test('全量刷新：点击"刷新"按钮 → 调 assetApi.refresh（每台设备）', async ({ page }) => {
     let refreshCalled = false
     let refreshCallCount = 0
-    await page.route('**/api/devices/*/asset/refresh', async (route) => {
+    await page.route('**/api/assets/device/*/refresh', async (route) => {
       refreshCalled = true
       refreshCallCount++
       await route.fulfill({
@@ -71,7 +71,7 @@ test.describe('CMDB 资产采集', () => {
 
   test('单设备采集：点击单设备行的"采集" → 调 assetApi.refresh(id)', async ({ page }) => {
     let refreshCalled = false
-    await page.route('**/api/devices/*/asset/refresh', async (route) => {
+    await page.route('**/api/assets/device/*/refresh', async (route) => {
       refreshCalled = true
       await route.fulfill({
         status: 200,
@@ -120,7 +120,7 @@ test.describe('CMDB 资产采集', () => {
 
   test('资产 PUT API：保存资产编辑', async ({ page }) => {
     let updateCalled = false
-    await page.route('**/api/devices/*/asset', async (route) => {
+    await page.route('**/api/assets/device/*', async (route) => {
       if (route.request().method() === 'PUT') {
         updateCalled = true
         const body = JSON.parse(route.request().postData() || '{}')
@@ -141,7 +141,7 @@ test.describe('CMDB 资产采集', () => {
     await expect(page.getByText(/^Test-Switch-1$/).first()).toBeVisible()
 
     const result = await page.evaluate(async () => {
-      const r = await fetch('/api/devices/1/asset', {
+      const r = await fetch('/api/assets/device/1', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ location: '上海-机房-B', tags: '边缘,测试' }),

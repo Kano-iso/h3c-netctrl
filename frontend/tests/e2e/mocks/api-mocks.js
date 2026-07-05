@@ -84,8 +84,8 @@ async function installApiMocks(page, options = {}) {
   })
 
   // 资产
-  await page.route('**/api/devices/*/asset', async (route) => {
-    const m = route.request().url().match(/\/api\/devices\/(\d+)\/asset/)
+  await page.route('**/api/assets/device/*', async (route) => {
+    const m = route.request().url().match(/\/api\/assets\/device\/(\d+)/)
     const id = m ? parseInt(m[1]) : DEVICE_ID
     if (route.request().method() === 'PUT') {
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: ASSET(id) }) })
@@ -95,7 +95,7 @@ async function installApiMocks(page, options = {}) {
   })
 
   // 资产采集
-  await page.route('**/api/devices/*/asset/refresh', async (route) => {
+  await page.route('**/api/assets/device/*/refresh', async (route) => {
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: ASSET(DEVICE_ID) }) })
   })
 
