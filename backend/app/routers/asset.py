@@ -5,10 +5,9 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Device, Asset
+from app.models import Asset
 from app.schemas import APIResponse
 from app.i18n_keys import err, error_response
-from app.utils.crypto import decrypt_password
 from app.utils.log_recorder import record_log
 
 logger = logging.getLogger("app")
@@ -87,16 +86,15 @@ def update_asset(device_id: int, body: dict, db: Session = Depends(get_db)):
 @router.post("/assets/device/{device_id}/refresh", response_model=APIResponse)
 def refresh_asset(device_id: int, db: Session = Depends(get_db)):
     """刷新设备硬件信息（SSH 采集）"""
-    device, error = _get_device_or_error(db, device_id)
+    # v2.6.1 fix-asset-split-password-decrypt: 改用 get_device_with_password 统一拿明文 password
+    # - monolith 模式：内部已 decrypt → password 是明文
+    # - split 模式：internal_api 内部已 decrypt → password 是明文
+    # 旧代码：_get_device_or_error + decrypt_password(device.password_encrypted) → split 模式二次 decrypt InvalidToken
+    from app.utils.device_access import get_device_with_password
+    device, password, error = get_device_with_password(db, device_id)
     if error:
         return error
     asset = _get_asset_or_create(db, device_id)
-
-    try:
-        password = decrypt_password(device.password_encrypted)
-    except Exception as e:
-        logger.error(f"密码解密失败: {e}")
-        return error_response(err.DEVICE_CRYPTO_DECRYPT_FAILED)
 
     try:
         from app.utils.ssh_executor import SSHExecutor
