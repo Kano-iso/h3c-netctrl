@@ -68,7 +68,8 @@
 - [x] 7.4 `docs/ops-toolkit.md` §4.8 章节回写（用途 / 示例 / 参数 / pytest 覆盖 / 限制）
 
 **Commit**: `7dcb594` feat(ops-toolkit): interface-config.sh 第 8 脚本 (v25-roadmap Task 7)
-**测试**: backend/tests/test_ops_toolkit_interface_config.py 17 case
+**Commit**: `6ebec84` fix(ops-toolkit): interface-config.sh qa-backend 路径兼容 + 参数默认值 (v25-roadmap Task 7 收尾)
+**测试**: backend/tests/test_ops_toolkit_interface_config.py 17 case 全过
 
 ## 8. task-monitor.sh（ops-toolkit 第 9 脚本）
 
@@ -78,7 +79,8 @@
 
 **Commit**: `cb24990` feat(ops-toolkit): task-monitor.sh 第 9 脚本 (v25-roadmap Task 8)
 **Commit**: `4a78f2d` docs(ops-toolkit): interface-config + task-monitor 章节 (v25-roadmap Task 7+8)
-**测试**: backend/tests/test_ops_toolkit_task_monitor.py 15 case
+**Commit**: `3d9e9b5` fix(ops-toolkit): task-monitor.sh qa-backend 路径兼容 + 超时 exit 2 (v25-roadmap Task 8 收尾)
+**测试**: backend/tests/test_ops_toolkit_task_monitor.py 15 case 全过
 
 ## 9. v2.5.0 发版闭环
 
