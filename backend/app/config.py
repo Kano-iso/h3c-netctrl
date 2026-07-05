@@ -19,6 +19,13 @@ class Settings(BaseSettings):
     DEVICE_USERNAME: str = "python"
     DEVICE_PASSWORD: str = ""
 
+    # 资产陈旧阈值（v2.6.1 fix-asset-stale-status）
+    # 超过阈值的 online 资产视为"陈旧"——dashboard 单独计 stale，启动时 data 容器主动降级
+    # ASSET_STALE_HOURS 支持小数（如 0.01 = 36 秒）便于调试
+    ASSET_STALE_HOURS: float = 1.0
+    # False = 关闭降级 + dashboard 不过滤（兼容历史数据场景）
+    ASSET_STALE_ENABLED: bool = True
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
 
