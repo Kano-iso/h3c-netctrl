@@ -23,6 +23,7 @@
 | **v2.4.1 拆 3 容器实施** | ✅ 2026-07-03 (tag: v2.4.1) | ctrl + config + data 3 容器拆分 + 故障注入 + 双模式共存 + cleanup 端点 + 全量异步 + split 集成测试 | [v241-container-split](openspec/changes/archive/2026-07-03-v241-container-split/) + [v241-supplement](openspec/changes/archive/2026-07-03-v241-supplement/) + [RELEASE-NOTES-v2.4.1.md](RELEASE-NOTES-v2.4.1.md) |
 | **v2.4.2 QA 工程化 + 压测 + review** | ✅ 2026-07-04 (tag: v2.4.2) | ESLint 进 qa + ops-toolkit 默认 .177 + 压测 .177 max-session + split 真机 e2e + 3 容器 review 报告 + P0 vue-tsc | [RELEASE-NOTES-v2.4.2.md](RELEASE-NOTES-v2.4.2.md) + [REVIEW-v242-3container-maturity.md](docs/REVIEW-v242-3container-maturity.md) |
 | **v2.4.2.1 ops-toolkit 第 7 脚本** | ✅ 2026-07-04 (tag: v2.4.2.1) | paramiko-batch-exec.sh 单设备 SSH 批命令（复用 backend SSHExecutor + 4 级凭据 + Fernet 密文 + JSON 输出 + 11 单元 + 3 真机） | [v242-paramiko-tool](openspec/changes/archive/2026-07-04-v242-paramiko-tool/) + [RELEASE-NOTES-v2.4.2.1.md](RELEASE-NOTES-v2.4.2.1.md) |
+| **v2.5.0 P1 工程化收口** | ✅ 2026-07-05 (tag: v2.5.0) | split 模式默认（**BREAKING**） + internal-api 5s TTL 缓存 + vitest 30 case + Playwright 37 case + ops-toolkit 第 8/9 脚本（interface-config + task-monitor） | [archive/2026-07-05-v25-roadmap](openspec/changes/archive/2026-07-05-v25-roadmap/) + [RELEASE-NOTES-v2.5.0.md](RELEASE-NOTES-v2.5.0.md) |
 | **v3.0 VPC** | ⏳ 规划 | VPC + etcd（SDN 起步） | 暂未起 spec |
 | **monitor** | ⏳ 远期 | 监控 / 告警 / dashboard 独立化 | 暂未起 spec |
 
@@ -442,6 +443,57 @@
 - ✅ **P1 加 paramiko 单设备排错工具**（v2.4.2.1 完成）
 - 剩余 P1：internal_api 5s TTL 缓存 / split mode 设为默认 / vitest EACCES 排障 / Playwright e2e / interface-config.sh / task-monitor.sh
 - 剩余 P2/P3：见 [docs/REVIEW-v242-3container-maturity.md §4](docs/REVIEW-v242-3container-maturity.md#4-v25-候选-backlog)
+
+---
+
+## 12. v2.5.0 P1 工程化收口（✅ 2026-07-05 tag: v2.5.0）
+
+详见 [RELEASE-NOTES-v2.5.0.md](RELEASE-NOTES-v2.5.0.md) + [archive/2026-07-05-v25-roadmap/](openspec/changes/archive/2026-07-05-v25-roadmap/)。
+
+**主题**：v2.4.2.1 发版后 3 容器架构已稳定，但 [REVIEW-v242-3container-maturity.md](docs/REVIEW-v242-3container-maturity.md) §4 暴露 6 项 P1 工程化遗留项。v3.0 VPC 起步依赖 3 容器架构稳定，现在不收口后续会随 VPC 复杂度放大。故起 v2.5 集中收尾 P1，作为 v3.0 起步前置。
+
+**包含 1 个 change**：
+1. **2026-07-05-v25-roadmap** — 6 P1 项集中收口
+   - internal-api 5s TTL 缓存（dashboard 跨容器调用 50ms → 10ms）
+   - **split 模式设为默认（BREAKING）**：`docker compose up` 起 3 容器，monolith 走 `--profile core`
+   - vitest 组件测试 0 → 30 case（EACCES 修复 + 5 核心组件覆盖）
+   - Playwright e2e 0 → 37 case（8 场景 + 公共 mock 框架）
+   - ops-toolkit 第 8 脚本 `interface-config.sh`（vlan/access/trunk 4 子命令）
+   - ops-toolkit 第 9 脚本 `task-monitor.sh`（task_id 轮询 + 退出码 0/1/2/3）
+
+**关键设计决策**：
+| 决策 | 方案 | 理由 |
+|---|---|---|
+| BREAKING 默认翻转 | 移除 `profiles: ["split"]`，加 `backend profiles: ["core"]` | 开发者经常忘加 profile → split 模式未被测试覆盖 |
+| 缓存层位置 | `backend/app/internal_api.py` process-local dict | 简单够用；不引入 Redis 等额外组件 |
+| e2e mock 方式 | Playwright route interception | 与后端解耦，CI 不需要真后端 |
+| vitest 阻塞解法 | `chown -R node:node /app` | 容器内 node 权限问题（v2.3 遗留） |
+| interface-config 协议 | **不重复造 NETCONF**，调后端 API | 后端 vlan/interface config 端点已实现 |
+| task-monitor 退出码 | 0 成功 / 1 失败 / 2 超时 / 3 API 不可达 | CI 脚本可直接 `if task-monitor.sh X; then ...` |
+
+**真机实测（.177 Test-Switch-177）**：
+```bash
+$ docker compose -f docker-compose.dev.yml run --rm ops-toolkit \
+    interface-config.sh vlan add Test-Switch-177 950 "v25-test"
+✅ 成功: 完成
+
+$ docker compose -f docker-compose.dev.yml run --rm ops-toolkit \
+    task-monitor.sh 33 --timeout 30 --interval 1
+[████████████████████] 100% 成功
+🎉 任务 33 执行成功
+```
+
+**测试统计**：
+- **backend 单元**：225 + 8 = **233 passed**, 23 skipped（**未破坏 v2.4.2.1 全部测试**）
+- **frontend 单元（vitest）**：3 smoke + 30 = **33 passed**
+- **frontend e2e（playwright）**：8 场景 / **36 passed**（最后一次跑 37 全过）
+- **真机集成**：2 case PASS（interface-config vlan add / task-monitor）
+
+**关键 commit 序列**：见 RELEASE-NOTES-v2.5.0.md §6（15 commit：1 feat(cache) + 1 feat(BREAKING compose) + 2 test(vitest) + 2 test(playwright) + 1 test(e2e 修复) + 3 feat(ops-toolkit 脚本) + 3 fix + 1 docs(ops-toolkit) + 1 docs(tasks)）。
+
+**v3.0 推进**（v2.5 闭环后）：
+- v3.0 VPC（SDN + etcd 协调）正式开始
+- 监控容器拆分（等需求明确后启动）
 
 ---
 
