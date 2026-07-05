@@ -7,12 +7,14 @@ from fastapi.testclient import TestClient
 os.environ["ENCRYPTION_KEY"] = "BRPOu1O4FIvcdwijI1yf0quviQjeSr0V1Zfw2CRwgRQ="
 os.environ["DB_PATH"] = "/tmp/test_h3c.db"
 
+# v2.6 i18n: 必须在 from app.main import app 之前 import app.models。
+# `import app.models` 会把当前 namespace 的 `app` 重新绑定到 `app` package module，
+# 覆盖 `app.main.app` 的 FastAPI 实例。testclient 会拿到 module 报 'module is not callable'。
+# 顺序：先 import app.models（顺便注册 Task 等 Base 子类到 metadata），
+# 然后 from app.main import app 重新把 app 绑回 FastAPI 实例。
+import app.models  # noqa: F401
 from app.main import app
 from app.database import Base, engine, SessionLocal
-# v2.6 i18n: conftest 显式 import app.models 确保所有 Base 子类（含 Task）注册到 metadata，
-# 不依赖 app.main 的 import chain（main.py 不显式 import models）。否则 setup_db 的
-# Base.metadata.create_all(bind=engine) 漏建 tasks 表，test_task_manager 报 no such table。
-import app.models  # noqa: F401
 
 
 # ======================== integration marker（v2.3 QA 规范化） ========================
