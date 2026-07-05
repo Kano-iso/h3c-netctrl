@@ -1,15 +1,14 @@
 // 设备状态显示工具
-// 后端可能返回 null / undefined / '' / 'unknown' / 'online' / 'warning' / 'maintenance' / 'offline'
-// 统一映射到 UI 显示
+// v2.6 i18n：label 走 t() helper（显式 messages lookup，与 locale 切换可靠同步）
+// chipClass / dot class 保持 css 静态（与 locale 无关）
+// 详见: openspec/changes/v26-i18n/specs/frontend-i18n-migration/spec.md 决策 2/3
 
-const STATUS_MAP = {
-  online:      { label: '在线', chipClass: 'chip-good' },
-  warning:     { label: '告警', chipClass: 'chip-warn' },
-  maintenance: { label: '维护', chipClass: 'chip-warn' },
-  offline:     { label: '离线', chipClass: 'chip-bad' },
-  unknown:     { label: '未采集', chipClass: 'chip-mute' },
-}
+import { t } from '../i18n/t.js'
 
+// 设备状态键集合
+const DEVICE_KEYS = ['online', 'warning', 'maintenance', 'offline', 'unknown']
+
+// dot color（与 locale 无关，纯 css class）
 const DOT_CLASS = {
   online: 'bg-good',
   warning: 'bg-warn',
@@ -18,34 +17,42 @@ const DOT_CLASS = {
   unknown: 'bg-ink-400',
 }
 
-export function getStatusInfo(s) {
-  if (!s || s === 'unknown') return STATUS_MAP.unknown
-  return STATUS_MAP[s] || STATUS_MAP.unknown
+// chip background（与 locale 无关，纯 css class）
+const CHIP_CLASS = {
+  online: 'chip-good',
+  warning: 'chip-warn',
+  maintenance: 'chip-warn',
+  offline: 'chip-bad',
+  unknown: 'chip-mute',
 }
 
-export function getStatusDot(s) {
-  if (!s || s === 'unknown') return DOT_CLASS.unknown
-  return DOT_CLASS[s] || DOT_CLASS.unknown
+function _normalizeDeviceKey(s) {
+  return s && DEVICE_KEYS.includes(s) ? s : 'unknown'
 }
 
 export function getStatusLabel(s) {
-  return getStatusInfo(s).label
+  return t(`status.device.${_normalizeDeviceKey(s)}`)
+}
+
+export function getStatusDot(s) {
+  return DOT_CLASS[_normalizeDeviceKey(s)]
 }
 
 export function getStatusChip(s) {
-  return getStatusInfo(s).chipClass
+  return CHIP_CLASS[_normalizeDeviceKey(s)]
+}
+
+// 后向兼容：返回 { label, chipClass } 复合对象
+// 已有调用方（v2.5 之前的组件）仍按原 API 使用
+export function getStatusInfo(s) {
+  return { label: getStatusLabel(s), chipClass: getStatusChip(s) }
 }
 
 // 端口/接口 status 映射（接口 up/down/administrarive）
-const IFACE_STATUS_MAP = {
-  up: 'UP',
-  down: 'DOWN',
-  testing: '测试中',
-  unknown: '—',
-  administratively_down: '禁用',
-}
+// i18n 化：label 走 t() helper
+const IFACE_KEYS = ['up', 'down', 'testing', 'unknown', 'administratively_down']
 
 export function getIfaceStatusLabel(s) {
-  if (!s) return '—'
-  return IFACE_STATUS_MAP[s] || IFACE_STATUS_MAP.unknown
+  if (!s) return t('status.iface.unknown')
+  return IFACE_KEYS.includes(s) ? t(`status.iface.${s}`) : t('status.iface.unknown')
 }

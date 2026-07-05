@@ -62,4 +62,27 @@ export default {
     cancel: '取消',
     future: '未来',
   },
+  // v2.6 设备状态显示（utils/status.js 用）
+  status: {
+    device: {
+      online:      '在线',
+      warning:     '告警',
+      maintenance: '维护',
+      offline:     '离线',
+      unknown:     '未采集',
+    },
+    iface: {
+      up:                     'UP',
+      down:                   'DOWN',
+      testing:                '测试中',
+      unknown:                '—',
+      administratively_down:  '禁用',
+    },
+  },
+  // v2.6 通用错误消息（api/index.js 用）
+  errors: {
+    network_failed:        '网络请求失败，请检查后端服务是否运行',
+    download_failed_http:  '下载失败: HTTP {status}',
+    download_failed_network: '下载失败，请检查后端服务是否运行',
+  },
 }

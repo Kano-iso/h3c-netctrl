@@ -158,3 +158,70 @@ describe('locale store (v2.6)', () => {
     warnSpy.mockRestore()
   })
 })
+
+// v2.6 utils/status.js + api/index.js i18n 测试
+// 关键路径：非组件模块通过 i18n.global.t 走翻译，locale 切换响应式
+import { getStatusLabel, getStatusDot, getIfaceStatusLabel } from '../utils/status.js'
+import { apiCall } from '../api/index.js'
+
+describe('utils/status.js i18n (v2.6)', () => {
+  beforeEach(() => {
+    globalI18n.global.locale.value = 'zh-CN'
+  })
+
+  it('getStatusLabel: zh-CN 返回中文标签', () => {
+    expect(getStatusLabel('online')).toBe('在线')
+    expect(getStatusLabel('offline')).toBe('离线')
+    expect(getStatusLabel('unknown')).toBe('未采集')
+  })
+
+  it('getStatusLabel: en-US 返回英文标签', () => {
+    globalI18n.global.locale.value = 'en-US'
+    expect(getStatusLabel('online')).toBe('Online')
+    expect(getStatusLabel('offline')).toBe('Offline')
+    expect(getStatusLabel('unknown')).toBe('Not collected')
+  })
+
+  it('getStatusLabel: 未知状态走 unknown fallback', () => {
+    expect(getStatusLabel('garbage')).toBe('未采集')
+  })
+
+  it('getIfaceStatusLabel: zh-CN 返回接口状态', () => {
+    expect(getIfaceStatusLabel('up')).toBe('UP')
+    expect(getIfaceStatusLabel('administratively_down')).toBe('禁用')
+  })
+
+  it('getIfaceStatusLabel: en-US 返回英文接口状态', () => {
+    globalI18n.global.locale.value = 'en-US'
+    expect(getIfaceStatusLabel('up')).toBe('UP')
+    expect(getIfaceStatusLabel('administratively_down')).toBe('Disabled')
+  })
+
+  it('getStatusDot: 跟 locale 无关，返回 css class', () => {
+    expect(getStatusDot('online')).toBe('bg-good')
+    expect(getStatusDot('offline')).toBe('bg-bad')
+  })
+})
+
+describe('api/index.js i18n (v2.6)', () => {
+  beforeEach(() => {
+    globalI18n.global.locale.value = 'zh-CN'
+    // 重置 fetch mock
+    global.fetch = vi.fn()
+  })
+
+  it('apiCall 网络异常时返回 zh-CN 错误', async () => {
+    global.fetch.mockRejectedValueOnce(new Error('NetworkError'))
+    const r = await apiCall('/test')
+    expect(r.success).toBe(false)
+    expect(r.error).toBe('网络请求失败，请检查后端服务是否运行')
+  })
+
+  it('apiCall 网络异常时返回 en-US 错误', async () => {
+    globalI18n.global.locale.value = 'en-US'
+    global.fetch.mockRejectedValueOnce(new Error('NetworkError'))
+    const r = await apiCall('/test')
+    expect(r.success).toBe(false)
+    expect(r.error).toBe('Network request failed, please check if the backend service is running')
+  })
+})

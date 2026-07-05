@@ -63,4 +63,27 @@ export default {
     cancel: 'Cancel',
     future: 'Future',
   },
+  // v2.6 设备状态显示（utils/status.js 用）
+  status: {
+    device: {
+      online:      'Online',
+      warning:     'Warning',
+      maintenance: 'Maintenance',
+      offline:     'Offline',
+      unknown:     'Not collected',
+    },
+    iface: {
+      up:                     'UP',
+      down:                   'DOWN',
+      testing:                'Testing',
+      unknown:                '—',
+      administratively_down:  'Disabled',
+    },
+  },
+  // v2.6 通用错误消息（api/index.js 用）
+  errors: {
+    network_failed:          'Network request failed, please check if the backend service is running',
+    download_failed_http:    'Download failed: HTTP {status}',
+    download_failed_network: 'Download failed, please check if the backend service is running',
+  },
 }

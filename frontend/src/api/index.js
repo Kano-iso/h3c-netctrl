@@ -1,5 +1,11 @@
 // V2.1 后端 API 客户端 —— 对接 V2.0 后端 7 个 API
 // 统一响应格式：{ success: true, data: {...} } / { success: false, error: "..." }
+//
+// v2.6 i18n：所有 catch 分支 + 后端 error 兜底走 t() helper（key 在 errors.*）
+// utils 层（非组件）用 i18n/t.js 的 t()，组件内仍用 useI18n() 的 t()
+// 详见: openspec/changes/v26-i18n/specs/frontend-i18n-migration/spec.md 决策 3
+
+import { t } from '../i18n/t.js'
 
 const API_BASE = '/api'
 
@@ -14,7 +20,7 @@ export async function apiCall(path, options = {}) {
     const data = await response.json()
     return data
   } catch (error) {
-    return { success: false, error: '网络请求失败，请检查后端服务是否运行' }
+    return { success: false, error: t('errors.network_failed') }
   }
 }
 
@@ -166,9 +172,9 @@ export const backupApi = {
         // 尝试读 error body（如果后端返回 JSON 错误）
         try {
           const data = await res.json()
-          return { success: false, error: data.error || `下载失败: HTTP ${res.status}` }
+          return { success: false, error: data.error || t('errors.download_failed_http', { status: res.status }) }
         } catch {
-          return { success: false, error: `下载失败: HTTP ${res.status}` }
+          return { success: false, error: t('errors.download_failed_http', { status: res.status }) }
         }
       }
       const blob = await res.blob()
@@ -178,7 +184,7 @@ export const backupApi = {
       const filename = m ? decodeURIComponent(m[1]) : `backup-${backupId}.cfg`
       return { success: true, data: { blob, filename } }
     } catch (e) {
-      return { success: false, error: '下载失败，请检查后端服务是否运行' }
+      return { success: false, error: t('errors.download_failed_network') }
     }
   },
 
