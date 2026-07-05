@@ -37,7 +37,7 @@ def _get_asset_or_create(db: Session, device_id: int):
     return asset
 
 
-@router.get("/devices/{device_id}/asset", response_model=APIResponse)
+@router.get("/assets/device/{device_id}", response_model=APIResponse)
 def get_asset(device_id: int, db: Session = Depends(get_db)):
     """获取设备资产信息"""
     device, error = _get_device_or_error(db, device_id)
@@ -57,7 +57,7 @@ def get_asset(device_id: int, db: Session = Depends(get_db)):
     })
 
 
-@router.put("/devices/{device_id}/asset", response_model=APIResponse)
+@router.put("/assets/device/{device_id}", response_model=APIResponse)
 def update_asset(device_id: int, body: dict, db: Session = Depends(get_db)):
     """更新设备资产信息（手动编辑位置/标签/状态）"""
     device, error = _get_device_or_error(db, device_id)
@@ -84,7 +84,7 @@ def update_asset(device_id: int, body: dict, db: Session = Depends(get_db)):
     return APIResponse(success=True, data={"message": "资产信息已更新"})
 
 
-@router.post("/devices/{device_id}/asset/refresh", response_model=APIResponse)
+@router.post("/assets/device/{device_id}/refresh", response_model=APIResponse)
 def refresh_asset(device_id: int, db: Session = Depends(get_db)):
     """刷新设备硬件信息（SSH 采集）"""
     device, error = _get_device_or_error(db, device_id)
