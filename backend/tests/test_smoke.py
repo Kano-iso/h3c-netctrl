@@ -99,7 +99,7 @@ def test_dashboard_stats(client):
 def test_asset_get(client, created_device, mock_netconf):
     """资产查询"""
     device_id = created_device["id"]
-    resp = client.get(f"/api/devices/{device_id}/asset")
+    resp = client.get(f"/api/assets/device/{device_id}")
     assert resp.status_code == 200
     data = resp.json()
     assert data["success"] is True
@@ -108,7 +108,7 @@ def test_asset_get(client, created_device, mock_netconf):
 def test_asset_refresh(client, created_device, mock_netconf):
     """资产刷新（mock SSH）"""
     device_id = created_device["id"]
-    resp = client.post(f"/api/devices/{device_id}/asset/refresh")
+    resp = client.post(f"/api/assets/device/{device_id}/refresh")
     # mock SSH 不会真连，所以允许 200（mock 返回空数据）或 500（真连失败）
     assert resp.status_code in (200, 500)
 
