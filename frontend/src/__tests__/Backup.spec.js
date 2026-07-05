@@ -2,6 +2,17 @@
 // 覆盖 6 个 case：列表加载 / 创建备份 / 锁定 / 解锁 / 回滚 / 下载
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
+import { createI18n } from 'vue-i18n'
+import zhCN from '../i18n/zh-CN.js'
+import enUS from '../i18n/en-US.js'
+
+// 测试独立 i18n 实例（避免污染全局 + 解决 'Need to install with app.use' 错）
+const testI18n = createI18n({
+  legacy: false,
+  locale: 'zh-CN',
+  fallbackLocale: 'zh-CN',
+  messages: { 'zh-CN': zhCN, 'en-US': enUS },
+})
 
 // Mock API 模块（整模块 mock，隔离后端调用）
 vi.mock('../api/index.js', () => ({
@@ -67,6 +78,7 @@ const PageHeaderStub = {
 function mountBackup() {
   return mount(Backup, {
     global: {
+      plugins: [testI18n],
       stubs: {
         ConfirmModal: ConfirmModalStub,
         PageHeader: PageHeaderStub,

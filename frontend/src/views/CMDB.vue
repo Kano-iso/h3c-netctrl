@@ -1,10 +1,13 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import PageHeader from '../components/PageHeader.vue'
 import AssetEditModal from '../components/AssetEditModal.vue'
 import { deviceApi, assetApi, backupApi } from '../api/index.js'
 import { useTaskStore } from '../stores/task.js'
 import { getStatusInfo } from '../utils/status.js'
+
+const { t } = useI18n()
 
 // v24-fix-batch-async-backup: feature flag
 const ASYNC_MODE = import.meta.env.VITE_ASYNC_BACKUP === 'true'
@@ -33,7 +36,7 @@ async function loadAssets() {
   error.value = ''
   const dr = await deviceApi.list()
   if (!dr.success) {
-    error.value = dr.error || '加载失败'
+    error.value = dr.error || t('cmdb.load_failed_devices')
     loading.value = false
     return
   }
@@ -46,8 +49,8 @@ async function loadAssets() {
         id: d.id,
         name: d.name,
         host: d.host,
-        model: a.model || '—',
-        software: a.software_package || '—',
+        model: a.model || t('common.dash'),
+        software: a.software_package || t('common.dash'),
         location: a.location || '',
         tags: a.tags ? a.tags.split(',').map(s => s.trim()).filter(Boolean) : [],
         status: a.status || null,  // null → utils 兜底为"未采集"
@@ -67,7 +70,7 @@ const refresh = async () => {
   refreshMsg.value = ''
   const dr = await deviceApi.list()
   if (!dr.success) {
-    refreshMsg.value = dr.error || '获取设备列表失败'
+    refreshMsg.value = dr.error || t('cmdb.load_failed_devices')
     refreshing.value = false
     return
   }
@@ -77,7 +80,7 @@ const refresh = async () => {
   // 重新拉取资产详情
   await loadAssets()
   refreshing.value = false
-  refreshMsg.value = '刷新完成'
+  refreshMsg.value = t('cmdb.refresh_done')
   setTimeout(() => { refreshMsg.value = '' }, 2000)
 }
 
@@ -90,10 +93,10 @@ const refreshOne = async (id) => {
   try {
     const r = await assetApi.refresh(id)
     if (!r.success) {
-      alert(`采集失败：${r.error || '未知错误'}`)
+      alert(t('cmdb.collect_failed', { error: r.error || t('cmdb.unknown_error') }))
     }
   } catch (e) {
-    alert(`采集异常：${e.message || e}`)
+    alert(t('cmdb.collect_exception', { error: e.message || e }))
   } finally {
     const done = new Set(refreshingIds.value)
     done.delete(id)
@@ -133,11 +136,14 @@ const handleFullBackup = async () => {
     const results = await taskStore.submitBatchBackup(
       items.value,
       ['startup', 'running'],
-      (d) => `全量备份 ${d.name}`,
+      (d) => `${t('cmdb.full_backup')} ${d.name}`,
     )
     const failed = results.filter((r) => !r.success)
     if (failed.length) {
-      error.value = `${failed.length} 台设备提交失败: ${failed[0].error || '未知错误'}`
+      error.value = t('cmdb.submit_failed', {
+        n: failed.length,
+        error: failed[0].error || t('cmdb.unknown_error'),
+      })
     }
     return
   }
@@ -148,7 +154,7 @@ const handleFullBackup = async () => {
   const r = await backupApi.createAll()
   fullBackingUp.value = false
   if (!r.success) {
-    error.value = r.error || '全量备份失败'
+    error.value = r.error || t('cmdb.full_backup_failed')
     return
   }
   fullResult.value = r.data || { success: [], failed: [] }
@@ -163,28 +169,28 @@ const onEditAsset = (d) => {
 </script>
 
 <template>
-  <div v-if="loading" class="max-w-[1200px] mx-auto px-8 py-16 text-center text-ink-500">加载中…</div>
+  <div v-if="loading" class="max-w-[1200px] mx-auto px-8 py-16 text-center text-ink-500">{{ t('common.loading') }}</div>
   <div v-else-if="error" class="max-w-[1200px] mx-auto px-8 py-16">
     <div class="panel p-6 border border-bad/30 bg-bad/5">
-      <div class="text-bad font-medium">资产列表加载失败</div>
+      <div class="text-bad font-medium">{{ t('cmdb.load_failed') }}</div>
       <div class="text-sm text-ink-700 mt-1">{{ error }}</div>
-      <button class="btn-outline mt-3" @click="loadAssets">重试</button>
+      <button class="btn-outline mt-3" @click="loadAssets">{{ t('common.retry') }}</button>
     </div>
   </div>
   <template v-else>
-    <PageHeader title="CMDB" :subtitle="`${items.length} 台设备 · 型号 / 固件 / 软件包 / 物理位置`">
+    <PageHeader :title="t('cmdb.title')" :subtitle="t('cmdb.subtitle', { n: items.length })">
       <template #actions>
         <div class="flex items-center bg-canvas-200 rounded-full p-0.5">
-          <button :class="['px-3 py-1.5 text-xs font-medium rounded-full transition', view === 'table' ? 'bg-white text-ink-900 shadow-sm' : 'text-ink-700']" @click="view = 'table'">表格</button>
-          <button :class="['px-3 py-1.5 text-xs font-medium rounded-full transition', view === 'card' ? 'bg-white text-ink-900 shadow-sm' : 'text-ink-700']" @click="view = 'card'">分组</button>
+          <button :class="['px-3 py-1.5 text-xs font-medium rounded-full transition', view === 'table' ? 'bg-white text-ink-900 shadow-sm' : 'text-ink-700']" @click="view = 'table'">{{ t('cmdb.view_table') }}</button>
+          <button :class="['px-3 py-1.5 text-xs font-medium rounded-full transition', view === 'card' ? 'bg-white text-ink-900 shadow-sm' : 'text-ink-700']" @click="view = 'card'">{{ t('cmdb.view_card') }}</button>
         </div>
         <button class="btn-outline" :disabled="refreshing" @click="refresh">
           <svg :class="['size-3.5', refreshing && 'animate-spin']" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 12a9 9 0 109-9 9.75 9.75 0 00-6.74 2.74L3 8M3 3v5h5"/></svg>
-          {{ refreshing ? '采集中…' : '全量刷新' }}
+          {{ refreshing ? t('cmdb.refreshing') : t('cmdb.refresh_all') }}
         </button>
         <button class="btn-primary" :disabled="fullBackingUp" @click="handleFullBackup">
           <svg v-if="fullBackingUp" class="size-3.5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg>
-          {{ fullBackingUp ? '全量备份中…' : '全量备份' }}
+          {{ fullBackingUp ? t('cmdb.full_backup_running') : t('cmdb.full_backup') }}
         </button>
       </template>
     </PageHeader>
@@ -193,26 +199,26 @@ const onEditAsset = (d) => {
       <div class="panel px-4 py-3 flex items-center gap-3 flex-wrap">
         <div class="relative flex-1 min-w-[200px]">
           <svg class="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-ink-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-          <input v-model="search" placeholder="搜索名称 / IP / 型号 / 位置…" class="input pl-9" />
+          <input v-model="search" :placeholder="t('cmdb.search_placeholder')" class="input pl-9" />
         </div>
-        <div class="text-[10px] text-ink-500 font-mono">{{ filtered.length }} 台设备</div>
+        <div class="text-[10px] text-ink-500 font-mono">{{ t('cmdb.count_devices', { n: filtered.length }) }}</div>
       </div>
 
       <div v-if="refreshMsg" class="panel p-3 text-xs text-ink-700">{{ refreshMsg }}</div>
 
-      <div v-if="filtered.length === 0" class="panel p-12 text-center text-sm text-ink-500">暂无设备</div>
+      <div v-if="filtered.length === 0" class="panel p-12 text-center text-sm text-ink-500">{{ t('cmdb.no_devices') }}</div>
 
       <div v-else-if="view === 'table'" class="panel overflow-hidden">
         <table class="w-full text-sm">
           <thead>
             <tr class="text-[11px] text-ink-500 uppercase tracking-wider border-b border-canvas-300">
-              <th class="px-4 py-3 text-left font-medium">名称</th>
-              <th class="px-4 py-3 text-left font-medium">IP</th>
-              <th class="px-4 py-3 text-left font-medium">型号</th>
-              <th class="px-4 py-3 text-left font-medium">软件包</th>
-              <th class="px-4 py-3 text-left font-medium">位置</th>
-              <th class="px-4 py-3 text-left font-medium">状态</th>
-              <th class="px-4 py-3 text-right font-medium w-32">操作</th>
+              <th class="px-4 py-3 text-left font-medium">{{ t('cmdb.col_name') }}</th>
+              <th class="px-4 py-3 text-left font-medium">{{ t('cmdb.col_ip') }}</th>
+              <th class="px-4 py-3 text-left font-medium">{{ t('cmdb.col_model') }}</th>
+              <th class="px-4 py-3 text-left font-medium">{{ t('cmdb.col_software') }}</th>
+              <th class="px-4 py-3 text-left font-medium">{{ t('cmdb.col_location') }}</th>
+              <th class="px-4 py-3 text-left font-medium">{{ t('cmdb.col_status') }}</th>
+              <th class="px-4 py-3 text-right font-medium w-32">{{ t('cmdb.col_actions') }}</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-canvas-300">
@@ -221,7 +227,7 @@ const onEditAsset = (d) => {
               <td class="px-4 py-3 font-mono text-xs text-ink-900">{{ d.host }}</td>
               <td class="px-4 py-3 text-xs text-ink-900">{{ d.model }}</td>
               <td class="px-4 py-3 font-mono text-[10px] text-ink-500">{{ d.software }}</td>
-              <td class="px-4 py-3 text-xs text-ink-700">{{ d.location || '—' }}</td>
+              <td class="px-4 py-3 text-xs text-ink-700">{{ d.location || t('common.dash') }}</td>
               <td class="px-4 py-3">
                 <span :class="statusChip(d.status)">{{ statusLabel(d.status) }}</span>
               </td>
@@ -233,9 +239,9 @@ const onEditAsset = (d) => {
                     @click="refreshOne(d.id)"
                   >
                     <svg v-if="refreshingIds.has(d.id)" class="size-3 animate-spin inline-block" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg>
-                    <span>{{ refreshingIds.has(d.id) ? '采集中…' : '采集' }}</span>
+                    <span>{{ refreshingIds.has(d.id) ? t('cmdb.collecting') : t('cmdb.collect') }}</span>
                   </button>
-                  <button class="btn-soft !text-[11px] !px-2 !py-1" @click="onEditAsset(d)">编辑资产</button>
+                  <button class="btn-soft !text-[11px] !px-2 !py-1" @click="onEditAsset(d)">{{ t('cmdb.edit_asset') }}</button>
                 </div>
               </td>
             </tr>
@@ -247,7 +253,7 @@ const onEditAsset = (d) => {
         <div v-for="(devs, s) in byStatus" :key="s">
           <div class="flex items-center gap-2 mb-3">
             <span :class="statusChip(s)">{{ statusLabel(s) }}</span>
-            <span class="chip-mute !text-[10px]">{{ devs.length }} 台</span>
+            <span class="chip-mute !text-[10px]">{{ t('cmdb.count_per_group', { n: devs.length }) }}</span>
           </div>
           <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <div v-for="d in devs" :key="d.id" class="panel panel-hover p-5">
@@ -261,24 +267,24 @@ const onEditAsset = (d) => {
                   <button
                     class="text-ink-500 hover:text-accent p-1"
                     :disabled="refreshingIds.has(d.id)"
-                    title="采集资产"
+                    :title="t('cmdb.title_collect')"
                     @click="refreshOne(d.id)"
                   >
                     <svg v-if="refreshingIds.has(d.id)" class="size-3.5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg>
                     <svg v-else class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M21 12a9 9 0 11-9-9c2.5 0 4.7 1 6.4 2.6L21 8"/><path d="M21 3v5h-5"/></svg>
                   </button>
-                  <button class="text-ink-500 hover:text-accent p-1" title="编辑资产" @click="onEditAsset(d)">
+                  <button class="text-ink-500 hover:text-accent p-1" :title="t('cmdb.title_edit')" @click="onEditAsset(d)">
                     <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 20h9M16.5 3.5a2.121 2.121 0 113 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
                   </button>
                 </div>
               </div>
               <div class="space-y-1.5 text-xs">
-                <div class="flex justify-between gap-2"><span class="text-ink-500 shrink-0">型号</span><span class="text-ink-900 font-mono truncate">{{ d.model }}</span></div>
-                <div class="flex justify-between gap-2"><span class="text-ink-500 shrink-0">软件包</span><span class="text-ink-900 font-mono text-[10px] truncate">{{ d.software }}</span></div>
-                <div class="flex justify-between gap-2"><span class="text-ink-500 shrink-0">位置</span><span class="text-ink-900 text-[10px] truncate">{{ d.location || '—' }}</span></div>
+                <div class="flex justify-between gap-2"><span class="text-ink-500 shrink-0">{{ t('cmdb.card_model') }}</span><span class="text-ink-900 font-mono truncate">{{ d.model }}</span></div>
+                <div class="flex justify-between gap-2"><span class="text-ink-500 shrink-0">{{ t('cmdb.card_software') }}</span><span class="text-ink-900 font-mono text-[10px] truncate">{{ d.software }}</span></div>
+                <div class="flex justify-between gap-2"><span class="text-ink-500 shrink-0">{{ t('cmdb.card_location') }}</span><span class="text-ink-900 text-[10px] truncate">{{ d.location || t('common.dash') }}</span></div>
               </div>
               <div v-if="d.tags.length" class="flex flex-wrap gap-1.5 mt-3 pt-3 border-t border-canvas-300">
-                <span v-for="t in d.tags" :key="t" class="chip-mute !text-[10px]">#{{ t }}</span>
+                <span v-for="tag in d.tags" :key="tag" class="chip-mute !text-[10px]">#{{ tag }}</span>
               </div>
             </div>
           </div>
@@ -302,31 +308,31 @@ const onEditAsset = (d) => {
           <div class="absolute inset-0 bg-ink-950/40 backdrop-blur-sm" @click="fullResultOpen = false"></div>
           <div class="relative panel w-full max-w-lg shadow-2xl">
             <div class="px-5 py-4 border-b border-canvas-300 flex items-center justify-between">
-              <h3 class="text-base font-semibold text-ink-900">全量备份结果</h3>
-              <button class="btn-soft !text-xs" @click="fullResultOpen = false">关闭</button>
+              <h3 class="text-base font-semibold text-ink-900">{{ t('cmdb.result_title') }}</h3>
+              <button class="btn-soft !text-xs" @click="fullResultOpen = false">{{ t('common.close') }}</button>
             </div>
             <div class="px-5 py-4 space-y-3">
               <div v-if="fullResult" class="text-sm space-y-2">
                 <div class="flex items-center gap-2 text-good">
                   <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 13l4 4L19 7"/></svg>
-                  <span>成功 <b>{{ fullResult.success.length }}</b> 台</span>
+                  <span>{{ t('cmdb.result_success', { n: fullResult.success.length }) }}</span>
                 </div>
                 <div v-if="fullResult.failed.length > 0" class="flex items-start gap-2 text-bad">
                   <svg class="size-4 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
                   <div>
-                    <div>失败 <b>{{ fullResult.failed.length }}</b> 台</div>
+                    <div>{{ t('cmdb.result_failed', { n: fullResult.failed.length }) }}</div>
                     <ul class="mt-1 ml-4 text-[11px] space-y-0.5 list-disc">
                       <li v-for="(f, i) in fullResult.failed" :key="i">
-                        设备 ID {{ f.device_id }} — {{ f.error }}
+                        {{ t('cmdb.result_failed_item', { id: f.device_id, error: f.error }) }}
                       </li>
                     </ul>
                   </div>
                 </div>
                 <div v-if="fullResult.success.length > 0" class="text-[11px] text-ink-500">
-                  备份详情：{{ fullResult.success.length }} 份新备份已入库
+                  {{ t('cmdb.result_stored', { n: fullResult.success.length }) }}
                 </div>
                 <div class="text-[11px] text-ink-500 pt-2 border-t border-canvas-300">
-                  前往 <b>配置备份</b> 页面查看 / 下载 / 回滚
+                  {{ t('cmdb.result_goto') }}
                 </div>
               </div>
             </div>

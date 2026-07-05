@@ -1,10 +1,13 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import PageHeader from '../components/PageHeader.vue'
 import ConfirmModal from '../components/ConfirmModal.vue'
 import BackupListModal from '../components/BackupListModal.vue'
 import { deviceApi, backupApi } from '../api/index.js'
 import { useTaskStore } from '../stores/task.js'
+
+const { t } = useI18n()
 
 // v24-feat-async-backup-status: feature flag
 const ASYNC_MODE = import.meta.env.VITE_ASYNC_BACKUP === 'true'
@@ -36,7 +39,7 @@ const confirm = ref({
   open: false,
   title: '',
   message: '',
-  confirmText: '确定',
+  confirmText: '',
   variant: 'default',
   busy: false,
   action: null,
@@ -70,7 +73,7 @@ async function loadAll() {
   errMsg.value = ''
   const r = await deviceApi.list()
   if (!r.success) {
-    errMsg.value = r.error || '加载设备列表失败'
+    errMsg.value = r.error || t('backup.load_failed_devices')
     loading.value = false
     return
   }
@@ -139,11 +142,14 @@ async function handleFullBackup() {
     const results = await taskStore.submitBatchBackup(
       devices.value,
       types,
-      (d) => `全量备份 ${d.name}`,
+      (d) => `${t('backup.running_full', { })} ${d.name}`,
     )
     const failed = results.filter((r) => !r.success)
     if (failed.length) {
-      errMsg.value = `${failed.length} 台设备提交失败: ${failed[0].error || '未知错误'}`
+      errMsg.value = t('backup.submit_failed', {
+        n: failed.length,
+        error: failed[0].error || t('backup.load_failed_devices').replace('Failed to load device list', 'Unknown error'),
+      })
     }
     return // 不弹结果 Modal，BackgroundTaskPanel 显示每任务
   }
@@ -156,7 +162,7 @@ async function handleFullBackup() {
   const r = await backupApi.createAll({ types })
   fullBackingUp.value = false
   if (!r.success) {
-    errMsg.value = r.error || '全量备份失败'
+    errMsg.value = r.error || t('backup.full_backup_failed')
     return
   }
   fullResult.value = r.data || { success: [], failed: [] }
@@ -179,9 +185,9 @@ async function onDeviceModalChanged() {
 function askDelete(d, b) {
   confirm.value = {
     open: true,
-    title: '删除备份',
-    message: `确定删除设备 ${d.name} 的备份 ${b.filename}？\n此操作不可恢复。`,
-    confirmText: '删除',
+    title: t('backup.confirm_delete_title'),
+    message: t('backup.confirm_delete_msg', { name: d.name, filename: b.filename }),
+    confirmText: t('backup.confirm_delete_btn'),
     variant: 'danger',
     busy: false,
     action: 'delete',
@@ -193,9 +199,11 @@ function askToggleLock(d, b) {
   const willLock = !b.locked
   confirm.value = {
     open: true,
-    title: willLock ? '锁定备份' : '解锁备份',
-    message: `确定${willLock ? '锁定' : '解锁'}设备 ${d.name} 的备份 ${b.filename}？\n${willLock ? '锁定后不参与轮转，不会被自动删除。' : '解锁后将参与自动轮转。'}`,
-    confirmText: '确认',
+    title: willLock ? t('backup.confirm_lock_title') : t('backup.confirm_unlock_title'),
+    message: willLock
+      ? t('backup.confirm_lock_msg', { name: d.name, filename: b.filename })
+      : t('backup.confirm_unlock_msg', { name: d.name, filename: b.filename }),
+    confirmText: t('backup.confirm_toggle_btn'),
     variant: 'default',
     busy: false,
     action: willLock ? 'lock' : 'unlock',
@@ -206,9 +214,15 @@ function askToggleLock(d, b) {
 function askRestore(d, b) {
   confirm.value = {
     open: true,
-    title: '回滚到该备份',
-    message: `确定回滚设备 ${d.name} 到备份 ${b.filename}？\n设备配置将被覆盖，并触发 reboot（60-120s SSH 重连 + 验证生效）。\n\n时间：${formatTime(b.created_at)}\n大小：${formatSize(b.size)}\nHash：${shortHash(b.content_hash)}\n\n⚠️ 设备将重启，请确认维护窗口。`,
-    confirmText: '回滚并重启',
+    title: t('backup.confirm_restore_title'),
+    message: t('backup.confirm_restore_msg', {
+      name: d.name,
+      filename: b.filename,
+      time: formatTime(b.created_at),
+      size: formatSize(b.size),
+      hash: shortHash(b.content_hash),
+    }),
+    confirmText: t('backup.confirm_restore_btn'),
     variant: 'danger',
     busy: false,
     action: 'restore',
@@ -227,11 +241,11 @@ async function onConfirmAction() {
       target.d.id,
       target.b.id,
       true,  // with_reboot=true
-      `回滚 ${target.d.name} → ${target.b.filename}`,
+      `${t('backup.btn_restore')} ${target.d.name} → ${target.b.filename}`,
     )
     confirm.value.busy = false
     if (!r.success) {
-      confirm.value.message = `提交回滚任务失败：${r.error || '未知错误'}\n\n${confirm.value.message}`
+      confirm.value.message = t('backup.submit_restore_failed', { error: r.error || t('backup.unknown_error') }) + '\n\n' + confirm.value.message
       return
     }
     confirm.value.open = false
@@ -250,7 +264,7 @@ async function onConfirmAction() {
   confirm.value.busy = false
 
   if (!r.success) {
-    confirm.value.message = `操作失败：${r.error || '未知错误'}\n\n${confirm.value.message}`
+    confirm.value.message = t('backup.op_failed', { error: r.error || t('backup.load_failed_devices').replace('Failed to load device list', 'Unknown error') }) + '\n\n' + confirm.value.message
     return
   }
 
@@ -266,7 +280,7 @@ function closeConfirm() {
 async function handleDownload(d, b) {
   const r = await backupApi.download(d.id, b.id)
   if (!r.success) {
-    errMsg.value = r.error || '下载失败'
+    errMsg.value = r.error || t('backup.download_failed')
     return
   }
   const url = URL.createObjectURL(r.data.blob)
@@ -284,21 +298,21 @@ onMounted(loadAll)
 
 <template>
   <PageHeader
-    title="配置备份"
-    subtitle="手动备份、锁定、回滚。每设备自动保留最新 5 份未锁定备份，锁定的不参与轮转。"
+    :title="t('backup.title')"
+    :subtitle="t('backup.subtitle')"
   >
     <template #actions>
       <div class="flex items-center gap-2 mr-2">
-        <span class="text-xs text-ink-500">类型</span>
+        <span class="text-xs text-ink-500">{{ t('backup.type_label') }}</span>
         <div class="flex items-center gap-1 text-xs">
-          <button :class="['px-2.5 py-1 rounded-full transition', fullBackupType === 'all' ? 'bg-ink-900 text-white' : 'text-ink-700 hover:bg-canvas-200']" @click="fullBackupType = 'all'">全部</button>
-          <button :class="['px-2.5 py-1 rounded-full transition', fullBackupType === 'startup' ? 'bg-ink-900 text-white' : 'text-ink-700 hover:bg-canvas-200']" @click="fullBackupType = 'startup'">startup</button>
-          <button :class="['px-2.5 py-1 rounded-full transition', fullBackupType === 'running' ? 'bg-ink-900 text-white' : 'text-ink-700 hover:bg-canvas-200']" @click="fullBackupType = 'running'">running</button>
+          <button :class="['px-2.5 py-1 rounded-full transition', fullBackupType === 'all' ? 'bg-ink-900 text-white' : 'text-ink-700 hover:bg-canvas-200']" @click="fullBackupType = 'all'">{{ t('backup.type_all') }}</button>
+          <button :class="['px-2.5 py-1 rounded-full transition', fullBackupType === 'startup' ? 'bg-ink-900 text-white' : 'text-ink-700 hover:bg-canvas-200']" @click="fullBackupType = 'startup'">{{ t('backup.type_startup') }}</button>
+          <button :class="['px-2.5 py-1 rounded-full transition', fullBackupType === 'running' ? 'bg-ink-900 text-white' : 'text-ink-700 hover:bg-canvas-200']" @click="fullBackupType = 'running'">{{ t('backup.type_running') }}</button>
         </div>
       </div>
       <button class="btn-primary" :disabled="fullBackingUp" @click="handleFullBackup">
         <svg v-if="fullBackingUp" class="size-3.5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg>
-        {{ fullBackingUp ? '全量备份中…' : '立即全量备份' }}
+        {{ fullBackingUp ? t('backup.running_full') : t('backup.run_full') }}
       </button>
     </template>
   </PageHeader>
@@ -307,38 +321,38 @@ onMounted(loadAll)
     <!-- KPI -->
     <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
       <div class="panel px-4 py-3">
-        <div class="text-[11px] text-ink-500 uppercase tracking-wider">备份总数</div>
+        <div class="text-[11px] text-ink-500 uppercase tracking-wider">{{ t('backup.kpi_total') }}</div>
         <div class="text-2xl font-mono text-ink-900 mt-1">{{ kpiTotal }}</div>
       </div>
       <div class="panel px-4 py-3">
-        <div class="text-[11px] text-ink-500 uppercase tracking-wider">已锁定</div>
+        <div class="text-[11px] text-ink-500 uppercase tracking-wider">{{ t('backup.kpi_locked') }}</div>
         <div class="text-2xl font-mono text-warn mt-1">{{ kpiLocked }}</div>
       </div>
       <div class="panel px-4 py-3">
-        <div class="text-[11px] text-ink-500 uppercase tracking-wider">总占用</div>
+        <div class="text-[11px] text-ink-500 uppercase tracking-wider">{{ t('backup.kpi_size') }}</div>
         <div class="text-2xl font-mono text-ink-900 mt-1">{{ kpiSize }}</div>
       </div>
       <div class="panel px-4 py-3">
-        <div class="text-[11px] text-ink-500 uppercase tracking-wider">今日新增</div>
+        <div class="text-[11px] text-ink-500 uppercase tracking-wider">{{ t('backup.kpi_today') }}</div>
         <div class="text-2xl font-mono text-accent mt-1">{{ kpiToday }}</div>
       </div>
     </div>
 
     <!-- 筛选 -->
     <div class="panel px-4 py-3 flex items-center gap-3 flex-wrap">
-      <div class="text-xs text-ink-500">设备：</div>
+      <div class="text-xs text-ink-500">{{ t('backup.filter_device') }}</div>
       <select v-model="filterDeviceId" class="input !w-auto !text-xs">
-        <option value="all">全部 ({{ devices.length }})</option>
+        <option value="all">{{ t('backup.filter_all', { n: devices.length }) }}</option>
         <option v-for="d in devices" :key="d.id" :value="d.id">{{ d.name }} ({{ d.host }})</option>
       </select>
       <div class="h-5 w-px bg-canvas-400" />
       <div class="flex items-center gap-1">
         <button :class="['px-3 py-1.5 text-xs font-medium rounded-full transition',
-          filterLock === 'all' ? 'bg-ink-900 text-white' : 'text-ink-700 hover:bg-canvas-200']" @click="filterLock = 'all'">全部</button>
+          filterLock === 'all' ? 'bg-ink-900 text-white' : 'text-ink-700 hover:bg-canvas-200']" @click="filterLock = 'all'">{{ t('backup.filter_all_short') }}</button>
         <button :class="['px-3 py-1.5 text-xs font-medium rounded-full transition',
-          filterLock === 'locked' ? 'bg-ink-900 text-white' : 'text-ink-700 hover:bg-canvas-200']" @click="filterLock = 'locked'">仅锁定</button>
+          filterLock === 'locked' ? 'bg-ink-900 text-white' : 'text-ink-700 hover:bg-canvas-200']" @click="filterLock = 'locked'">{{ t('backup.filter_locked') }}</button>
         <button :class="['px-3 py-1.5 text-xs font-medium rounded-full transition',
-          filterLock === 'unlocked' ? 'bg-ink-900 text-white' : 'text-ink-700 hover:bg-canvas-200']" @click="filterLock = 'unlocked'">仅未锁定</button>
+          filterLock === 'unlocked' ? 'bg-ink-900 text-white' : 'text-ink-700 hover:bg-canvas-200']" @click="filterLock = 'unlocked'">{{ t('backup.filter_unlocked') }}</button>
       </div>
     </div>
 
@@ -348,10 +362,10 @@ onMounted(loadAll)
     </div>
 
     <!-- 加载 -->
-    <div v-if="loading" class="panel px-4 py-12 text-center text-sm text-ink-500">加载中…</div>
+    <div v-if="loading" class="panel px-4 py-12 text-center text-sm text-ink-500">{{ t('common.loading') }}</div>
 
     <!-- 按设备分组 -->
-    <div v-else-if="visibleDevices.length === 0" class="panel px-4 py-12 text-center text-sm text-ink-500">暂无设备</div>
+    <div v-else-if="visibleDevices.length === 0" class="panel px-4 py-12 text-center text-sm text-ink-500">{{ t('backup.no_devices') }}</div>
     <div v-else class="space-y-3">
       <div v-for="d in visibleDevices" :key="d.id" class="panel overflow-hidden">
         <div class="px-4 py-2.5 border-b border-canvas-300 flex items-center justify-between bg-canvas-50">
@@ -359,25 +373,25 @@ onMounted(loadAll)
             <span class="text-sm font-medium text-ink-900">{{ d.name }}</span>
             <span class="text-[10px] text-ink-500 font-mono">{{ d.host }}:{{ d.port }}</span>
             <span class="text-[10px] text-ink-400">·</span>
-            <span class="text-[10px] text-ink-500">共 {{ (backupsByDevice[d.id] || []).length }} 份</span>
+            <span class="text-[10px] text-ink-500">{{ t('backup.count_per_device', { n: (backupsByDevice[d.id] || []).length }) }}</span>
           </div>
           <button class="btn-soft !text-[11px] !px-2 !py-1" @click="openDeviceModal(d)">
-            在此设备备份 →
+            {{ t('backup.backup_here') }}
           </button>
         </div>
         <div v-if="(backupsByDevice[d.id] || []).length === 0" class="px-4 py-6 text-center text-xs text-ink-500">
-          暂无备份
+          {{ t('backup.no_backups') }}
         </div>
         <table v-else class="w-full text-sm">
           <thead>
             <tr class="text-[10px] text-ink-500 uppercase tracking-wider border-b border-canvas-300">
-              <th class="px-3 py-2 text-left font-medium">文件名</th>
-              <th class="px-3 py-2 text-left font-medium">时间</th>
-              <th class="px-3 py-2 text-left font-medium">类型</th>
-              <th class="px-3 py-2 text-right font-medium">大小</th>
-              <th class="px-3 py-2 text-left font-medium">Hash</th>
-              <th class="px-3 py-2 text-center font-medium w-16">状态</th>
-              <th class="px-3 py-2 text-right font-medium w-48">操作</th>
+              <th class="px-3 py-2 text-left font-medium">{{ t('backup.col_filename') }}</th>
+              <th class="px-3 py-2 text-left font-medium">{{ t('backup.col_time') }}</th>
+              <th class="px-3 py-2 text-left font-medium">{{ t('backup.col_type') }}</th>
+              <th class="px-3 py-2 text-right font-medium">{{ t('backup.col_size') }}</th>
+              <th class="px-3 py-2 text-left font-medium">{{ t('backup.col_hash') }}</th>
+              <th class="px-3 py-2 text-center font-medium w-16">{{ t('backup.col_status') }}</th>
+              <th class="px-3 py-2 text-right font-medium w-48">{{ t('backup.col_actions') }}</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-canvas-300">
@@ -388,18 +402,18 @@ onMounted(loadAll)
               <td class="px-3 py-2 text-[11px] font-mono text-ink-700 text-right">{{ formatSize(b.size) }}</td>
               <td class="px-3 py-2 text-[11px] font-mono text-ink-500">{{ shortHash(b.content_hash) }}</td>
               <td class="px-3 py-2 text-center">
-                <span v-if="b.locked" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-warn/10 text-warn" title="已锁定，不参与轮转">🔒 锁定</span>
-                <span v-else class="text-[10px] text-ink-400">-</span>
+                <span v-if="b.locked" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-warn/10 text-warn" :title="t('backup.title_locked')">{{ t('backup.status_locked') }}</span>
+                <span v-else class="text-[10px] text-ink-400">{{ t('backup.status_unlocked_chip') }}</span>
               </td>
               <td class="px-3 py-2 text-right">
                 <div class="inline-flex items-center gap-1">
-                  <button class="text-[11px] text-accent hover:underline" @click="handleDownload(d, b)">下载</button>
-                  <span class="text-canvas-300">|</span>
-                  <button :class="['text-[11px] hover:underline', b.locked ? 'text-warn' : 'text-ink-700']" @click="askToggleLock(d, b)">{{ b.locked ? '解锁' : '锁定' }}</button>
-                  <span class="text-canvas-300">|</span>
-                  <button :class="['text-[11px] hover:underline', b.locked ? 'text-canvas-300 cursor-not-allowed' : 'text-bad']" :disabled="b.locked" :title="b.locked ? '已锁定，禁止删除' : '删除此备份'" @click="askDelete(d, b)">删除</button>
-                  <span class="text-canvas-300">|</span>
-                  <button class="text-[11px] text-bad hover:underline" @click="askRestore(d, b)">回滚</button>
+                  <button class="text-[11px] text-accent hover:underline" @click="handleDownload(d, b)">{{ t('backup.btn_download') }}</button>
+                  <span class="text-canvas-300">{{ t('common.or') }}</span>
+                  <button :class="['text-[11px] hover:underline', b.locked ? 'text-warn' : 'text-ink-700']" @click="askToggleLock(d, b)">{{ b.locked ? t('backup.btn_unlock') : t('backup.btn_lock') }}</button>
+                  <span class="text-canvas-300">{{ t('common.or') }}</span>
+                  <button :class="['text-[11px] hover:underline', b.locked ? 'text-canvas-300 cursor-not-allowed' : 'text-bad']" :disabled="b.locked" :title="b.locked ? t('backup.title_locked_no_delete') : t('backup.title_delete')" @click="askDelete(d, b)">{{ t('backup.btn_delete') }}</button>
+                  <span class="text-canvas-300">{{ t('common.or') }}</span>
+                  <button class="text-[11px] text-bad hover:underline" @click="askRestore(d, b)">{{ t('backup.btn_restore') }}</button>
                 </div>
               </td>
             </tr>
@@ -416,28 +430,28 @@ onMounted(loadAll)
         <div class="absolute inset-0 bg-ink-950/40 backdrop-blur-sm" @click="fullResultOpen = false"></div>
         <div class="relative panel w-full max-w-lg shadow-2xl">
           <div class="px-5 py-4 border-b border-canvas-300 flex items-center justify-between">
-            <h3 class="text-base font-semibold text-ink-900">全量备份结果</h3>
-            <button class="btn-soft !text-xs" @click="fullResultOpen = false">关闭</button>
+            <h3 class="text-base font-semibold text-ink-900">{{ t('cmdb.result_title') }}</h3>
+            <button class="btn-soft !text-xs" @click="fullResultOpen = false">{{ t('common.close') }}</button>
           </div>
           <div class="px-5 py-4 space-y-3">
             <div v-if="fullResult" class="text-sm space-y-2">
               <div class="flex items-center gap-2 text-good">
                 <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 13l4 4L19 7"/></svg>
-                <span>成功 <b>{{ fullResult.success.length }}</b> 台</span>
+                <span>{{ t('cmdb.result_success', { n: fullResult.success.length }) }}</span>
               </div>
               <div v-if="fullResult.failed.length > 0" class="flex items-start gap-2 text-bad">
                 <svg class="size-4 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
                 <div>
-                  <div>失败 <b>{{ fullResult.failed.length }}</b> 台</div>
+                  <div>{{ t('cmdb.result_failed', { n: fullResult.failed.length }) }}</div>
                   <ul class="mt-1 ml-4 text-[11px] space-y-0.5 list-disc">
                     <li v-for="(f, i) in fullResult.failed" :key="i">
-                      设备 ID {{ f.device_id }} — {{ f.error }}
+                      {{ t('cmdb.result_failed_item', { id: f.device_id, error: f.error }) }}
                     </li>
                   </ul>
                 </div>
               </div>
               <div v-if="fullResult.success.length > 0" class="text-[11px] text-ink-500">
-                备份详情：{{ fullResult.success.length }} 份新备份已入库
+                {{ t('cmdb.result_stored', { n: fullResult.success.length }) }}
               </div>
             </div>
           </div>

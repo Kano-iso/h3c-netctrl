@@ -3,6 +3,17 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { nextTick } from 'vue'
+import { createI18n } from 'vue-i18n'
+import zhCN from '../i18n/zh-CN.js'
+import enUS from '../i18n/en-US.js'
+
+// 测试独立 i18n 实例
+const testI18n = createI18n({
+  legacy: false,
+  locale: 'zh-CN',
+  fallbackLocale: 'zh-CN',
+  messages: { 'zh-CN': zhCN, 'en-US': enUS },
+})
 
 // ---- mock api 模块（CMDB.vue 依赖 deviceApi.list / assetApi.get|refresh|update / backupApi）----
 vi.mock('../api/index.js', () => ({
@@ -81,7 +92,10 @@ describe('CMDB.vue 组件测试', () => {
   })
 
   async function mountCmdb() {
-    wrapper = mount(CMDB, { attachTo: document.body })
+    wrapper = mount(CMDB, {
+      attachTo: document.body,
+      global: { plugins: [testI18n] },
+    })
     await flushPromises() // 等 onMounted → loadAssets（deviceApi.list + assetApi.get）完成
     return wrapper
   }
