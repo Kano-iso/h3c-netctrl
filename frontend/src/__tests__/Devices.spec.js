@@ -10,6 +10,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createRouter, createMemoryHistory } from 'vue-router'
+import { createI18n } from 'vue-i18n'
+import zhCN from '../i18n/zh-CN.js'
+import enUS from '../i18n/en-US.js'
 
 vi.mock('../api/index.js', () => ({
   deviceApi: {
@@ -32,6 +35,14 @@ vi.mock('../api/index.js', () => ({
 import Devices from '../views/Devices.vue'
 import { deviceApi, assetApi } from '../api/index.js'
 
+// 测试独立 i18n 实例（避免污染全局 + 解决 'Need to install with app.use' 错）
+const testI18n = createI18n({
+  legacy: false,
+  locale: 'zh-CN',
+  fallbackLocale: 'zh-CN',
+  messages: { 'zh-CN': zhCN, 'en-US': enUS },
+})
+
 // 测试用设备 fixtures
 const DEVICES = [
   { id: 1, name: 'Spine-01', host: '192.168.1.1', port: 830, protected_interfaces: [1, 5] },
@@ -49,15 +60,30 @@ const ASSETS = {
 function mockRouter() {
   return createRouter({
     history: createMemoryHistory(),
-    routes: [{ path: '/', name: 'home', component: { template: '<div/>' } }],
+    routes: [
+      { path: '/', name: 'home', component: { template: '<div/>' } },
+      { path: '/batch', name: 'batch', component: { template: '<div/>' } },
+    ],
   })
+}
+
+const mountOpts = () => {
+  const router = mockRouter()
+  return {
+    global: {
+      plugins: [testI18n, router],
+      stubs: {
+        PageHeader: { template: '<div><slot /><slot name="actions" /></div>' },
+      },
+    },
+  }
 }
 
 describe('Devices 组件', () => {
   let wrapper
   let alertSpy
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks()
     // 默认 mock 返回空列表 / 空资产，避免未设置的用例误触 fetch
     deviceApi.list.mockResolvedValue({ success: true, data: [] })
@@ -80,9 +106,7 @@ describe('Devices 组件', () => {
       Promise.resolve({ success: true, data: ASSETS[id] || {} })
     )
 
-    wrapper = mount(Devices, {
-      global: { plugins: [mockRouter()] },
-    })
+    wrapper = mount(Devices, mountOpts())
     await flushPromises()
 
     // 调用了 deviceApi.list 一次
@@ -101,9 +125,7 @@ describe('Devices 组件', () => {
   })
 
   it('case 2: 创建 —— 点击"新增设备"按钮，DeviceFormModal 打开（create 模式）', async () => {
-    wrapper = mount(Devices, {
-      global: { plugins: [mockRouter()] },
-    })
+    wrapper = mount(Devices, mountOpts())
     await flushPromises()
 
     // 初始无 Modal
@@ -125,9 +147,7 @@ describe('Devices 组件', () => {
     deviceApi.list.mockResolvedValue({ success: true, data: [DEVICES[0]] })
     assetApi.get.mockResolvedValue({ success: true, data: ASSETS[1] })
 
-    wrapper = mount(Devices, {
-      global: { plugins: [mockRouter()] },
-    })
+    wrapper = mount(Devices, mountOpts())
     await flushPromises()
 
     // 找到行内"编辑"按钮（按钮文本精确为"编辑"）
@@ -144,9 +164,7 @@ describe('Devices 组件', () => {
     deviceApi.list.mockResolvedValue({ success: true, data: [DEVICES[0]] })
     assetApi.get.mockResolvedValue({ success: true, data: ASSETS[1] })
 
-    wrapper = mount(Devices, {
-      global: { plugins: [mockRouter()] },
-    })
+    wrapper = mount(Devices, mountOpts())
     await flushPromises()
 
     // 找到行内"删除"按钮
@@ -169,9 +187,7 @@ describe('Devices 组件', () => {
     assetApi.get.mockResolvedValue({ success: true, data: ASSETS[1] })
     deviceApi.test.mockResolvedValue({ success: true, data: { ok: true } })
 
-    wrapper = mount(Devices, {
-      global: { plugins: [mockRouter()] },
-    })
+    wrapper = mount(Devices, mountOpts())
     await flushPromises()
 
     // 找到"连接测试"按钮
@@ -192,9 +208,7 @@ describe('Devices 组件', () => {
       Promise.resolve({ success: true, data: ASSETS[id] || {} })
     )
 
-    wrapper = mount(Devices, {
-      global: { plugins: [mockRouter()] },
-    })
+    wrapper = mount(Devices, mountOpts())
     await flushPromises()
 
     // 初始 3 个设备都渲染

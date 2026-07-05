@@ -1,5 +1,10 @@
 <script setup>
+// v2.6 i18n: 所有硬编码中文 → t()（device.* keys）
+// 状态/状态标签走 utils/status.js（已 i18n 化）
+// 详见: openspec/changes/v26-i18n/specs/frontend-i18n-migration/spec.md
+
 import { ref, computed, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import PageHeader from '../components/PageHeader.vue'
 import DeviceFormModal from '../components/DeviceFormModal.vue'
 import AssetEditModal from '../components/AssetEditModal.vue'
@@ -7,6 +12,8 @@ import BackupListModal from '../components/BackupListModal.vue'
 import ConfirmModal from '../components/ConfirmModal.vue'
 import { deviceApi, assetApi } from '../api/index.js'
 import { getStatusChip, getStatusLabel } from '../utils/status.js'
+
+const { t } = useI18n()
 
 const loading = ref(true)
 const error = ref('')
@@ -43,7 +50,7 @@ async function loadDevices() {
   error.value = ''
   const r = await deviceApi.list()
   if (!r.success) {
-    error.value = r.error || '加载失败'
+    error.value = r.error || t('device.load_failed')
     loading.value = false
     return
   }
@@ -101,9 +108,9 @@ async function testConnection(id) {
   testing.value.delete(id)
   testing.value = new Set(testing.value)
   if (r.success) {
-    alert(`设备 ${id} 连接成功`)
+    alert(t('device.test_success', { id }))
   } else {
-    alert(`设备 ${id} 连接失败：${r.error || '未知错误'}`)
+    alert(t('device.test_failed', { id, error: r.error || t('device.test_failed_unknown') || '未知错误' }))
   }
   await loadDevices()
 }
@@ -140,7 +147,7 @@ const onDeleteConfirm = async () => {
     deletingDevice.value = null
     await loadDevices()
   } else {
-    alert(`删除失败：${r.error || '未知错误'}`)
+    alert(t('device.delete_failed', { error: r.error || t('device.test_failed_unknown') || '未知错误' }))
   }
 }
 
@@ -152,24 +159,24 @@ const onEditAsset = (d) => {
 </script>
 
 <template>
-  <div v-if="loading" class="max-w-[1200px] mx-auto px-8 py-16 text-center text-ink-500">加载中…</div>
+  <div v-if="loading" class="max-w-[1200px] mx-auto px-8 py-16 text-center text-ink-500">{{ t('dashboard.kpi_loading') }}</div>
   <div v-else-if="error" class="max-w-[1200px] mx-auto px-8 py-16">
     <div class="panel p-6 border border-bad/30 bg-bad/5">
-      <div class="text-bad font-medium">设备列表加载失败</div>
+      <div class="text-bad font-medium">{{ t('device.load_failed') }}</div>
       <div class="text-sm text-ink-700 mt-1">{{ error }}</div>
-      <button class="btn-outline mt-3" @click="loadDevices">重试</button>
+      <button class="btn-outline mt-3" @click="loadDevices">{{ t('device.retry') }}</button>
     </div>
   </div>
   <template v-else>
     <PageHeader
-      title="设备"
-      :subtitle="`${devices.length} 台 H3C 设备`"
+      :title="t('device.title')"
+      :subtitle="t('device.subtitle', { n: devices.length })"
     >
       <template #actions>
-        <button v-if="selected.size > 0" class="btn-outline" @click="$router.push({ name: 'batch' })">批量执行 ({{ selected.size }})</button>
+        <button v-if="selected.size > 0" class="btn-outline" @click="$router.push({ name: 'batch' })">{{ t('device.batch_execute', { n: selected.size }) }}</button>
         <button class="btn-primary" @click="onCreate">
           <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
-          新增设备
+          {{ t('device.new_device') }}
         </button>
       </template>
     </PageHeader>
@@ -177,18 +184,18 @@ const onEditAsset = (d) => {
     <div class="max-w-[1200px] mx-auto px-8 pb-16 space-y-4">
       <div class="panel px-4 py-3 flex items-center gap-3 flex-wrap">
         <div class="relative flex-1 min-w-[200px]">
-          <input v-model="search" placeholder="搜索设备名 / IP / 型号…" class="input pl-9" />
+          <input v-model="search" :placeholder="t('device.search_placeholder')" class="input pl-9" />
         </div>
         <div class="h-5 w-px bg-canvas-400" />
         <div class="flex items-center gap-1">
           <button :class="['px-3 py-1.5 text-xs font-medium rounded-full transition',
-            filterStatus === 'all' ? 'bg-ink-900 text-white' : 'text-ink-700 hover:bg-canvas-200']" @click="filterStatus = 'all'">全部</button>
+            filterStatus === 'all' ? 'bg-ink-900 text-white' : 'text-ink-700 hover:bg-canvas-200']" @click="filterStatus = 'all'">{{ t('device.filter_all') }}</button>
           <button :class="['px-3 py-1.5 text-xs font-medium rounded-full transition',
-            filterStatus === 'online' ? 'bg-ink-900 text-white' : 'text-ink-700 hover:bg-canvas-200']" @click="filterStatus = 'online'">在线</button>
+            filterStatus === 'online' ? 'bg-ink-900 text-white' : 'text-ink-700 hover:bg-canvas-200']" @click="filterStatus = 'online'">{{ t('device.filter_online') }}</button>
           <button :class="['px-3 py-1.5 text-xs font-medium rounded-full transition',
-            filterStatus === 'maintenance' ? 'bg-ink-900 text-white' : 'text-ink-700 hover:bg-canvas-200']" @click="filterStatus = 'maintenance'">维护</button>
+            filterStatus === 'maintenance' ? 'bg-ink-900 text-white' : 'text-ink-700 hover:bg-canvas-200']" @click="filterStatus = 'maintenance'">{{ t('device.filter_maintenance') }}</button>
           <button :class="['px-3 py-1.5 text-xs font-medium rounded-full transition',
-            filterStatus === 'offline' ? 'bg-ink-900 text-white' : 'text-ink-700 hover:bg-canvas-200']" @click="filterStatus = 'offline'">离线</button>
+            filterStatus === 'offline' ? 'bg-ink-900 text-white' : 'text-ink-700 hover:bg-canvas-200']" @click="filterStatus = 'offline'">{{ t('device.filter_offline') }}</button>
         </div>
       </div>
 
@@ -199,18 +206,18 @@ const onEditAsset = (d) => {
               <th class="px-4 py-3 w-10 text-left">
                 <input type="checkbox" :checked="allSelected" @change="toggleAll" class="rounded border-canvas-400 text-accent focus:ring-accent/40" />
               </th>
-              <th class="px-4 py-3 text-left font-medium">设备</th>
-              <th class="px-4 py-3 text-left font-medium">IP / 位置</th>
-              <th class="px-4 py-3 text-left font-medium">型号 / 软件</th>
-              <th class="px-4 py-3 text-left font-medium">状态</th>
-              <th class="px-4 py-3 text-left font-medium">保护口</th>
-              <th class="px-4 py-3 text-right font-medium w-72">操作</th>
+              <th class="px-4 py-3 text-left font-medium">{{ t('device.col_device') }}</th>
+              <th class="px-4 py-3 text-left font-medium">{{ t('device.col_ip_location') }}</th>
+              <th class="px-4 py-3 text-left font-medium">{{ t('device.col_model_software') }}</th>
+              <th class="px-4 py-3 text-left font-medium">{{ t('device.col_status') }}</th>
+              <th class="px-4 py-3 text-left font-medium">{{ t('device.col_protected') }}</th>
+              <th class="px-4 py-3 text-right font-medium w-72">{{ t('device.col_actions') }}</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-canvas-300">
             <tr v-if="filtered.length === 0">
               <td colspan="7" class="px-4 py-12 text-center text-ink-500 text-sm">
-                暂无设备，请先 <button class="text-accent hover:underline" @click="onCreate">添加设备</button>
+                {{ t('device.no_devices') }} <button class="text-accent hover:underline" @click="onCreate">{{ t('device.add_device') }}</button>
               </td>
             </tr>
             <tr v-for="d in filtered" :key="d.id" class="hover:bg-canvas-100 transition">
@@ -222,7 +229,7 @@ const onEditAsset = (d) => {
                   <span class="text-sm font-medium text-ink-900">{{ d.name }}</span>
                 </div>
                 <div v-if="d.tags.length" class="flex gap-1 mt-0.5">
-                  <span v-for="t in d.tags" :key="t" class="text-[10px] text-ink-500">#{{ t }}</span>
+                  <span v-for="tag in d.tags" :key="tag" class="text-[10px] text-ink-500">#{{ tag }}</span>
                 </div>
               </td>
               <td class="px-4 py-3">
@@ -243,12 +250,12 @@ const onEditAsset = (d) => {
               <td class="px-4 py-3 text-right">
                 <div class="inline-flex items-center gap-1.5">
                   <button class="btn-soft !text-[11px] !px-2 !py-1" :disabled="testing.has(d.id)" @click="testConnection(d.id)">
-                    {{ testing.has(d.id) ? '测试中…' : '连接测试' }}
+                    {{ testing.has(d.id) ? t('device.btn_testing') : t('device.btn_test') }}
                   </button>
-                  <button class="btn-soft !text-[11px] !px-2 !py-1" @click="onEditAsset(d)">资产</button>
-                  <button class="btn-soft !text-[11px] !px-2 !py-1" @click="openBackupModal(d)">备份</button>
-                  <button class="btn-soft !text-[11px] !px-2 !py-1" @click="onEdit(d)">编辑</button>
-                  <button class="btn-soft !text-[11px] !px-2 !py-1 hover:!text-bad" @click="onDeleteClick(d)">删除</button>
+                  <button class="btn-soft !text-[11px] !px-2 !py-1" @click="onEditAsset(d)">{{ t('device.btn_asset') }}</button>
+                  <button class="btn-soft !text-[11px] !px-2 !py-1" @click="openBackupModal(d)">{{ t('device.btn_backup') }}</button>
+                  <button class="btn-soft !text-[11px] !px-2 !py-1" @click="onEdit(d)">{{ t('device.btn_edit') }}</button>
+                  <button class="btn-soft !text-[11px] !px-2 !py-1 hover:!text-bad" @click="onDeleteClick(d)">{{ t('device.btn_delete') }}</button>
                 </div>
               </td>
             </tr>
@@ -273,10 +280,10 @@ const onEditAsset = (d) => {
     />
     <ConfirmModal
       v-model:open="deleteConfirmOpen"
-      title="删除设备"
-      :message="deletingDevice ? `确定要删除设备 ${deletingDevice.name}（${deletingDevice.host}）吗？\n该操作不可恢复，关联的资产信息将一并删除。` : ''"
-      confirm-text="确定删除"
-      cancel-text="取消"
+      :title="t('device.btn_delete')"
+      :message="deletingDevice ? t('device.delete_confirm_message', { name: deletingDevice.name, host: deletingDevice.host }) : ''"
+      :confirm-text="t('device.delete_confirm_btn')"
+      :cancel-text="t('iface.btn_cancel')"
       variant="danger"
       :busy="deleteBusy"
       @confirm="onDeleteConfirm"

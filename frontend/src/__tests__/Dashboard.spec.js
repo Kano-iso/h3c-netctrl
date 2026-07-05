@@ -2,6 +2,17 @@
 // 覆盖 6 个 case：统计加载 / 最近操作 / 最近告警 / 数据可视化 / 路由跳转 / 刷新
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
+import { createI18n } from 'vue-i18n'
+import zhCN from '../i18n/zh-CN.js'
+import enUS from '../i18n/en-US.js'
+
+// 测试独立 i18n 实例
+const testI18n = createI18n({
+  legacy: false,
+  locale: 'zh-CN',
+  fallbackLocale: 'zh-CN',
+  messages: { 'zh-CN': zhCN, 'en-US': enUS },
+})
 
 vi.mock('../api/index.js', () => ({
   dashboardApi: { get: vi.fn() },
@@ -67,6 +78,7 @@ function setupMocks() {
 function mountDashboard(routerPush = vi.fn()) {
   return mount(Dashboard, {
     global: {
+      plugins: [testI18n],
       stubs: { RouterLink: RouterLinkStub },
       mocks: {
         $router: { push: routerPush },
