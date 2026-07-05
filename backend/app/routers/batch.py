@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import Device
 from app.schemas import APIResponse
+from app.i18n_keys import err, error_response
 from app.utils.crypto import decrypt_password
 from app.utils.log_recorder import record_log
 
@@ -25,15 +26,15 @@ class BatchExecuteRequest(BaseModel):
 def batch_execute(body: BatchExecuteRequest, db: Session = Depends(get_db)):
     """批量在多台设备上执行命令"""
     if not body.device_ids:
-        return APIResponse(success=False, error="请选择至少一台设备")
+        return error_response(err.BATCH_NO_DEVICES)
     if not body.command or not body.command.strip():
-        return APIResponse(success=False, error="命令不能为空")
+        return error_response(err.BATCH_EMPTY_COMMAND)
 
     # 统一设备批量访问（monolith 本地查 / split 走 internal_api）
     from app.utils.device_access import get_devices_batch
     devices = get_devices_batch(db, body.device_ids)
     if not devices:
-        return APIResponse(success=False, error="未找到指定设备")
+        return error_response(err.NOT_FOUND, params={"resource": "devices"})
 
     command = body.command.strip()
     results = []

@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import Device, Asset
 from app.schemas import APIResponse
+from app.i18n_keys import err, error_response
 from app.utils.crypto import decrypt_password
 from app.utils.log_recorder import record_log
 
@@ -71,7 +72,10 @@ def update_asset(device_id: int, body: dict, db: Session = Depends(get_db)):
     if "status" in body:
         valid_statuses = ["online", "offline", "maintenance", "decommissioned", "unknown"]
         if body["status"] not in valid_statuses:
-            return APIResponse(success=False, error=f"无效状态，可选值: {', '.join(valid_statuses)}")
+            return error_response(
+                err.INVALID_PARAM,
+                params={"param": f"status (可选: {', '.join(valid_statuses)})"},
+            )
         asset.status = body["status"]
 
     db.commit()
@@ -92,7 +96,7 @@ def refresh_asset(device_id: int, db: Session = Depends(get_db)):
         password = decrypt_password(device.password_encrypted)
     except Exception as e:
         logger.error(f"密码解密失败: {e}")
-        return APIResponse(success=False, error="密码解密失败")
+        return error_response(err.DEVICE_CRYPTO_DECRYPT_FAILED)
 
     try:
         from app.utils.ssh_executor import SSHExecutor
@@ -122,4 +126,4 @@ def refresh_asset(device_id: int, db: Session = Depends(get_db)):
         error_msg = f"采集硬件信息失败: {str(e)}"
         logger.error(error_msg, exc_info=True)
         record_log(db, device.id, device.name, "asset_refresh", f"刷新硬件信息失败: {device.host}", "failed", error_message=error_msg)
-        return APIResponse(success=False, error=error_msg)
+        return error_response(err.ASSET_COLLECT_FAILED, params={"error": error_msg}, fallback=error_msg)

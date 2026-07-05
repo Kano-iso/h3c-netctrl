@@ -24,6 +24,7 @@ from app.config import settings
 from app.database import get_db, SessionLocal
 from app.models import Backup, Device
 from app.schemas import APIResponse
+from app.i18n_keys import err, error_response
 from app.task_manager import task_manager
 from app.utils.backup_manager import BackupError, BackupManager
 from app.utils.crypto import decrypt_password
@@ -98,22 +99,26 @@ def create_backup(device_id: int, body: BackupCreateRequest, db: Session = Depen
     valid_types = {"startup", "running"}
     invalid = [t for t in types if t not in valid_types]
     if invalid:
-        return APIResponse(success=False, error=f"不支持的备份类型: {invalid}（仅支持 startup / running）")
+        return error_response(
+            err.INVALID_PARAM,
+            params={"param": "backup types"},
+            fallback=f"不支持的备份类型: {invalid}（仅支持 startup / running）",
+        )
 
     mgr = _make_manager(device, password)
     try:
         results = mgr.create_backup(types=types, db=db)
         if not results:
-            return APIResponse(success=False, error="所有类型备份均失败，请查看 logs")
+            return error_response(err.OPERATION_FAILED, params={"error": "所有类型备份均失败"}, fallback="所有类型备份均失败，请查看 logs")
         return APIResponse(
             success=True,
             data={"backups": results, "device_id": device_id, "types_requested": types},
         )
     except BackupError as e:
-        return APIResponse(success=False, error=f"备份失败: {e}")
+        return error_response(err.BACKUP_CREATE_FAILED, params={"error": str(e)}, fallback=f"备份失败: {e}")
     except Exception as e:
         logger.error(f"备份异常 device_id={device_id}: {e}", exc_info=True)
-        return APIResponse(success=False, error=f"备份异常: {e}")
+        return error_response(err.BACKUP_CREATE_FAILED, params={"error": str(e)}, fallback=f"备份异常: {e}")
 
 
 @router.get("/devices/{device_id}/backup", response_model=APIResponse)
@@ -186,16 +191,13 @@ def delete_backup(device_id: int, backup_id: int, db: Session = Depends(get_db))
     try:
         deleted = mgr.delete_backup(backup_id, db=db)
         if not deleted:
-            return APIResponse(
-                success=False,
-                error="备份已锁定，请先解锁再删除",
-            )
+            return error_response(err.BACKUP_LOCKED_NO_DELETE)
         return APIResponse(success=True, data={"deleted": backup_id})
     except BackupError as e:
-        return APIResponse(success=False, error=str(e))
+        return error_response(err.BACKUP_DELETE_FAILED, params={"error": str(e)}, fallback=str(e))
     except Exception as e:
         logger.error(f"删除备份异常 device_id={device_id} bid={backup_id}: {e}", exc_info=True)
-        return APIResponse(success=False, error=f"删除异常: {e}")
+        return error_response(err.BACKUP_DELETE_FAILED, params={"error": str(e)}, fallback=f"删除异常: {e}")
 
 
 @router.post("/devices/{device_id}/backup/{backup_id}/lock", response_model=APIResponse)
@@ -213,10 +215,10 @@ def lock_backup(device_id: int, backup_id: int, body: BackupLockRequest, db: Ses
         mgr.set_locked(backup_id, body.locked, db=db)
         return APIResponse(success=True, data={"id": backup_id, "locked": body.locked})
     except BackupError as e:
-        return APIResponse(success=False, error=str(e))
+        return error_response(err.BACKUP_LOCK_FAILED if body.locked else err.BACKUP_UNLOCK_FAILED, params={"error": str(e)}, fallback=str(e))
     except Exception as e:
         logger.error(f"锁定切换异常 device_id={device_id} bid={backup_id}: {e}", exc_info=True)
-        return APIResponse(success=False, error=f"操作异常: {e}")
+        return error_response(err.OPERATION_FAILED, params={"error": str(e)}, fallback=f"操作异常: {e}")
 
 
 class BackupRestoreRequest(BaseModel):
@@ -245,13 +247,17 @@ def restore_backup(device_id: int, backup_id: int, body: BackupRestoreRequest = 
     try:
         result = mgr.restore(backup_id, with_reboot=body.with_reboot, db=db)
         if not result["success"]:
-            return APIResponse(success=False, error=result["message"], data=result)
+            return error_response(
+                err.BACKUP_RESTORE_FAILED,
+                params={"error": result["message"]},
+                fallback=result["message"],
+            )
         return APIResponse(success=True, data=result)
     except BackupError as e:
-        return APIResponse(success=False, error=str(e))
+        return error_response(err.BACKUP_RESTORE_FAILED, params={"error": str(e)}, fallback=str(e))
     except Exception as e:
         logger.error(f"回滚异常 device_id={device_id} bid={backup_id}: {e}", exc_info=True)
-        return APIResponse(success=False, error=f"回滚异常: {e}")
+        return error_response(err.BACKUP_RESTORE_FAILED, params={"error": str(e)}, fallback=f"回滚异常: {e}")
 
 
 # ============ 全量备份 ============
@@ -278,18 +284,22 @@ def create_all_backups(body: Optional[BackupAllRequest] = None, db: Session = De
         from app.internal_api import get_devices
         resp = get_devices()
         if not resp.get("success"):
-            return APIResponse(success=False, error="无设备可备份")
+            return error_response(err.NOT_FOUND, params={"resource": "devices"}, fallback="无设备可备份")
         from app.utils.device_access import _wrap_device_dict
         devices = [_wrap_device_dict(d) for d in resp["data"]]
     if not devices:
-        return APIResponse(success=False, error="无设备可备份")
+        return error_response(err.NOT_FOUND, params={"resource": "devices"}, fallback="无设备可备份")
 
     types = body.types or ["startup", "running"]
     # 校验类型
     valid_types = {"startup", "running"}
     invalid = [t for t in types if t not in valid_types]
     if invalid:
-        return APIResponse(success=False, error=f"不支持的备份类型: {invalid}（仅支持 startup / running）")
+        return error_response(
+            err.INVALID_PARAM,
+            params={"param": "backup types"},
+            fallback=f"不支持的备份类型: {invalid}（仅支持 startup / running）",
+        )
 
     # 并发备份（串行实现 - SQLite 写并发问题；如切 Postgres 可改 asyncio.gather）
     success_list = []
@@ -488,7 +498,11 @@ def create_backup_async(device_id: int, body: BackupCreateRequest, db: Session =
     valid_types = {"startup", "running"}
     invalid = [t for t in types if t not in valid_types]
     if invalid:
-        return APIResponse(success=False, error=f"不支持的备份类型: {invalid}（仅支持 startup / running）")
+        return error_response(
+            err.INVALID_PARAM,
+            params={"param": "backup types"},
+            fallback=f"不支持的备份类型: {invalid}（仅支持 startup / running）",
+        )
 
     task_id = task_manager.submit("backup", device_id, _async_backup_fn, device_id, types)
     logger.info(f"异步备份已提交: device_id={device_id}, task_id={task_id}")
@@ -513,7 +527,7 @@ def restore_backup_async(
     # 校验备份存在
     backup = db.query(Backup).filter(Backup.id == backup_id, Backup.device_id == device_id).first()
     if not backup:
-        return APIResponse(success=False, error=f"备份不存在: id={backup_id}")
+        return error_response(err.BACKUP_NOT_FOUND, params={"id": backup_id})
 
     task_id = task_manager.submit(
         "restore", device_id, _async_restore_fn, device_id, backup_id, body.with_reboot
@@ -542,7 +556,11 @@ def create_all_backups_async(body: Optional[BackupAllRequest] = None):
     valid_types = {"startup", "running"}
     invalid = [t for t in types if t not in valid_types]
     if invalid:
-        return APIResponse(success=False, error=f"不支持的备份类型: {invalid}（仅支持 startup / running）")
+        return error_response(
+            err.INVALID_PARAM,
+            params={"param": "backup types"},
+            fallback=f"不支持的备份类型: {invalid}（仅支持 startup / running）",
+        )
 
     # device_id 传 0 表示全量（不绑定单设备）
     task_id = task_manager.submit("backup_all", 0, _async_backup_all_fn, types)
@@ -561,7 +579,7 @@ def get_task_status(task_id: int):
     """
     status = task_manager.get_status(task_id)
     if not status:
-        return APIResponse(success=False, error=f"任务不存在: id={task_id}")
+        return error_response(err.BATCH_TASK_NOT_FOUND, params={"task_id": task_id})
     return APIResponse(success=True, data=status)
 
 

@@ -13,6 +13,7 @@ from app.database import get_db
 from app.models import Device
 from app.netconf_client import NetconfClient, classify_netconf_error
 from app.schemas import APIResponse
+from app.i18n_keys import err, error_response
 from app.utils.crypto import decrypt_password
 from app.utils.log_recorder import record_log
 from app.utils.netconf_xml import (
@@ -459,7 +460,7 @@ def get_interfaces(device_id: int, db: Session = Depends(get_db)):
     except Exception as e:
         error_msg = _classify_interface_error(e)
         logger.error(f"接口查询失败: device_id={device_id}, 原因={error_msg}", exc_info=True)
-        return APIResponse(success=False, error=error_msg)
+        return error_response(err.INTERFACE_APPLY_FAILED, params={"error": error_msg}, fallback=error_msg)
 
 
 @router.post("/devices/{device_id}/interfaces/config", response_model=APIResponse)
@@ -470,7 +471,7 @@ def configure_interface(device_id: int, body: InterfaceConfig, db: Session = Dep
         return error
 
     if body.mode not in ("access", "trunk"):
-        return APIResponse(success=False, error="模式必须是 access 或 trunk")
+        return error_response(err.INTERFACE_LINK_TYPE_INVALID, params={"type": body.mode})
 
     # 安全护栏：检查 if_index 是否在保护列表中
     try:
@@ -487,7 +488,11 @@ def configure_interface(device_id: int, body: InterfaceConfig, db: Session = Dep
         logger.warning(f"接口配置被保护拦截: device_id={device_id}, if_index={body.if_index}, 保护列表={protected}")
         record_log(db, device.id, device.name, "interface_config",
                    f"配置接口 if_index={body.if_index} 被保护拦截", "failed", error_message=msg)
-        return APIResponse(success=False, error=msg)
+        return error_response(
+            err.INTERFACE_PROTECTED_BLOCKED,
+            params={"if_index": body.if_index},
+            fallback=msg,
+        )
 
     if body.if_index in protected and body.force:
         logger.warning(f"接口配置 force=true 强制通过保护: device_id={device_id}, if_index={body.if_index}")
@@ -503,7 +508,11 @@ def configure_interface(device_id: int, body: InterfaceConfig, db: Session = Dep
         record_log(db, device.id, device.name, "interface_config",
                    f"配置接口 if_index={body.if_index} 被设备能力拦截（trunk+allowed_vlans）",
                    "failed", error_message=msg)
-        return APIResponse(success=False, error=msg)
+        return error_response(
+            err.INVALID_PARAM,
+            params={"param": "trunk allowed_vlans"},
+            fallback=msg,
+        )
 
     # 收集需要校验的 VLAN（access 用 access_vlan，trunk 用 pvid + allowed_vlans）
     vlans_to_check = []
@@ -525,7 +534,11 @@ def configure_interface(device_id: int, body: InterfaceConfig, db: Session = Dep
             ok, vlan_err = _check_vlans_exist(client, vlans_to_check)
             if not ok:
                 logger.warning(f"接口配置前置校验失败: device_id={device_id}, {vlan_err}")
-                return APIResponse(success=False, error=vlan_err)
+                return error_response(
+                    err.VLAN_NOT_FOUND,
+                    params={"vlan_id": vlans_to_check},
+                    fallback=vlan_err,
+                )
 
             # 校验通过，下发配置
             config_xml = _build_interface_config_xml(
@@ -546,7 +559,7 @@ def configure_interface(device_id: int, body: InterfaceConfig, db: Session = Dep
         logger.error(f"接口配置失败: device_id={device_id}, if_index={body.if_index}, 原因={error_msg}", exc_info=True)
         record_log(db, device.id, device.name, "interface_config",
                    f"配置接口 if_index={body.if_index} 失败", "failed", error_message=error_msg)
-        return APIResponse(success=False, error=error_msg)
+        return error_response(err.INTERFACE_APPLY_FAILED, params={"error": error_msg}, fallback=error_msg)
 
 
 # ============================================================
@@ -650,7 +663,7 @@ def list_vpn_instances(device_id: int, db: Session = Depends(get_db)):
     except Exception as e:
         error_msg = _classify_interface_error(e)
         logger.error(f"VPN instance 列表失败: device_id={device_id}, 原因={error_msg}", exc_info=True)
-        return APIResponse(success=False, error=error_msg)
+        return error_response(err.INTERFACE_APPLY_FAILED, params={"error": error_msg}, fallback=error_msg)
 
 
 @router.post("/devices/{device_id}/vpn-instances", response_model=APIResponse)
@@ -663,7 +676,11 @@ def create_vpn_instance(device_id: int, body: VpnInstanceCreate, db: Session = D
     # 名称校验
     name = body.name.strip()
     if not re.match(r"^[A-Za-z0-9_-]+$", name):
-        return APIResponse(success=False, error="VPN instance 名只能包含字母、数字、下划线、连字符")
+        return error_response(
+            err.INVALID_PARAM,
+            params={"param": "VPN instance name"},
+            fallback="VPN instance 名只能包含字母、数字、下划线、连字符",
+        )
 
     try:
         with NetconfClient(
@@ -673,7 +690,10 @@ def create_vpn_instance(device_id: int, body: VpnInstanceCreate, db: Session = D
             # 预校验：是否已存在
             existing = parse_vpn_instances(client.get_config(build_vpn_instance_filter_xml()))["instances"]
             if any(v["name"] == name for v in existing):
-                return APIResponse(success=False, error=f"VPN instance {name} 已存在")
+                return error_response(
+                    err.OPERATION_FAILED,
+                    params={"error": f"VPN instance {name} 已存在"},
+                )
 
             config_xml = build_vpn_instance_create_xml(name, body.rd)
             client.edit_config(config_xml)
@@ -687,7 +707,7 @@ def create_vpn_instance(device_id: int, body: VpnInstanceCreate, db: Session = D
         logger.error(f"VPN instance 创建失败: device_id={device_id}, name={name}, 原因={error_msg}", exc_info=True)
         record_log(db, device.id, device.name, "vpn_instance_create",
                    f"创建 VPN instance {name} 失败", "failed", error_message=error_msg)
-        return APIResponse(success=False, error=error_msg)
+        return error_response(err.INTERFACE_APPLY_FAILED, params={"error": error_msg}, fallback=error_msg)
 
 
 @router.delete("/devices/{device_id}/vpn-instances/{vpn_name}", response_model=APIResponse)
@@ -705,7 +725,10 @@ def delete_vpn_instance(device_id: int, vpn_name: str, db: Session = Depends(get
             # 预校验：是否还存在
             existing = parse_vpn_instances(client.get_config(build_vpn_instance_filter_xml()))["instances"]
             if not any(v["name"] == vpn_name for v in existing):
-                return APIResponse(success=False, error=f"VPN instance {vpn_name} 不存在")
+                return error_response(
+                    err.NOT_FOUND,
+                    params={"resource": f"VPN instance {vpn_name}"},
+                )
 
             # 预校验：绑定数
             bound = _resolve_interfaces_for_vpn(client, vpn_name)
@@ -728,7 +751,7 @@ def delete_vpn_instance(device_id: int, vpn_name: str, db: Session = Depends(get
         logger.error(f"VPN instance 删除失败: device_id={device_id}, name={vpn_name}, 原因={error_msg}", exc_info=True)
         record_log(db, device.id, device.name, "vpn_instance_delete",
                    f"删除 VPN instance {vpn_name} 失败", "failed", error_message=error_msg)
-        return APIResponse(success=False, error=error_msg)
+        return error_response(err.INTERFACE_APPLY_FAILED, params={"error": error_msg}, fallback=error_msg)
 
 
 # ============ 接口 ↔ VPN instance 绑定端点 ============
@@ -749,11 +772,11 @@ def bind_interface_vpn(device_id: int, if_index: int, body: InterfaceVpnBind,
         logger.warning(f"接口绑 VPN 被保护拦截: device_id={device_id}, if_index={if_index}")
         record_log(db, device.id, device.name, "vpn_instance_bind",
                    f"接口 if_index={if_index} 绑 VPN {body.name} 被保护拦截", "failed", error_message=msg)
-        return APIResponse(success=False, error=msg)
+        return error_response(err.INTERFACE_APPLY_FAILED, params={"error": msg}, fallback=msg)
 
     vpn_name = body.name.strip()
     if not vpn_name:
-        return APIResponse(success=False, error="缺少必填字段: name")
+        return error_response(err.MISSING_FIELD, params={"field": "name"})
 
     try:
         with NetconfClient(
@@ -763,7 +786,10 @@ def bind_interface_vpn(device_id: int, if_index: int, body: InterfaceVpnBind,
             # 预校验：VPN instance 是否存在
             existing = parse_vpn_instances(client.get_config(build_vpn_instance_filter_xml()))["instances"]
             if not any(v["name"] == vpn_name for v in existing):
-                return APIResponse(success=False, error=f"VPN instance {vpn_name} 不存在，请先创建")
+                return error_response(
+                    err.NOT_FOUND,
+                    params={"resource": f"VPN instance {vpn_name}"},
+                )
 
             config_xml = build_interface_bind_vpn_xml(if_index, vpn_name)
             client.edit_config(config_xml)
@@ -777,7 +803,7 @@ def bind_interface_vpn(device_id: int, if_index: int, body: InterfaceVpnBind,
         logger.error(f"接口绑 VPN 失败: device_id={device_id}, if_index={if_index}, vpn={vpn_name}, 原因={error_msg}", exc_info=True)
         record_log(db, device.id, device.name, "vpn_instance_bind",
                    f"接口 if_index={if_index} 绑 VPN {vpn_name} 失败", "failed", error_message=error_msg)
-        return APIResponse(success=False, error=error_msg)
+        return error_response(err.INTERFACE_APPLY_FAILED, params={"error": error_msg}, fallback=error_msg)
 
 
 @router.delete("/devices/{device_id}/interfaces/{if_index}/vpn-instance", response_model=APIResponse)
@@ -806,7 +832,10 @@ def unbind_interface_vpn(device_id: int, if_index: int, db: Session = Depends(ge
             current_ifaces = _parse_interface_response(iface_xml)
             target = next((i for i in current_ifaces if i["if_index"] == if_index), None)
             if not target:
-                return APIResponse(success=False, error=f"接口 if_index={if_index} 不存在")
+                return error_response(
+                    err.INTERFACE_NOT_FOUND,
+                    params={"device_id": device_id, "if_index": if_index},
+                )
 
             # Pass B: 查 L3vpn 拿 Bind 列表（v2.2.1 修复关键点）
             vpn_bindings = _parse_vpn_bindings_by_ifindex(
@@ -815,7 +844,10 @@ def unbind_interface_vpn(device_id: int, if_index: int, db: Session = Depends(ge
             # 合并：把 vpn_bindings 注入 target
             target_vpn = vpn_bindings.get(if_index)
             if not target_vpn:
-                return APIResponse(success=False, error=f"接口 if_index={if_index} 未绑定 VPN instance")
+                return error_response(
+                    err.OPERATION_FAILED,
+                    params={"error": f"接口 if_index={if_index} 未绑定 VPN instance"},
+                )
 
             # 同时记日志用
             target["vpn_instance"] = target_vpn
@@ -833,7 +865,7 @@ def unbind_interface_vpn(device_id: int, if_index: int, db: Session = Depends(ge
         logger.error(f"接口解绑 VPN 失败: device_id={device_id}, if_index={if_index}, 原因={error_msg}", exc_info=True)
         record_log(db, device.id, device.name, "vpn_instance_unbind",
                    f"接口 if_index={if_index} 解绑 VPN 失败", "failed", error_message=error_msg)
-        return APIResponse(success=False, error=error_msg)
+        return error_response(err.INTERFACE_APPLY_FAILED, params={"error": error_msg}, fallback=error_msg)
 
 
 # ============================================================
@@ -1052,7 +1084,7 @@ def change_link_type(device_id: int, if_index: int, body: LinkTypeChange,
         record_log(db, device.id, device.name, "link_type_change",
                    f"改 link type if_index={if_index} -> {body.mode} 被保护拦截",
                    "failed", error_message=msg)
-        return APIResponse(success=False, error=msg)
+        return error_response(err.INTERFACE_APPLY_FAILED, params={"error": msg}, fallback=msg)
     if if_index in protected and body.force:
         logger.warning(f"改 link type force=true 强制通过保护: device_id={device_id}, if_index={if_index}")
 
@@ -1072,7 +1104,10 @@ def change_link_type(device_id: int, if_index: int, body: LinkTypeChange,
                         success=False,
                         error=f"接口 if_index={if_index} 是 L3 接口，无 link type 概念，无法切换 mode",
                     )
-                return APIResponse(success=False, error=f"接口 if_index={if_index} 不存在")
+                return error_response(
+                    err.INTERFACE_NOT_FOUND,
+                    params={"device_id": device_id, "if_index": if_index},
+                )
             if current_mode == body.mode:
                 return APIResponse(
                     success=False,
@@ -1098,7 +1133,7 @@ def change_link_type(device_id: int, if_index: int, body: LinkTypeChange,
         record_log(db, device.id, device.name, "link_type_change",
                    f"改 link type if_index={if_index} -> {body.mode} 失败",
                    "failed", error_message=error_msg)
-        return APIResponse(success=False, error=error_msg)
+        return error_response(err.INTERFACE_APPLY_FAILED, params={"error": error_msg}, fallback=error_msg)
 
 
 # v24-bugfix-ui-feedback-and-loopback: link-mode 护栏拒的 reason_code 字典
@@ -1347,11 +1382,11 @@ def set_interface_ipv4(device_id: int, if_index: int, body: Ipv4AddressSet,
 
     # IP/mask 格式校验
     if not _is_valid_ipv4(body.ip):
-        return APIResponse(success=False, error=f"IP 格式非法: {body.ip!r}（必须 4 段 0-255）")
+        return error_response(err.INTERFACE_IP_INVALID, params={"ip": body.ip})
     if not _is_valid_mask(body.mask):
-        return APIResponse(
-            success=False,
-            error=f"mask 格式非法: {body.mask!r}（必须是连续 1 后跟连续 0，如 255.255.255.0）",
+        return error_response(
+            err.INTERFACE_MASK_INVALID,
+            params={"mask": body.mask},
         )
 
     # 受保护接口护栏
@@ -1361,7 +1396,7 @@ def set_interface_ipv4(device_id: int, if_index: int, body: Ipv4AddressSet,
         logger.warning(f"配 IP 被保护拦截: device_id={device_id}, if_index={if_index}")
         record_log(db, device.id, device.name, "ipv4_address_set",
                    f"接口 if_index={if_index} 配 IP 被保护拦截", "failed", error_message=msg)
-        return APIResponse(success=False, error=msg)
+        return error_response(err.INTERFACE_APPLY_FAILED, params={"error": msg}, fallback=msg)
 
     try:
         with NetconfClient(
@@ -1371,7 +1406,7 @@ def set_interface_ipv4(device_id: int, if_index: int, body: Ipv4AddressSet,
             # L3 校验
             is_l3, l3_err = _check_l3_interface(client, if_index)
             if not is_l3:
-                return APIResponse(success=False, error=l3_err)
+                return error_response(err.INTERFACE_L3_OPERATION_FAILED, params={"error": l3_err}, fallback=l3_err)
 
             # clear + set 两步 edit-config
             # v2.3 真机验证（192.168.100.5 #5131）：H3C V7 IPV4ADDRESS 的 key = (IfIndex, Ipv4Address)，
@@ -1401,7 +1436,7 @@ def set_interface_ipv4(device_id: int, if_index: int, body: Ipv4AddressSet,
                      exc_info=True)
         record_log(db, device.id, device.name, "ipv4_address_set",
                    f"接口 if_index={if_index} 配 IP 失败", "failed", error_message=error_msg)
-        return APIResponse(success=False, error=error_msg)
+        return error_response(err.INTERFACE_APPLY_FAILED, params={"error": error_msg}, fallback=error_msg)
 
 
 # ============ 清空 IPv4 地址 ============
@@ -1426,7 +1461,7 @@ def clear_interface_ipv4(device_id: int, if_index: int, db: Session = Depends(ge
         logger.warning(f"清空 IP 被保护拦截: device_id={device_id}, if_index={if_index}")
         record_log(db, device.id, device.name, "ipv4_address_clear",
                    f"接口 if_index={if_index} 清空 IP 被保护拦截", "failed", error_message=msg)
-        return APIResponse(success=False, error=msg)
+        return error_response(err.INTERFACE_APPLY_FAILED, params={"error": msg}, fallback=msg)
 
     try:
         with NetconfClient(
@@ -1436,7 +1471,7 @@ def clear_interface_ipv4(device_id: int, if_index: int, db: Session = Depends(ge
             # L3 校验
             is_l3, l3_err = _check_l3_interface(client, if_index)
             if not is_l3:
-                return APIResponse(success=False, error=l3_err)
+                return error_response(err.INTERFACE_L3_OPERATION_FAILED, params={"error": l3_err}, fallback=l3_err)
 
             # 清空
             # v2.3 真机验证：H3C V7 key = (IfIndex, Ipv4Address)，先查后逐条 delete
@@ -1457,4 +1492,4 @@ def clear_interface_ipv4(device_id: int, if_index: int, db: Session = Depends(ge
                      exc_info=True)
         record_log(db, device.id, device.name, "ipv4_address_clear",
                    f"接口 if_index={if_index} 清空 IP 失败", "failed", error_message=error_msg)
-        return APIResponse(success=False, error=error_msg)
+        return error_response(err.INTERFACE_APPLY_FAILED, params={"error": error_msg}, fallback=error_msg)

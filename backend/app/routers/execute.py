@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import Device
 from app.schemas import APIResponse
+from app.i18n_keys import err, error_response
 from app.utils.crypto import decrypt_password
 from app.utils.log_recorder import record_log
 
@@ -46,7 +47,7 @@ def execute_command(device_id: int, body: ExecuteRequest, db: Session = Depends(
     if error_resp:
         return error_resp
     if not device or not password:
-        return APIResponse(success=False, error=f"设备不存在或密码获取失败: id={device_id}")
+        return error_response(err.EXECUTE_DEVICE_NOT_FOUND, params={"id": device_id})
 
     try:
         from app.utils.ssh_executor import SSHExecutor
@@ -61,7 +62,7 @@ def execute_command(device_id: int, body: ExecuteRequest, db: Session = Depends(
         if body.commands:
             commands = [c.strip() for c in body.commands if c and c.strip()]
             if not commands:
-                return APIResponse(success=False, error="commands 数组不能全为空行")
+                return error_response(err.EXECUTE_EMPTY_COMMAND)
 
             delay_ms = body.delay_ms if body.delay_ms is not None else 1000
             if delay_ms < 0:
@@ -96,7 +97,7 @@ def execute_command(device_id: int, body: ExecuteRequest, db: Session = Depends(
         # 单命令（向后兼容）
         cmd = body.command.strip()
         if not cmd:
-            return APIResponse(success=False, error="命令不能为空")
+            return error_response(err.EXECUTE_EMPTY_COMMAND)
 
         result = executor.execute(cmd)
 
@@ -109,9 +110,13 @@ def execute_command(device_id: int, body: ExecuteRequest, db: Session = Depends(
             })
         else:
             record_log(db, device.id, device.name, "execute", f"执行命令失败: {cmd}", "failed", error_message=result['output'])
-            return APIResponse(success=False, error=f"命令执行失败: {result['output']}")
+            return error_response(
+                err.EXECUTE_SEND_FAILED,
+                params={"error": result['output']},
+                fallback=f"命令执行失败: {result['output']}",
+            )
     except Exception as e:
         error_msg = f"命令执行异常: {str(e)}"
         logger.error(error_msg, exc_info=True)
         record_log(db, device.id, device.name, "execute", f"命令执行异常: {body.command or body.commands}", "failed", error_message=str(e))
-        return APIResponse(success=False, error=error_msg)
+        return error_response(err.EXECUTE_SEND_FAILED, params={"error": error_msg}, fallback=error_msg)

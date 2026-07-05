@@ -9,6 +9,7 @@ from app.database import get_db
 from app.models import Device
 from app.netconf_client import NetconfClient, classify_connection_error
 from app.schemas import APIResponse, DeviceCreate, DeviceResponse, DeviceUpdate
+from app.i18n_keys import err, error_response
 from app.utils.crypto import decrypt_password, encrypt_password
 from app.utils.log_recorder import record_log
 
@@ -21,8 +22,22 @@ def _get_device_or_404(db: Session, device_id: int):
     """根据 ID 获取设备，不存在时返回错误响应元组"""
     device = db.query(Device).filter(Device.id == device_id).first()
     if not device:
-        return None, APIResponse(success=False, error=f"设备不存在: id={device_id}")
+        return None, error_response(err.DEVICE_NOT_FOUND, params={"id": device_id})
     return device, None
+
+
+# v2.6 i18n: classify_connection_error 返回 (i18n_key, params) 让前端能翻译
+def _classify_with_i18n(error_msg: str):
+    """对错误信息做一次简单的 i18n 分类（基于错误关键字）"""
+    if "认证失败" in error_msg or "auth" in error_msg.lower():
+        return err.DEVICE_CONNECT_AUTH_FAILED, None
+    if "超时" in error_msg or "timeout" in error_msg.lower():
+        return err.DEVICE_CONNECT_TIMEOUT, None
+    if "拒绝" in error_msg or "refused" in error_msg.lower():
+        return err.DEVICE_CONNECT_REFUSED, None
+    if "不可达" in error_msg or "unreachable" in error_msg.lower() or "resolve" in error_msg.lower():
+        return err.DEVICE_CONNECT_UNKNOWN_HOST, None
+    return err.DEVICE_CONNECT_FAILED, {"error": error_msg}
 
 
 # ========== 多设备 CRUD（v1.1 主路由） ==========
@@ -50,16 +65,16 @@ def get_device(device_id: int, db: Session = Depends(get_db)):
 def create_device(body: DeviceCreate, db: Session = Depends(get_db)):
     """添加设备"""
     if not body.host:
-        return APIResponse(success=False, error="缺少必填字段: host")
+        return error_response(err.DEVICE_MISSING_HOST)
     if not body.username:
-        return APIResponse(success=False, error="缺少必填字段: username")
+        return error_response(err.DEVICE_MISSING_USERNAME)
     if not body.password:
-        return APIResponse(success=False, error="缺少必填字段: password")
+        return error_response(err.DEVICE_MISSING_PASSWORD)
 
     try:
         encrypted_pwd = encrypt_password(body.password)
-    except ValueError as e:
-        return APIResponse(success=False, error=str(e))
+    except ValueError:
+        return error_response(err.DEVICE_CRYPTO_DECRYPT_FAILED)
 
     device = Device(
         name=body.name,
@@ -102,8 +117,8 @@ def update_device(device_id: int, body: DeviceUpdate, db: Session = Depends(get_
     if body.password is not None:
         try:
             device.password_encrypted = encrypt_password(body.password)
-        except ValueError as e:
-            return APIResponse(success=False, error=str(e))
+        except ValueError:
+            return error_response(err.DEVICE_CRYPTO_DECRYPT_FAILED)
     if body.protected_interfaces is not None:
         device.protected_interfaces = json.dumps(body.protected_interfaces)
 
@@ -160,7 +175,6 @@ def delete_device(device_id: int, db: Session = Depends(get_db)):
                     "warning": f"关联数据清理失败: {e}",
                 },
             )
-
     return APIResponse(success=True, data={"message": f"设备 {device_id} 已删除"})
 
 
@@ -175,7 +189,7 @@ def test_device_connection(device_id: int, db: Session = Depends(get_db)):
         password = decrypt_password(device.password_encrypted)
     except Exception as e:
         logger.error(f"密码解密失败: {e}")
-        return APIResponse(success=False, error="密码解密失败，请检查ENCRYPTION_KEY配置")
+        return error_response(err.DEVICE_CRYPTO_DECRYPT_FAILED)
 
     try:
         with NetconfClient(
@@ -192,7 +206,8 @@ def test_device_connection(device_id: int, db: Session = Depends(get_db)):
         error_msg = classify_connection_error(e)
         logger.error(f"设备连接测试失败: {device.host}:{device.port}, 原因: {error_msg}", exc_info=True)
         record_log(db, device.id, device.name, "connect", f"测试连接 {device.host}:{device.port}", "failed", error_message=error_msg)
-        return APIResponse(success=False, error=error_msg)
+        i18n_key, i18n_params = _classify_with_i18n(error_msg)
+        return error_response(i18n_key, params=i18n_params)
 
 
 # ========== v1.0 兼容路由（deprecated） ==========
@@ -213,19 +228,19 @@ def compat_create_device(body: DeviceCreate, db: Session = Depends(get_db)):
     """[已弃用] 创建设备，请使用 POST /api/devices"""
     existing = db.query(Device).first()
     if existing:
-        return APIResponse(success=False, error="已存在设备配置，V1.0仅支持单设备，请使用PUT更新")
+        return error_response(err.DEVICE_EXISTS_V1_COMPAT)
 
     if not body.host:
-        return APIResponse(success=False, error="缺少必填字段: host")
+        return error_response(err.DEVICE_MISSING_HOST)
     if not body.username:
-        return APIResponse(success=False, error="缺少必填字段: username")
+        return error_response(err.DEVICE_MISSING_USERNAME)
     if not body.password:
-        return APIResponse(success=False, error="缺少必填字段: password")
+        return error_response(err.DEVICE_MISSING_PASSWORD)
 
     try:
         encrypted_pwd = encrypt_password(body.password)
-    except ValueError as e:
-        return APIResponse(success=False, error=str(e))
+    except ValueError:
+        return error_response(err.DEVICE_CRYPTO_DECRYPT_FAILED)
 
     device = Device(
         name=body.name,
@@ -254,7 +269,7 @@ def compat_update_device(body: DeviceUpdate, db: Session = Depends(get_db)):
     """[已弃用] 更新设备信息，请使用 PUT /api/devices/{id}"""
     device = db.query(Device).first()
     if not device:
-        return APIResponse(success=False, error="未配置设备，请先添加设备信息")
+        return error_response(err.DEVICE_NOT_CONFIGURED)
 
     if body.name is not None:
         device.name = body.name
@@ -267,8 +282,8 @@ def compat_update_device(body: DeviceUpdate, db: Session = Depends(get_db)):
     if body.password is not None:
         try:
             device.password_encrypted = encrypt_password(body.password)
-        except ValueError as e:
-            return APIResponse(success=False, error=str(e))
+        except ValueError:
+            return error_response(err.DEVICE_CRYPTO_DECRYPT_FAILED)
 
     db.commit()
     db.refresh(device)
@@ -283,13 +298,13 @@ def compat_test_device(db: Session = Depends(get_db)):
     """[已弃用] 测试设备连接，请使用 POST /api/devices/{id}/test"""
     device = db.query(Device).first()
     if not device:
-        return APIResponse(success=False, error="未配置设备，请先添加设备信息")
+        return error_response(err.DEVICE_NOT_CONFIGURED)
 
     try:
         password = decrypt_password(device.password_encrypted)
     except Exception as e:
         logger.error(f"密码解密失败: {e}")
-        return APIResponse(success=False, error="密码解密失败，请检查ENCRYPTION_KEY配置")
+        return error_response(err.DEVICE_CRYPTO_DECRYPT_FAILED)
 
     try:
         with NetconfClient(
@@ -304,4 +319,5 @@ def compat_test_device(db: Session = Depends(get_db)):
     except Exception as e:
         error_msg = classify_connection_error(e)
         logger.error(f"设备连接测试失败(v1兼容): {device.host}:{device.port}, 原因: {error_msg}", exc_info=True)
-        return APIResponse(success=False, error=error_msg)
+        i18n_key, i18n_params = _classify_with_i18n(error_msg)
+        return error_response(i18n_key, params=i18n_params)

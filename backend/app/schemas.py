@@ -77,6 +77,10 @@ class APIResponse(BaseModel):
     success: bool
     data: Optional[object] = None
     error: Optional[str] = None
+    # v2.6 i18n: error_key 给前端用 vue-i18n 查翻译；error_params 是 i18n 插值参数
+    # 兼容策略：error 必填（中文降级），error_key 可选；前端优先用 error_key 翻译，找不到再 fallback 到 error
+    error_key: Optional[str] = None
+    error_params: Optional[dict] = None
 
 
 # --- Log 响应模型 ---

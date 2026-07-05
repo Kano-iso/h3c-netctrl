@@ -8,6 +8,7 @@ from app.database import get_db
 from app.models import Device
 from app.netconf_client import NetconfClient, classify_connection_error
 from app.schemas import APIResponse, VLANCreate, VLANResponse, VLANUpdate
+from app.i18n_keys import err, error_response
 from app.utils.crypto import decrypt_password
 from app.utils.log_recorder import record_log
 
@@ -122,14 +123,14 @@ def get_vlans(device_id: int, db: Session = Depends(get_db)):
     except Exception as e:
         error_msg = _classify_vlan_error(e)
         logger.error(f"VLAN查询失败: device_id={device_id}, 原因={error_msg}", exc_info=True)
-        return APIResponse(success=False, error=error_msg)
+        return error_response(err.VLAN_NOT_FOUND, params={"vlan_id": device_id}, fallback=error_msg)
 
 
 @router.post("/devices/{device_id}/vlans", response_model=APIResponse)
 def create_vlan(device_id: int, body: VLANCreate, db: Session = Depends(get_db)):
     """在指定设备上创建 VLAN"""
     if not body.name:
-        return APIResponse(success=False, error="缺少必填字段: name")
+        return error_response(err.MISSING_FIELD, params={"field": "name"})
 
     device, password, error = _get_device_and_password(db, device_id)
     if error:
@@ -146,7 +147,7 @@ def create_vlan(device_id: int, body: VLANCreate, db: Session = Depends(get_db))
 
             for v in existing_vlans:
                 if v["vlan_id"] == body.vlan_id:
-                    return APIResponse(success=False, error=f"VLAN {body.vlan_id}已存在")
+                    return error_response(err.VLAN_DUPLICATE, params={"vlan_id": body.vlan_id})
 
             config_xml = _build_vlan_create_xml(body.vlan_id, body.name)
             client.edit_config(config_xml)
@@ -158,16 +159,16 @@ def create_vlan(device_id: int, body: VLANCreate, db: Session = Depends(get_db))
         error_msg = _classify_vlan_error(e)
         logger.error(f"VLAN创建失败: device_id={device_id}, vlan_id={body.vlan_id}, 原因={error_msg}", exc_info=True)
         record_log(db, device.id, device.name, "vlan_create", f"创建 VLAN {body.vlan_id} (name={body.name})", "failed", error_message=error_msg)
-        return APIResponse(success=False, error=error_msg)
+        return error_response(err.VLAN_CREATE_FAILED, params={"error": error_msg}, fallback=error_msg)
 
 
 @router.put("/devices/{device_id}/vlans/{vlan_id}", response_model=APIResponse)
 def update_vlan(device_id: int, vlan_id: int, body: VLANUpdate, db: Session = Depends(get_db)):
     """修改指定设备上的 VLAN 名称"""
     if not body.name:
-        return APIResponse(success=False, error="缺少必填字段: name")
+        return error_response(err.MISSING_FIELD, params={"field": "name"})
     if vlan_id < 1 or vlan_id > 4094:
-        return APIResponse(success=False, error="VLAN ID必须在1-4094范围内")
+        return error_response(err.INVALID_PARAM, params={"param": "vlan_id (1-4094)"})
 
     device, password, error = _get_device_and_password(db, device_id)
     if error:
@@ -184,7 +185,7 @@ def update_vlan(device_id: int, vlan_id: int, body: VLANUpdate, db: Session = De
 
             vlan_exists = any(v["vlan_id"] == vlan_id for v in existing_vlans)
             if not vlan_exists:
-                return APIResponse(success=False, error=f"VLAN {vlan_id}不存在")
+                return error_response(err.VLAN_NOT_FOUND, params={"vlan_id": vlan_id})
 
             config_xml = _build_vlan_create_xml(vlan_id, body.name)
             client.edit_config(config_xml)
@@ -196,14 +197,14 @@ def update_vlan(device_id: int, vlan_id: int, body: VLANUpdate, db: Session = De
         error_msg = _classify_vlan_error(e)
         logger.error(f"VLAN修改失败: device_id={device_id}, vlan_id={vlan_id}, 原因={error_msg}", exc_info=True)
         record_log(db, device.id, device.name, "vlan_update", f"修改 VLAN {vlan_id} (name={body.name})", "failed", error_message=error_msg)
-        return APIResponse(success=False, error=error_msg)
+        return error_response(err.OPERATION_FAILED, params={"error": error_msg}, fallback=error_msg)
 
 
 @router.delete("/devices/{device_id}/vlans/{vlan_id}", response_model=APIResponse)
 def delete_vlan(device_id: int, vlan_id: int, db: Session = Depends(get_db)):
     """删除指定设备上的 VLAN"""
     if vlan_id < 1 or vlan_id > 4094:
-        return APIResponse(success=False, error="VLAN ID必须在1-4094范围内")
+        return error_response(err.INVALID_PARAM, params={"param": "vlan_id (1-4094)"})
 
     device, password, error = _get_device_and_password(db, device_id)
     if error:
@@ -220,7 +221,7 @@ def delete_vlan(device_id: int, vlan_id: int, db: Session = Depends(get_db)):
 
             vlan_exists = any(v["vlan_id"] == vlan_id for v in existing_vlans)
             if not vlan_exists:
-                return APIResponse(success=False, error=f"VLAN {vlan_id}不存在")
+                return error_response(err.VLAN_NOT_FOUND, params={"vlan_id": vlan_id})
 
             config_xml = _build_vlan_delete_xml(vlan_id)
             client.edit_config(config_xml)
@@ -232,7 +233,7 @@ def delete_vlan(device_id: int, vlan_id: int, db: Session = Depends(get_db)):
         error_msg = _classify_vlan_error(e)
         logger.error(f"VLAN删除失败: device_id={device_id}, vlan_id={vlan_id}, 原因={error_msg}", exc_info=True)
         record_log(db, device.id, device.name, "vlan_delete", f"删除 VLAN {vlan_id}", "failed", error_message=error_msg)
-        return APIResponse(success=False, error=error_msg)
+        return error_response(err.VLAN_DELETE_FAILED, params={"error": error_msg}, fallback=error_msg)
 
 
 # ========== v1.0 兼容路由（deprecated） ==========
@@ -243,13 +244,13 @@ def compat_get_vlans(db: Session = Depends(get_db)):
     """[已弃用] 查询VLAN，请使用 GET /api/devices/{id}/vlans"""
     device = db.query(Device).first()
     if not device:
-        return APIResponse(success=False, error="未配置设备，请先添加设备信息")
+        return error_response(err.DEVICE_NOT_CONFIGURED)
 
     try:
         password = decrypt_password(device.password_encrypted)
     except Exception as e:
         logger.error(f"密码解密失败: {e}")
-        return APIResponse(success=False, error="密码解密失败，请检查ENCRYPTION_KEY配置")
+        return error_response(err.DEVICE_CRYPTO_DECRYPT_FAILED)
 
     try:
         with NetconfClient(
@@ -263,24 +264,24 @@ def compat_get_vlans(db: Session = Depends(get_db)):
         return APIResponse(success=True, data=vlans)
     except Exception as e:
         error_msg = _classify_vlan_error(e)
-        return APIResponse(success=False, error=error_msg)
+        return error_response(err.VLAN_NOT_FOUND, params={"vlan_id": device_id}, fallback=error_msg)
 
 
 @router.post("/vlans", response_model=APIResponse, deprecated=True)
 def compat_create_vlan(body: VLANCreate, db: Session = Depends(get_db)):
     """[已弃用] 创建VLAN，请使用 POST /api/devices/{id}/vlans"""
     if not body.name:
-        return APIResponse(success=False, error="缺少必填字段: name")
+        return error_response(err.MISSING_FIELD, params={"field": "name"})
 
     device = db.query(Device).first()
     if not device:
-        return APIResponse(success=False, error="未配置设备，请先添加设备信息")
+        return error_response(err.DEVICE_NOT_CONFIGURED)
 
     try:
         password = decrypt_password(device.password_encrypted)
     except Exception as e:
         logger.error(f"密码解密失败: {e}")
-        return APIResponse(success=False, error="密码解密失败，请检查ENCRYPTION_KEY配置")
+        return error_response(err.DEVICE_CRYPTO_DECRYPT_FAILED)
 
     try:
         with NetconfClient(
@@ -293,7 +294,7 @@ def compat_create_vlan(body: VLANCreate, db: Session = Depends(get_db)):
 
             for v in existing_vlans:
                 if v["vlan_id"] == body.vlan_id:
-                    return APIResponse(success=False, error=f"VLAN {body.vlan_id}已存在")
+                    return error_response(err.VLAN_DUPLICATE, params={"vlan_id": body.vlan_id})
 
             config_xml = _build_vlan_create_xml(body.vlan_id, body.name)
             client.edit_config(config_xml)
@@ -301,26 +302,26 @@ def compat_create_vlan(body: VLANCreate, db: Session = Depends(get_db)):
         return APIResponse(success=True, data={"vlan_id": body.vlan_id, "name": body.name})
     except Exception as e:
         error_msg = _classify_vlan_error(e)
-        return APIResponse(success=False, error=error_msg)
+        return error_response(err.VLAN_CREATE_FAILED, params={"error": error_msg}, fallback=error_msg)
 
 
 @router.put("/vlans/{vlan_id}", response_model=APIResponse, deprecated=True)
 def compat_update_vlan(vlan_id: int, body: VLANUpdate, db: Session = Depends(get_db)):
     """[已弃用] 修改VLAN，请使用 PUT /api/devices/{id}/vlans/{vlan_id}"""
     if not body.name:
-        return APIResponse(success=False, error="缺少必填字段: name")
+        return error_response(err.MISSING_FIELD, params={"field": "name"})
     if vlan_id < 1 or vlan_id > 4094:
-        return APIResponse(success=False, error="VLAN ID必须在1-4094范围内")
+        return error_response(err.INVALID_PARAM, params={"param": "vlan_id (1-4094)"})
 
     device = db.query(Device).first()
     if not device:
-        return APIResponse(success=False, error="未配置设备，请先添加设备信息")
+        return error_response(err.DEVICE_NOT_CONFIGURED)
 
     try:
         password = decrypt_password(device.password_encrypted)
     except Exception as e:
         logger.error(f"密码解密失败: {e}")
-        return APIResponse(success=False, error="密码解密失败，请检查ENCRYPTION_KEY配置")
+        return error_response(err.DEVICE_CRYPTO_DECRYPT_FAILED)
 
     try:
         with NetconfClient(
@@ -333,7 +334,7 @@ def compat_update_vlan(vlan_id: int, body: VLANUpdate, db: Session = Depends(get
 
             vlan_exists = any(v["vlan_id"] == vlan_id for v in existing_vlans)
             if not vlan_exists:
-                return APIResponse(success=False, error=f"VLAN {vlan_id}不存在")
+                return error_response(err.VLAN_NOT_FOUND, params={"vlan_id": vlan_id})
 
             config_xml = _build_vlan_create_xml(vlan_id, body.name)
             client.edit_config(config_xml)
@@ -341,24 +342,24 @@ def compat_update_vlan(vlan_id: int, body: VLANUpdate, db: Session = Depends(get
         return APIResponse(success=True, data={"vlan_id": vlan_id, "name": body.name})
     except Exception as e:
         error_msg = _classify_vlan_error(e)
-        return APIResponse(success=False, error=error_msg)
+        return error_response(err.OPERATION_FAILED, params={"error": error_msg}, fallback=error_msg)
 
 
 @router.delete("/vlans/{vlan_id}", response_model=APIResponse, deprecated=True)
 def compat_delete_vlan(vlan_id: int, db: Session = Depends(get_db)):
     """[已弃用] 删除VLAN，请使用 DELETE /api/devices/{id}/vlans/{vlan_id}"""
     if vlan_id < 1 or vlan_id > 4094:
-        return APIResponse(success=False, error="VLAN ID必须在1-4094范围内")
+        return error_response(err.INVALID_PARAM, params={"param": "vlan_id (1-4094)"})
 
     device = db.query(Device).first()
     if not device:
-        return APIResponse(success=False, error="未配置设备，请先添加设备信息")
+        return error_response(err.DEVICE_NOT_CONFIGURED)
 
     try:
         password = decrypt_password(device.password_encrypted)
     except Exception as e:
         logger.error(f"密码解密失败: {e}")
-        return APIResponse(success=False, error="密码解密失败，请检查ENCRYPTION_KEY配置")
+        return error_response(err.DEVICE_CRYPTO_DECRYPT_FAILED)
 
     try:
         with NetconfClient(
@@ -371,7 +372,7 @@ def compat_delete_vlan(vlan_id: int, db: Session = Depends(get_db)):
 
             vlan_exists = any(v["vlan_id"] == vlan_id for v in existing_vlans)
             if not vlan_exists:
-                return APIResponse(success=False, error=f"VLAN {vlan_id}不存在")
+                return error_response(err.VLAN_NOT_FOUND, params={"vlan_id": vlan_id})
 
             config_xml = _build_vlan_delete_xml(vlan_id)
             client.edit_config(config_xml)
@@ -379,7 +380,7 @@ def compat_delete_vlan(vlan_id: int, db: Session = Depends(get_db)):
         return APIResponse(success=True, data={"message": f"VLAN {vlan_id}已删除"})
     except Exception as e:
         error_msg = _classify_vlan_error(e)
-        return APIResponse(success=False, error=error_msg)
+        return error_response(err.VLAN_DELETE_FAILED, params={"error": error_msg}, fallback=error_msg)
 
 
 def _classify_vlan_error(error: Exception) -> str:

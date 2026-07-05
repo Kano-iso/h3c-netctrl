@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from app.models import Device
 from app.utils.crypto import decrypt_password
 from app.schemas import APIResponse
+from app.i18n_keys import err, error_response
 
 logger = logging.getLogger("app")
 
@@ -70,13 +71,11 @@ def get_device_with_password(
                 return device, password, None
             except Exception as e:
                 logger.error(f"密码解密失败: {e}")
-                return None, None, APIResponse(
-                    success=False, error="密码解密失败，请检查 ENCRYPTION_KEY 配置"
-                )
+                return None, None, error_response(err.DEVICE_CRYPTO_DECRYPT_FAILED)
         else:
             # 设备真不存在（本地查到了但返回 None）
-            return None, None, APIResponse(
-                success=False, error=f"设备不存在: id={device_id}"
+            return None, None, error_response(
+                err.DEVICE_NOT_FOUND, params={"id": device_id}
             )
 
     # 2. 走内部 API（split 模式）
@@ -84,16 +83,18 @@ def get_device_with_password(
         from app.internal_api import get_device
         resp = get_device(device_id)
         if not resp.get("success"):
-            err = resp.get("error", f"设备不存在: id={device_id}")
-            return None, None, APIResponse(success=False, error=err)
+            err_msg = resp.get("error", f"设备不存在: id={device_id}")
+            return None, None, error_response(
+                err.DEVICE_NOT_FOUND, params={"id": device_id}, fallback=err_msg
+            )
         d = resp["data"]
         device_obj = _wrap_device_dict(d)
         # 内部 API 已解密密码
         return device_obj, d.get("password", ""), None
     except Exception as e:
         logger.error(f"内部 API 查设备失败: {e}")
-        return None, None, APIResponse(
-            success=False, error=f"设备查询失败: {e}"
+        return None, None, error_response(
+            err.DEVICE_NOT_FOUND, params={"id": device_id}, fallback=f"设备查询失败: {e}"
         )
 
 
