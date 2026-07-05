@@ -1,8 +1,11 @@
 ## 1. internal-api-cache（缓存层）
 
-- [ ] 1.1 在 `backend/app/internal_api.py` 加 process-local dict 缓存（key=url+params+headers，value=timestamp+data，TTL=5s，仅 GET）
-- [ ] 1.2 加 `clear_cache()` 函数 + 单元测试（缓存命中 / 过期回源 / 写操作不缓存 / 不同 params 隔离 / clear 生效）
-- [ ] 1.3 pytest fixture 调用 `clear_cache()` 避免测试间污染
+- [x] 1.1 在 `backend/app/internal_api.py` 加 process-local dict 缓存（key=url+params+headers，value=timestamp+data，TTL=5s，仅 GET）
+- [x] 1.2 加 `clear_cache()` 函数 + 单元测试（缓存命中 / 过期回源 / 写操作不缓存 / 不同 params 隔离 / clear 生效）
+- [x] 1.3 pytest fixture 调用 `clear_cache()` 避免测试间污染
+
+**Commit**: `db9799f` feat(internal-api): GET 请求 5s TTL 本地缓存 + 8 单元测试
+**测试**: qa-backend 233 passed (225 baseline + 8 new) / 23 skipped / 0 failed
 
 ## 2. split-default-mode（profile 翻转，BREAKING）
 
