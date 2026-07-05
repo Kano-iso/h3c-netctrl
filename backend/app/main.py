@@ -56,6 +56,41 @@ app.include_router(ctrl_internal.router)
 app.include_router(data_internal.router)
 
 
+def degrade_stale_assets() -> int:
+    """降级陈旧 online 资产为 offline（v2.6.1 fix-asset-stale-status）
+
+    SQL: `UPDATE assets SET status='offline' WHERE status='online'
+          AND updated_at < datetime('now', '-' || :hours || ' hours')`
+
+    幂等：已降级行不再满足 `status='online'`，重复调用影响行数 = 0。
+
+    Returns:
+        受影响行数（0 = 无 stale 资产 / 已降级过 / 功能关闭）
+
+    Raises:
+        仅在数据库异常时抛（不吞错误，遵循"快速失败"原则）
+    """
+    if not settings.ASSET_STALE_ENABLED:
+        logger.info("degrade_stale_assets: ASSET_STALE_ENABLED=False，跳过降级")
+        return 0
+    from sqlalchemy import text
+    with engine.begin() as conn:
+        result = conn.execute(
+            text(
+                "UPDATE assets SET status='offline' "
+                "WHERE status='online' "
+                "AND updated_at < datetime('now', '-' || :hours || ' hours')"
+            ),
+            {"hours": settings.ASSET_STALE_HOURS},
+        )
+        affected = result.rowcount
+    logger.info(
+        f"degrade_stale_assets: 降级完成，hours={settings.ASSET_STALE_HOURS} "
+        f"affected={affected}"
+    )
+    return affected
+
+
 @app.on_event("startup")
 def on_startup():
     """应用启动时通过 Alembic 执行数据库迁移"""
@@ -67,6 +102,15 @@ def on_startup():
     command.upgrade(alembic_cfg, "head")
 
     logging.getLogger("app").info("数据库迁移完成")
+
+    # v2.6.1 fix-asset-stale-status: 仅 data 容器（split 模式）跑陈旧降级
+    # monolith 模式默认 SERVICE_NAME=core，跳过（避免误降级共用库）
+    if SERVICE_NAME == "data":
+        try:
+            degrade_stale_assets()
+        except Exception as e:
+            # 启动期降级失败不阻塞容器启动（采集按钮仍可手动触发）
+            logger.error(f"data 容器启动降级失败: {e}", exc_info=True)
 
 
 @app.get("/health")

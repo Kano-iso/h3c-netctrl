@@ -55,14 +55,22 @@ app.include_router(data_internal.router)
 
 @app.on_event("startup")
 def on_startup():
-    """启动时执行数据库迁移"""
+    """启动时执行数据库迁移 + 陈旧资产降级（v2.6.1 fix-asset-stale-status）"""
     from alembic.config import Config
     from alembic import command
-
     alembic_cfg = Config("alembic.ini")
     alembic_cfg.set_main_option("sqlalchemy.url", f"sqlite:///{settings.DB_PATH}")
     command.upgrade(alembic_cfg, "head")
     logging.getLogger("app").info("data 数据库迁移完成")
+
+    # v2.6.1：陈旧 online 资产 → offline（启动时一次，幂等）
+    # 复用 app.main.degrade_stale_assets（与 monolith 模式走同一份代码）
+    from app.main import degrade_stale_assets
+    try:
+        degrade_stale_assets()
+    except Exception as e:
+        # 启动期降级失败不阻塞容器启动（采集按钮仍可手动触发）
+        logger.error(f"data 容器启动降级失败: {e}", exc_info=True)
 
 
 @app.get("/health")
