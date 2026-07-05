@@ -1,12 +1,12 @@
 # Ops Toolkit 使用手册
 
-> v2.4 运维排错工具包，容器化、开箱即用。
+> v2.5 运维排错工具包，容器化、开箱即用。
 > 启动: `docker compose -f docker-compose.dev.yml --profile ops run --rm ops-toolkit <脚本>`
 > 容器内脚本目录: `/scripts/`，已软链到 `/usr/local/bin/`
 
 ## 📌 默认设备（v2.4.2 改）
 
-**所有 6 个脚本默认指向 Test-Switch-177 (192.168.100.177)**：
+**所有 9 个脚本默认指向 Test-Switch-177 (192.168.100.177)**：
 - 不带 `--device` = 默认 `.177`（安全默认）
 - `--device test` = 显式 test
 - `--device <生产 IP>` = 显式生产（日志 warn，但不阻止）
@@ -28,7 +28,7 @@
 
 ## 快速开始
 
-启动容器后，6 个预制脚本可直接调用（脚本名就是命令名）。
+启动容器后，9 个预制脚本可直接调用（脚本名就是命令名）。
 
 ### 凭据来源（重要）
 
@@ -211,6 +211,114 @@ from ssh_executor import SSHExecutor  # 复用 backend/app/utils/ssh_executor.py
 - **单设备**（明确不做 5 设备批量配置）
 - **不做配置变更验证**（只读命令为主；如需下发配置应走 backend API）
 - **不分页截图**（H3C 设备的 `display this` 等长输出由 SSHExecutor 内部翻页，工具层无感）
+
+### interface-config（v2.5 新增）
+
+- 用途：通过 backend API 下发接口配置（VLAN 创建/删除、access vlan、trunk 允许 vlan）
+- 定位：CLI 入口封装，**不直接走 NETCONF**，复用后端已实现的接口配置 API（避免重复实现 NETCONF 协议）
+- 用法：
+  - `interface-config vlan add <device> <vlan_id> <name>` — 创建 VLAN
+  - `interface-config vlan del <device> <vlan_id>` — 删除 VLAN
+  - `interface-config access set <device> <if_index> <vlan>` — 设置 access vlan
+  - `interface-config trunk allow <device> <if_index> <vlans>` — 设置 trunk 允许 vlan（`<vlans>` 逗号分隔）
+- 输出：✅ / ❌ + backend 返回的 message / error
+- 退出码：0 成功，1 失败，2 缺参数，3 API 不可达
+- 默认设备：与所有脚本一致（test = .177）
+- 凭据：脚本本身不需要设备凭据（已由 backend 持有），只需 backend 容器可达
+
+#### 用法示例
+
+```bash
+# 创建 VLAN
+interface-config vlan add test 100 "业务 A"
+# → ✅ 成功: 100
+
+# 删除 VLAN
+interface-config vlan del test 100
+# → ✅ 成功: VLAN 100已删除
+
+# 设置 access vlan
+interface-config access set test 2 100
+# → ✅ 成功: 接口配置已下发
+
+# 设置 trunk 允许 vlan 100,200,300
+interface-config trunk allow test 3 100,200,300
+# → ✅ 成功: 接口配置已下发
+```
+
+#### 参数清单
+
+| 子命令 | 参数 | 说明 |
+|---|---|---|
+| `vlan add` | `<device> <vlan_id> <name>` | 设备 + VLAN ID (1-4094) + 名称 |
+| `vlan del` | `<device> <vlan_id>` | 设备 + VLAN ID |
+| `access set` | `<device> <if_index> <vlan>` | 设备 + 接口索引 + VLAN ID |
+| `trunk allow` | `<device> <if_index> <vlans>` | 设备 + 接口索引 + 逗号分隔 vlan 列表 |
+
+#### pytest 覆盖
+
+- 单元测试：`backend/tests/test_ops_toolkit_interface_config.py`（待 Task 7.3 补充）
+  - 4 个子命令参数解析
+  - 设备名 / IP 别名解析（调 backend API 查 device_id）
+  - VLAN ID 范围校验（< 1 / > 4094 → 失败）
+  - API 不可达降级（config → backend fallback）
+- 真机集成：`pytest -m integration` 在 .177 上跑创建/删除 VLAN
+- 跑：`docker compose -f docker-compose.dev.yml run --rm --entrypoint "python -m pytest tests/test_ops_toolkit_interface_config.py -v" qa-backend`
+
+#### 限制
+
+- **依赖后端 API**：必须 backend/config 容器在运行
+- **不绕过 backend**：不直接走 NETCONF（即使有 SSH 凭据也走 API，保证审计 / 记录 / 凭据管理一致）
+- **单设备**：每次操作 1 台设备（批量是后端 batch API 的活）
+- **不保存操作记录**：操作日志由 backend record_log 统一记录，ops-toolkit 不重复
+
+### task-monitor（v2.5 新增）
+
+- 用途：轮询异步任务状态（v2.4 引入的 async backup/restore 任务）
+- 定位：异步任务的 CLI 监控入口，**轮询 GET /api/tasks/{id}**，不订阅 WebSocket
+- 用法：
+  - `task-monitor <task_id>` — 默认 300s 超时 / 2s 间隔
+  - `task-monitor <task_id> --timeout 600` — 自定义超时
+  - `task-monitor <task_id> --interval 5` — 自定义轮询间隔
+  - `task-monitor <task_id> --follow` — 完成后继续轮询
+  - `task-monitor <task_id> --json` — JSON 输出（CI 友好）
+- 退出码：0 成功 / 1 失败或取消 / 2 超时 / 3 API 不可达
+- 输出：进度条 + 状态（pending / running / success / failed / cancelled）
+
+#### 用法示例
+
+```bash
+# 1. 监控异步备份任务
+task-monitor task-restore-001
+# → 🔄 [████░░░░░░░░░░░░░░░░░] 30% 执行中 | 正在备份 startup...
+# → 🔄 [██████████░░░░░░░░░░] 50% 执行中 | 正在备份 running...
+# → ✅ [████████████████████] 100% 成功 | 备份完成
+# → 🎉 任务 task-restore-001 执行成功
+
+# 2. 自定义超时 + 间隔
+task-monitor task-restore-001 --timeout 600 --interval 5
+
+# 3. JSON 输出（CI 集成）
+task-monitor task-restore-001 --json
+# → {"task_id": "task-restore-001", "status": "running", "progress": 30, ...}
+# → {"task_id": "task-restore-001", "status": "success", "progress": 100, ...}
+```
+
+#### pytest 覆盖
+
+- 单元测试：`backend/tests/test_ops_toolkit_task_monitor.py`（待 Task 8.2 补充）
+  - 参数解析（--timeout / --interval / --json / --follow）
+  - 终态退出码（success=0 / failed=1 / cancelled=1）
+  - 超时退出（exit 2）
+  - API 不可达退出（exit 3）
+  - JSON 输出格式校验
+- 真机集成：`pytest -m integration` 跑异步备份，验证 task_id 可被 task-monitor 监控
+
+#### 限制
+
+- **轮询模式**：默认 2s 一次，高频场景（>1 任务/秒）应改用 WebSocket
+- **单任务**：每次监控 1 个 task_id（多任务监控是 CI/编排平台的活）
+- **无取消功能**：本脚本只能监控，不能取消（如需取消走 `taskApi.cancel`）
 
 ## 设备命名约定
 
