@@ -35,7 +35,10 @@
 # 凭据：与后端 API 一致（不重复落地，凭据从 .env 注入，容器内 API 调用不带凭据）
 set -euo pipefail
 
-source /scripts/_lib.sh
+# _lib.sh 路径：与脚本同目录（兼容 qa-backend 挂载点 /opt/ops-toolkit-scripts/）
+_LIB_SH="$(cd "$(dirname "$0")" && pwd)/_lib.sh"
+[[ -f "$_LIB_SH" ]] || _LIB_SH="/scripts/_lib.sh"
+source "$_LIB_SH"
 
 # 后端 API base（v2.5 split 模式下 ctrl 容器 8000 端口）
 # 但 interface config 走 config 容器（INTERNAL_CONFIG_URL 默认 http://config:8000）
@@ -228,9 +231,9 @@ except Exception:
 # ============================================================
 
 cmd_vlan_add() {
-    local device="$1"
-    local vlan_id="$2"
-    local name="$3"
+    local device="${1:-}"
+    local vlan_id="${2:-}"
+    local name="${3:-}"
 
     if [[ -z "$device" || -z "$vlan_id" || -z "$name" ]]; then
         _die "用法: interface-config.sh vlan add <device> <vlan_id> <name>"
@@ -256,8 +259,8 @@ cmd_vlan_add() {
 }
 
 cmd_vlan_del() {
-    local device="$1"
-    local vlan_id="$2"
+    local device="${1:-}"
+    local vlan_id="${2:-}"
 
     if [[ -z "$device" || -z "$vlan_id" ]]; then
         _die "用法: interface-config.sh vlan del <device> <vlan_id>"
@@ -281,9 +284,9 @@ cmd_vlan_del() {
 }
 
 cmd_access_set() {
-    local device="$1"
-    local if_index="$2"
-    local vlan="$3"
+    local device="${1:-}"
+    local if_index="${2:-}"
+    local vlan="${3:-}"
 
     if [[ -z "$device" || -z "$if_index" || -z "$vlan" ]]; then
         _die "用法: interface-config.sh access set <device> <if_index> <vlan>"
@@ -312,9 +315,9 @@ cmd_access_set() {
 }
 
 cmd_trunk_allow() {
-    local device="$1"
-    local if_index="$2"
-    local vlans="$3"
+    local device="${1:-}"
+    local if_index="${2:-}"
+    local vlans="${3:-}"
 
     if [[ -z "$device" || -z "$if_index" || -z "$vlans" ]]; then
         _die "用法: interface-config.sh trunk allow <device> <if_index> <vlans>"

@@ -268,13 +268,15 @@ def test_interface_config_shebang():
 # ==================== Case 14: 脚本 source _lib.sh ====================
 
 def test_interface_config_sources_lib():
-    """Case 14: 脚本 source /scripts/_lib.sh（_print_doc_links 等函数来自 _lib）"""
+    """Case 14: 脚本 source _lib.sh（_print_doc_links 等函数来自 _lib）"""
     if not os.path.exists(_INTERFACE_CONFIG_SH):
         pytest.skip(f"interface-config.sh 不存在: {_INTERFACE_CONFIG_SH}")
 
     with open(_INTERFACE_CONFIG_SH) as f:
         content = f.read()
-    assert "source /scripts/_lib.sh" in content
+    # v2.5 兼容 qa-backend 挂载点：用 $(dirname "$0")/_lib.sh 或 fallback /scripts/_lib.sh
+    assert "_lib.sh" in content
+    assert "source" in content
 
 
 # ==================== Case 15: API 调用成功后输出 ✅ ====================
