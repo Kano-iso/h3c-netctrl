@@ -2,7 +2,7 @@
 # 容器拆分蓝图（v2.4.1 实施）
 # 默认 monolith 模式：backend service 全量
 # 3 容器模式：docker compose --profile split up -d ctrl config data
-# 详见 docs/CONTAINER-DECOUPLING.md
+# 详见 VERSION-ROADMAP.md
 # ============================================================
 services:
   # ── monolith 模式（默认） ──

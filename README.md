@@ -29,7 +29,7 @@
 
 ## 当前架构（v2.4.2.1）
 
-> 详见 [docs/CONTAINER-DECOUPLING.md](docs/CONTAINER-DECOUPLING.md)（v2.4.1 实施 3 容器，v2.4.2 灰度上线，v2.4.2.1 加 ops-toolkit 第 7 脚本）。
+> 详见 [VERSION-ROADMAP.md §9 v2.4.1 拆 3 容器实施](VERSION-ROADMAP.md)（ctrl + config + data 3 容器，v2.4.2 灰度上线，v2.4.2.1 加 ops-toolkit 第 7 脚本）。
 
 | 容器 | 职责 | 实施 | 状态 |
 |---|---|---|---|

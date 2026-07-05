@@ -253,8 +253,6 @@
 
 - [openspec/changes/v242-3container-review/proposal.md](../../openspec/changes/v242-3container-review/proposal.md)
 - [openspec/changes/v242-3container-review/design.md](../../openspec/changes/v242-3container-review/design.md)
-- [docs/CONTAINER-INVENTORY.md](CONTAINER-INVENTORY.md) — 3 容器清单
-- [docs/CONTAINER-DECOUPLING.md](CONTAINER-DECOUPLING.md) — 3 容器蓝图
 - [docs/ops-toolkit.md](ops-toolkit.md) — 工具脚本文档
 - [docs/QA-GUIDE.md](QA-GUIDE.md) — QA SOP
 - [docs/PERF-RESULTS-v2.4.2.md](PERF-RESULTS-v2.4.2.md) — v2.4.2 压测报告

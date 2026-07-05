@@ -235,7 +235,4 @@ from ssh_executor import SSHExecutor  # 复用 backend/app/utils/ssh_executor.py
 
 ## 关联文档
 
-- [CONTAINER-CLEANUP-SOP.md](CONTAINER-CLEANUP-SOP.md)：容器清理 SOP
-- [CONTAINER-DECOUPLING.md](CONTAINER-DECOUPLING.md)：容器拆分蓝图
 - [QA-GUIDE.md](QA-GUIDE.md)：QA 测试指南
-- [CONTAINER-INVENTORY.md](CONTAINER-INVENTORY.md)：容器基线清单

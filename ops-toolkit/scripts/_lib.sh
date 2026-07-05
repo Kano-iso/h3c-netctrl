@@ -88,7 +88,6 @@ _print_doc_links() {
     echo ""
     echo "── 文档 ─────────────────────────────────"
     echo "📖 用法:        ${OPS_DOCS_PREFIX}/ops-toolkit.md#${script_name}"
-    echo "📖 排错 SOP:    ${OPS_DOCS_PREFIX}/CONTAINER-CLEANUP-SOP.md"
     echo "📖 凭据来源:    ${OPS_DOCS_PREFIX}/ops-toolkit.md#凭据来源"
     echo "─────────────────────────────────────────"
 }

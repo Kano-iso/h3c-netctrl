@@ -6,7 +6,6 @@
 echo "════════════════════════════════════════════════════════════"
 echo "  📖 QA-GUIDE:    /opt/docs/QA-GUIDE.md"
 echo "  📖 QA 模板:     /opt/docs/openspec/QA-TEMPLATE.md"
-echo "  📖 CONTAINER:   /opt/docs/CONTAINER-INVENTORY.md"
 echo "════════════════════════════════════════════════════════════"
 echo ""
 

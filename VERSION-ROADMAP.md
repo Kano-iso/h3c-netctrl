@@ -226,9 +226,6 @@
 |---|---|
 | [README.md](README.md) | 项目入口 / 快速启动 / 技术栈 |
 | [VERSION-ROADMAP.md](VERSION-ROADMAP.md) | **大版本路线图（本文档）** |
-| [docs/CONTAINER-DECOUPLING.md](docs/CONTAINER-DECOUPLING.md) | 容器解耦蓝图（v2.1.x patch 已 archive） |
-| [docs/tutorial.md](docs/tutorial.md) | 教程 |
-| [docs/implementation.md](docs/implementation.md) | 实施说明 |
 | [openspec/AGENTS.md](openspec/AGENTS.md) | OpenSpec 使用规范（流程类） |
 | [openspec/specs/](openspec/specs/) | 长期沉淀的 spec（按能力维度） |
 | [openspec/changes/](openspec/changes/) | 进行中的 change |
@@ -308,7 +305,7 @@
 **主题**：把 v2.4.0 定稿的 3 容器蓝图落地为可运行代码，故障域隔离 + 双模式共存（monolith/split）渐进上线。
 
 **关联 change**：[v241-container-split](openspec/changes/v241-container-split/)
-**关联蓝图**：[docs/CONTAINER-DECOUPLING.md](docs/CONTAINER-DECOUPLING.md)
+**关联蓝图**：本文档 §9.关键设计决策 + §9.3 容器职责
 
 ### 关键设计决策
 
@@ -445,3 +442,27 @@
 - ✅ **P1 加 paramiko 单设备排错工具**（v2.4.2.1 完成）
 - 剩余 P1：internal_api 5s TTL 缓存 / split mode 设为默认 / vitest EACCES 排障 / Playwright e2e / interface-config.sh / task-monitor.sh
 - 剩余 P2/P3：见 [docs/REVIEW-v242-3container-maturity.md §4](docs/REVIEW-v242-3container-maturity.md#4-v25-候选-backlog)
+
+---
+
+## 12. 远期愿景（"未来"）
+
+> 本章节是 A 类长期维护文档的"将来念想"部分（v2.4.2.1 加）。不写具体时间表，只列"未来"可能的方向。
+
+### 12.1 方向（按可能性，不按时间）
+
+| 方向 | 描述 | 触发条件 |
+|------|------|----------|
+| **sdn 容器（VPC）** | v3.0 引入，独立 SDN 协调器（etcd）+ VPC 能力 | 业务提出 VPC 需求 |
+| **monitor 容器** | 独立监控 / 告警 / dashboard（Prometheus + Grafana）| 监控需求明确（目前弱）|
+| **多厂商支持** | 抽象 NETCONF / CLI 适配层，支持 H3C 以外（华为 / 思科 / 锐捷）| 业务提出多厂商需求 |
+| **Postgres 替代 SQLite** | 3 容器从独立 SQLite 迁到共享 Postgres（v2.4 评估点延期）| 数据规模 / 并发需求出现 |
+| **Web UI 重构** | 当前 Vue 3 + Vite，未来可能换 React / Svelte 等 | UI 框架大版本不兼容时 |
+| **CI/CD 集成** | GitHub Actions / GitLab CI 集成（当前裸写 CI 脚本）| 持续部署需求出现 |
+
+### 12.2 注意
+
+- 本章节只列"方向"，不承诺"时间表"
+- 每个方向触发后，单独起 OpenSpec change（如 `v3-vpc` / `v25x-postgres-migration` 等）
+- 方向删除 / 修改：直接改本章节，不需要单独归档
+- 详细见 [§3 详细版本史 §monitor 远期](#33-详细版本史) 已记录的最早远期条目

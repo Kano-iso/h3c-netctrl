@@ -3,7 +3,7 @@ Routers 模块集合
 
 未来容器解耦蓝图（v2.1.x patch 预留，未实际拆）
 当前 monolith 全部加载；v2.3 拆 asset / v3.0 加 sdn / 未来 monitor
-详见 docs/CONTAINER-DECOUPLING.md
+详见 VERSION-ROADMAP.md
 
 未来归属对照表（仅注释，import 结构不变）：
 

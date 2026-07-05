@@ -20,7 +20,7 @@ setup_logging(log_level=settings.LOG_LEVEL, log_file="./logs/app.log")
 
 # 未来容器解耦预留（v2.1.x patch，未实际拆）
 # 当前 monolith 单进程；v2.3 拆 asset / v3.0 加 sdn / 未来 monitor
-# 详见 docs/CONTAINER-DECOUPLING.md
+# 详见 VERSION-ROADMAP.md
 SERVICE_NAME = os.getenv("SERVICE_NAME", "core")
 logger = logging.getLogger("app")
 logger.info(f"service_name={SERVICE_NAME} (future split: core/asset/sdn/monitor)")

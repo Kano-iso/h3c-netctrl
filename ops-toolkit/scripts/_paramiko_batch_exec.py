@@ -154,7 +154,6 @@ def main():
     print("", file=sys.stderr)
     print("── 文档 ─────────────────────────────────", file=sys.stderr)
     print(f"📖 用法:        {docs_prefix}/ops-toolkit.md#{script_name}", file=sys.stderr)
-    print(f"📖 排错 SOP:    {docs_prefix}/CONTAINER-CLEANUP-SOP.md", file=sys.stderr)
     print(f"📖 凭据来源:    {docs_prefix}/ops-toolkit.md#凭据来源", file=sys.stderr)
     print("─────────────────────────────────────────", file=sys.stderr)
 

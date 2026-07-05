@@ -54,6 +54,4 @@ qa-frontend:
 	fi
 
 # === 容器盘点 (v24-container-cleanup) ===
-# 生成 docs/CONTAINER-INVENTORY.md 基线
-container-inventory:
-	@./scripts/container-inventory.sh
+# 已删除：container-inventory 目标（CONTAINER-INVENTORY.md 文档已精简，盘点命令不再需要）
