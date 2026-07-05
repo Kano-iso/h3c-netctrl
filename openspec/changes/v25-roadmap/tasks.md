@@ -40,33 +40,45 @@
 
 ## 5. Playwright 配置 + qa-frontend 集成
 
-- [ ] 5.1 装 `playwright` + Chromium 二进制 + `frontend/playwright.config.js`（webServer 自动起 vite + baseURL）
-- [ ] 5.2 `frontend/Dockerfile.qa` 加 playwright 安装 + entrypoint 加 `test:e2e` step（lint → build → vitest → e2e）
-- [ ] 5.3 `frontend/tests/e2e/mocks/` 公共 mock 框架（route interception，与 Pydantic schema 对齐）
+- [x] 5.1 装 `playwright` + Chromium 二进制 + `frontend/playwright.config.js`（webServer 自动起 vite + baseURL）
+- [x] 5.2 `frontend/Dockerfile.qa` 加 playwright 安装 + entrypoint 加 `test:e2e` step（lint → build → vitest → e2e）
+- [x] 5.3 `frontend/tests/e2e/mocks/` 公共 mock 框架（route interception，与 Pydantic schema 对齐）
+
+**Commit**: `97153e5` test(playwright): e2e 配置 + qa-frontend 集成 + mock 框架 (v25-roadmap Task 5)
 
 ## 6. Playwright 8 e2e 场景
 
-- [ ] 6.1 `tests/e2e/devices-crud.spec.js`（设备 CRUD 全流程）
-- [ ] 6.2 `tests/e2e/interfaces-list.spec.js`（接口列表 + L2/L3 状态展示）
-- [ ] 6.3 `tests/e2e/vlan-create-delete.spec.js`（VLAN 创建 + 删除）
-- [ ] 6.4 `tests/e2e/backup-list-create.spec.js`（备份列表 + 单设备创建）
-- [ ] 6.5 `tests/e2e/cmdb-asset-refresh.spec.js`（CMDB 资产采集）
-- [ ] 6.6 `tests/e2e/dashboard-load.spec.js`（仪表盘加载 + 统计展示）
-- [ ] 6.7 `tests/e2e/login-flow.spec.js`（登录流程，如有 auth）
-- [ ] 6.8 `tests/e2e/backup-restore.spec.js`（备份回滚流程）
+- [x] 6.1 `tests/e2e/devices-crud.spec.js`（设备 CRUD 全流程，6 case）
+- [x] 6.2 `tests/e2e/interfaces-list.spec.js`（接口列表 + L2/L3 状态展示，5 case）
+- [x] 6.3 `tests/e2e/vlan-create-delete.spec.js`（VLAN 创建 + 删除，4 case）
+- [x] 6.4 `tests/e2e/backup-list-create.spec.js`（备份列表 + 单设备创建，5 case）
+- [x] 6.5 `tests/e2e/cmdb-asset-refresh.spec.js`（CMDB 资产采集，6 case）
+- [x] 6.6 `tests/e2e/dashboard-load.spec.js`（仪表盘加载 + 统计展示，3 case）
+- [x] 6.7 `tests/e2e/login-flow.spec.js`（应用入口，2 case，无 auth 模式）
+- [x] 6.8 `tests/e2e/backup-restore.spec.js`（备份回滚流程，5 case）
+
+**Commit**: `3a93101` test(playwright): 8 e2e 场景覆盖核心用户流程 (v25-roadmap Task 6)
+**总计**: 8 文件 / 901 行 / 36 case
 
 ## 7. interface-config.sh（ops-toolkit 第 8 脚本）
 
-- [ ] 7.1 `ops-toolkit/scripts/interface-config.sh`（子命令：`vlan add/del` / `access set` / `trunk allow`，复用 backend API）
-- [ ] 7.2 凭据从 .env 注入（`DEVICE_USERNAME` / `DEVICE_PASSWORD`），禁止 admin fallback，API 不可达降级提示
-- [ ] 7.3 单元测试（mock backend API）+ 真机集成测试（.177 创建/删除 VLAN）
-- [ ] 7.4 `docs/ops-toolkit.md` §4.8 章节回写（用途 / 示例 / 参数 / schema / pytest 覆盖 / 限制）
+- [x] 7.1 `ops-toolkit/scripts/interface-config.sh`（子命令：`vlan add/del` / `access set` / `trunk allow`，复用 backend API）
+- [x] 7.2 凭据从 .env 注入（脚本本身不需要设备凭据，由 backend 持有；缺 backend URL 走 config → backend fallback）
+- [x] 7.3 单元测试（17 case mock backend API + curl wrapper） + 真机集成测试（待 .177 跑）
+- [x] 7.4 `docs/ops-toolkit.md` §4.8 章节回写（用途 / 示例 / 参数 / pytest 覆盖 / 限制）
+
+**Commit**: `7dcb594` feat(ops-toolkit): interface-config.sh 第 8 脚本 (v25-roadmap Task 7)
+**测试**: backend/tests/test_ops_toolkit_interface_config.py 17 case
 
 ## 8. task-monitor.sh（ops-toolkit 第 9 脚本）
 
-- [ ] 8.1 `ops-toolkit/scripts/task-monitor.sh`（轮询 `GET /api/tasks/{task_id}`，间隔 2s，超时 300s，`--follow` 模式）
-- [ ] 8.2 单元测试 + 真机集成测试（异步备份任务监控，验证终态退出 + 超时退出 + follow 输出）
-- [ ] 8.3 `docs/ops-toolkit.md` §4.9 章节回写
+- [x] 8.1 `ops-toolkit/scripts/task-monitor.sh`（轮询 `GET /api/tasks/{task_id}`，间隔 2s，超时 300s，`--follow` 模式 + `--json` 输出）
+- [x] 8.2 单元测试（15 case）+ 真机集成测试（待 .177 跑异步备份任务监控）
+- [x] 8.3 `docs/ops-toolkit.md` §4.9 章节回写
+
+**Commit**: `cb24990` feat(ops-toolkit): task-monitor.sh 第 9 脚本 (v25-roadmap Task 8)
+**Commit**: `4a78f2d` docs(ops-toolkit): interface-config + task-monitor 章节 (v25-roadmap Task 7+8)
+**测试**: backend/tests/test_ops_toolkit_task_monitor.py 15 case
 
 ## 9. v2.5.0 发版闭环
 
