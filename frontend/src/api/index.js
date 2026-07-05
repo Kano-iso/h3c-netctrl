@@ -121,15 +121,17 @@ export const batchApi = {
 }
 
 // 资产 CMDB
+// v2.6.1 fix-asset-collect-failure: path 从 /devices/{id}/asset/* 改 /assets/device/{id}/*
+// 匹配 vite proxy /api/assets → data:8000 规则
 export const assetApi = {
-  get: (deviceId) => apiCall(`/devices/${deviceId}/asset`),
+  get: (deviceId) => apiCall(`/assets/device/${deviceId}`),
   update: (deviceId, payload) =>
-    apiCall(`/devices/${deviceId}/asset`, {
+    apiCall(`/assets/device/${deviceId}`, {
       method: 'PUT',
       body: JSON.stringify(payload),
     }),
   refresh: (deviceId) =>
-    apiCall(`/devices/${deviceId}/asset/refresh`, { method: 'POST' }),
+    apiCall(`/assets/device/${deviceId}/refresh`, { method: 'POST' }),
 }
 
 // 操作日志
