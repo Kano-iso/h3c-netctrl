@@ -56,12 +56,17 @@ def _get_asset_stats(db: Session):
                 resp = get_assets()
                 if resp.get("success"):
                     assets = resp["data"]
+                    # 关键：stale 只计 "status=online 且 is_stale"（过期 online 资产）
+                    # on_startup 降级后的 offline 不应计 stale（已经是 offline）
                     online = sum(
                         1 for a in assets
                         if a.get("status") == "online" and not a.get("is_stale", False)
                     )
                     offline = sum(1 for a in assets if a.get("status") == "offline")
-                    stale = sum(1 for a in assets if a.get("is_stale", False))
+                    stale = sum(
+                        1 for a in assets
+                        if a.get("status") == "online" and a.get("is_stale", False)
+                    )
                     return online, offline, stale
             except Exception as api_err:
                 logger.error(f"内部 API 查 assets 也失败: {api_err}")

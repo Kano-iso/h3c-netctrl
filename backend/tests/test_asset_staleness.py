@@ -165,3 +165,42 @@ def test_internal_list_assets_excludes_is_stale_when_disabled(client, db, monkey
     data = resp.json()["data"]
     for a in data:
         assert "is_stale" not in a, "关闭时 MUST NOT 含 is_stale 字段"
+
+
+# ===== dashboard split 模式 staleness 计数（回归：stale 只计 is_stale AND online）=====
+
+def test_dashboard_stale_split_mode_only_counts_online_assets(db, monkeypatch):
+    """回归：dashboard._get_asset_stats 在 split 模式下 stale 必须 status='online' AND is_stale
+
+    背景：on_startup 降级后，stale 资产变 offline；dashboard 不应再计 stale（避免双计）
+    模拟 split 模式：让 SQLAlchemy 抛 NoSuchTableError → 走 internal_api 路径
+    """
+    from app.config import settings
+    from app.routers.dashboard import _get_asset_stats
+    from sqlalchemy.exc import NoSuchTableError, OperationalError
+
+    monkeypatch.setattr(settings, "ASSET_STALE_HOURS", 1.0)
+    monkeypatch.setattr(settings, "ASSET_STALE_ENABLED", True)
+
+    # mock internal_api.get_assets 返回 mixed 状态数据
+    fake_assets = [
+        {"id": 1, "device_id": 101, "status": "online", "is_stale": False},   # 新鲜 online
+        {"id": 2, "device_id": 102, "status": "online", "is_stale": True},    # 过期 online → stale
+        {"id": 3, "device_id": 103, "status": "offline", "is_stale": True},   # 已降级，不应计 stale
+        {"id": 4, "device_id": 104, "status": "offline", "is_stale": False},  # 正常 offline
+    ]
+    from app import internal_api
+    monkeypatch.setattr(internal_api, "get_assets", lambda: {"success": True, "data": fake_assets})
+
+    # 模拟 split 模式：让所有 db.query 抛 NoSuchTableError
+    class FakeQuery:
+        def filter(self, *args, **kwargs):
+            return self
+        def scalar(self):
+            raise NoSuchTableError("simulated: ctrl has no assets table")
+    db.query = lambda *a, **kw: FakeQuery()
+
+    online, offline, stale = _get_asset_stats(db)
+    assert online == 1, f"应只有 1 个新鲜 online，实际 {online}"
+    assert offline == 2, f"应 2 个 offline（含已降级），实际 {offline}"
+    assert stale == 1, f"应只 1 个 stale（online+is_stale），实际 {stale}"
