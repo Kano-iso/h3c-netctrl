@@ -16,6 +16,9 @@ COPY frontend/ .
 # chown 后 vitest 写临时文件不再报 EACCES
 RUN chown -R node:node /app
 
+# v2.5：装 Playwright Chromium 浏览器（npm install 后才能 npx playwright install）
+RUN npx playwright install --with-deps chromium
+
 # 复制 docs（让 QA-GUIDE 链接在容器内可访问）
 COPY docs/ /opt/docs/
 
@@ -23,10 +26,11 @@ COPY docs/ /opt/docs/
 COPY backend/entrypoint-qa.sh /usr/local/bin/entrypoint-qa.sh
 RUN chmod +x /usr/local/bin/entrypoint-qa.sh
 
-# v2.5：加 test:unit（vitest）步骤
-# 顺序：lint → type-check → build → test:unit
-# - lint 不过 → type-check/build/test:unit 不跑
-# - type-check 不过 → build/test:unit 不跑
-# - build 不过 → test:unit 不跑
+# v2.5：加 test:unit（vitest）+ test:e2e（playwright）步骤
+# 顺序：lint → type-check → build → test:unit → test:e2e
+# - lint 不过 → 后续不跑
+# - type-check 不过 → 后续不跑
+# - build 不过 → 后续不跑
+# - vitest 不过 → e2e 不跑
 ENTRYPOINT ["entrypoint-qa.sh"]
-CMD ["sh", "-c", "npm run lint && npm run type-check && npm run build && npm run test:unit"]
+CMD ["sh", "-c", "npm run lint && npm run type-check && npm run build && npm run test:unit && npm run test:e2e"]
