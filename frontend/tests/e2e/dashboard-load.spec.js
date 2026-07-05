@@ -32,18 +32,18 @@ test.describe('Dashboard 仪表盘', () => {
     // 设备总览：渲染 mock 中的设备名
     await expect(page.getByText('设备总览')).toBeVisible()
     for (const d of DEVICES) {
-      await expect(page.getByText(d.name)).toBeVisible()
+      await expect(page.getByText(d.name).first()).toBeVisible()
     }
 
     // 最近操作：渲染 mock 中的日志
     await expect(page.getByText('最近操作')).toBeVisible()
     await expect(page.getByText('backup_create')).toBeVisible()
 
-    // 快速入口：4 个 RouterLink
-    await expect(page.getByText('运维终端')).toBeVisible()
-    await expect(page.getByText('接口管理')).toBeVisible()
-    await expect(page.getByText('批量操作')).toBeVisible()
-    await expect(page.getByText('CMDB')).toBeVisible()
+    // 快速入口：4 个 RouterLink（用 .first() 避开 sidebar 同名链接）
+    await expect(page.getByText('运维终端').first()).toBeVisible()
+    await expect(page.getByText('接口管理').first()).toBeVisible()
+    await expect(page.getByText('批量操作').first()).toBeVisible()
+    await expect(page.getByText('CMDB').first()).toBeVisible()
   })
 
   test('刷新按钮：点击重新加载 dashboard + devices + assets', async ({ page }) => {

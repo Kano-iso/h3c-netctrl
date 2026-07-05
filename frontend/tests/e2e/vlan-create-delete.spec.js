@@ -27,8 +27,9 @@ test.describe('VLAN 创建/删除', () => {
 
   test('VLAN 后端 API：mock 创建 VLAN 200 成功', async ({ page }) => {
     let createCalled = false
-    await page.route('**/api/vlans*', async (route) => {
-      if (route.request().method() === 'POST') {
+    // 用 regex 匹配 /api/vlans 和 /api/vlans/N（Playwright glob 中 * 不跨 /）
+    await page.route(/\/api\/vlans(\/.*)?$/, async (route) => {
+      if (route.request().method() === 'POST' && route.request().url().endsWith('/api/vlans')) {
         createCalled = true
         await route.fulfill({
           status: 200,
@@ -60,7 +61,7 @@ test.describe('VLAN 创建/删除', () => {
 
   test('VLAN 后端 API：mock 删除 VLAN 100 成功', async ({ page }) => {
     let deleteCalled = false
-    await page.route('**/api/vlans*', async (route) => {
+    await page.route(/\/api\/vlans\/\d+$/, async (route) => {
       if (route.request().method() === 'DELETE') {
         deleteCalled = true
         await route.fulfill({

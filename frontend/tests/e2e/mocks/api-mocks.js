@@ -40,11 +40,11 @@ const BACKUPS = [
   { id: 102, device_id: 1, type: 'running', filename: 'running_20240101_000000.cfg', size: 2345, created_at: '2024-01-01T00:00:01', locked: false },
 ]
 
-// 仪表盘 mock
+// 仪表盘 mock（device_stats 字段对齐 Dashboard.vue：online / offline / total）
 const DASHBOARD = {
-  device_stats: { total: 4, up: 3, down: 1 },
+  device_stats: { total: 4, online: 3, offline: 1 },
   recent_logs: [
-    { id: 1, device_id: 1, action: 'backup_create', status: '成功', created_at: '2024-01-01T00:00:00' },
+    { id: 1, device_id: 1, action: 'backup_create', status: 'success', created_at: '2024-01-01T00:00:00', device_name: 'Test-Switch-1', detail: '创建备份' },
   ],
   recent_failures: [],
 }

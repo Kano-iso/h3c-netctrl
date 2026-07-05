@@ -16,8 +16,17 @@ COPY frontend/ .
 # chown 后 vitest 写临时文件不再报 EACCES
 RUN chown -R node:node /app
 
-# v2.5：装 Playwright Chromium 浏览器（npm install 后才能 npx playwright install）
-RUN npx playwright install --with-deps chromium
+# v2.5：装系统 chromium（避免 playwright 自己下载，更稳定）
+# Playwright 默认用自己下载的 chromium，但 Alpine 装系统 chromium 包更可靠
+# alpine 3.23 + chromium 149 直接可用
+RUN apk add --no-cache \
+    chromium \
+    nss \
+    freetype \
+    harfbuzz \
+    ca-certificates \
+    ttf-freefont \
+    && which chromium && chromium --version
 
 # 复制 docs（让 QA-GUIDE 链接在容器内可访问）
 COPY docs/ /opt/docs/
@@ -32,5 +41,7 @@ RUN chmod +x /usr/local/bin/entrypoint-qa.sh
 # - type-check 不过 → 后续不跑
 # - build 不过 → 后续不跑
 # - vitest 不过 → e2e 不跑
+# Playwright 配置用系统 chromium：PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH 指向 /usr/bin/chromium
+ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 ENTRYPOINT ["entrypoint-qa.sh"]
 CMD ["sh", "-c", "npm run lint && npm run type-check && npm run build && npm run test:unit && npm run test:e2e"]

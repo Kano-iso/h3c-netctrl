@@ -12,17 +12,17 @@ test.describe('Devices 设备 CRUD', () => {
     await page.goto('/#/devices', { waitUntil: 'networkidle' })
 
     // 等表格行渲染
-    await expect(page.getByText('Test-Switch-1')).toBeVisible()
+    await expect(page.getByText(/^Test-Switch-1$/).first()).toBeVisible()
     // 表头
-    await expect(page.getByText('设备', { exact: true })).toBeVisible()
+    await expect(page.getByText('设备', { exact: true }).first()).toBeVisible()
     // 资产信息（型号 / 位置）
-    await expect(page.getByText('S5560X-30C-EI')).toBeVisible()
-    await expect(page.getByText('北京-机房-A')).toBeVisible()
+    await expect(page.getByText('S5560X-30C-EI').first()).toBeVisible()
+    await expect(page.getByText('北京-机房-A').first()).toBeVisible()
   })
 
   test('创建：点击"新增设备" → Modal 打开 → 提交', async ({ page }) => {
     await page.goto('/#/devices', { waitUntil: 'networkidle' })
-    await expect(page.getByText('Test-Switch-1')).toBeVisible()
+    await expect(page.getByText(/^Test-Switch-1$/).first()).toBeVisible()
 
     // 点击"新增设备"按钮
     const createBtn = page.getByRole('button', { name: '新增设备' })
@@ -36,7 +36,7 @@ test.describe('Devices 设备 CRUD', () => {
 
   test('编辑：点击行内"编辑"按钮 → Modal 打开（edit 模式）', async ({ page }) => {
     await page.goto('/#/devices', { waitUntil: 'networkidle' })
-    await expect(page.getByText('Test-Switch-1')).toBeVisible()
+    await expect(page.getByText(/^Test-Switch-1$/).first()).toBeVisible()
 
     // 行内编辑按钮（精确文本"编辑"）
     const editBtn = page.getByRole('button', { name: '编辑', exact: true })
@@ -59,16 +59,16 @@ test.describe('Devices 设备 CRUD', () => {
     })
 
     await page.goto('/#/devices', { waitUntil: 'networkidle' })
-    await expect(page.getByText('Test-Switch-1')).toBeVisible()
+    await expect(page.getByText(/^Test-Switch-1$/).first()).toBeVisible()
 
     // 行内删除按钮
     const delBtn = page.getByRole('button', { name: '删除', exact: true })
     await delBtn.click()
 
     // ConfirmModal 打开，标题"删除设备"，message 含设备名 + host
-    await expect(page.getByText('删除设备')).toBeVisible()
-    await expect(page.getByText('Test-Switch-1')).toBeVisible()
-    await expect(page.getByText('192.168.100.4')).toBeVisible()
+    await expect(page.getByText('删除设备').first()).toBeVisible()
+    await expect(page.getByText(/^Test-Switch-1$/).first()).toBeVisible()
+    await expect(page.getByText('192.168.100.4').first()).toBeVisible()
 
     // 点击"确定删除"按钮
     const confirmBtn = page.getByRole('button', { name: '确定删除' })
@@ -91,7 +91,7 @@ test.describe('Devices 设备 CRUD', () => {
     })
 
     await page.goto('/#/devices', { waitUntil: 'networkidle' })
-    await expect(page.getByText('Test-Switch-1')).toBeVisible()
+    await expect(page.getByText(/^Test-Switch-1$/).first()).toBeVisible()
 
     // 拦截 alert（testConnection 会弹 alert）
     page.on('dialog', (dialog) => dialog.accept())
@@ -125,7 +125,7 @@ test.describe('Devices 设备 CRUD', () => {
     })
 
     await page.goto('/#/devices', { waitUntil: 'networkidle' })
-    await expect(page.getByText('Test-Switch-1')).toBeVisible()
+    await expect(page.getByText(/^Test-Switch-1$/).first()).toBeVisible()
     await expect(page.getByText('Production-Spine')).toBeVisible()
 
     // 输入搜索词
@@ -134,6 +134,6 @@ test.describe('Devices 设备 CRUD', () => {
 
     // 过滤后只剩 Production-Spine
     await expect(page.getByText('Production-Spine')).toBeVisible()
-    await expect(page.getByText('Test-Switch-1')).not.toBeVisible()
+    await expect(page.getByText(/^Test-Switch-1$/).first()).not.toBeVisible()
   })
 })

@@ -25,7 +25,7 @@ test.describe('Backup 回滚流程', () => {
     })
 
     await page.goto('/#/backup', { waitUntil: 'networkidle' })
-    await expect(page.getByText('Test-Switch-1')).toBeVisible({ timeout: 5000 })
+    await expect(page.getByText(/^Test-Switch-1$/).first()).toBeVisible({ timeout: 5000 })
 
     // 拦截 alert
     page.on('dialog', async (dialog) => {
@@ -61,7 +61,7 @@ test.describe('Backup 回滚流程', () => {
     })
 
     await page.goto('/#/backup', { waitUntil: 'networkidle' })
-    await expect(page.getByText('Test-Switch-1')).toBeVisible({ timeout: 5000 })
+    await expect(page.getByText(/^Test-Switch-1$/).first()).toBeVisible({ timeout: 5000 })
 
     const result = await page.evaluate(async () => {
       const r = await fetch('/api/devices/1/backup/101/restore', {
@@ -86,7 +86,7 @@ test.describe('Backup 回滚流程', () => {
     })
 
     await page.goto('/#/backup', { waitUntil: 'networkidle' })
-    await expect(page.getByText('Test-Switch-1')).toBeVisible({ timeout: 5000 })
+    await expect(page.getByText(/^Test-Switch-1$/).first()).toBeVisible({ timeout: 5000 })
 
     const result = await page.evaluate(async () => {
       const r = await fetch('/api/devices/1/backup/101/restore', {
@@ -116,7 +116,7 @@ test.describe('Backup 回滚流程', () => {
     })
 
     await page.goto('/#/backup', { waitUntil: 'networkidle' })
-    await expect(page.getByText('Test-Switch-1')).toBeVisible({ timeout: 5000 })
+    await expect(page.getByText(/^Test-Switch-1$/).first()).toBeVisible({ timeout: 5000 })
 
     const result = await page.evaluate(async () => {
       const r = await fetch('/api/devices/1/backup/101/restore-async', {
@@ -152,7 +152,7 @@ test.describe('Backup 回滚流程', () => {
     })
 
     await page.goto('/#/backup', { waitUntil: 'networkidle' })
-    await expect(page.getByText('Test-Switch-1')).toBeVisible({ timeout: 5000 })
+    await expect(page.getByText(/^Test-Switch-1$/).first()).toBeVisible({ timeout: 5000 })
 
     const result = await page.evaluate(async () => {
       const r = await fetch('/api/tasks/task-restore-001')

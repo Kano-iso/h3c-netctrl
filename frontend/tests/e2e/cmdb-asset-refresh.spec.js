@@ -12,13 +12,22 @@ test.describe('CMDB 资产采集', () => {
     await page.goto('/#/cmdb', { waitUntil: 'networkidle' })
 
     // 设备名
-    await expect(page.getByText('Test-Switch-1')).toBeVisible()
+    await expect(page.getByText(/^Test-Switch-1$/).first()).toBeVisible()
     // 资产：型号 / 软件包 / 位置
-    await expect(page.getByText('S5560X-30C-EI')).toBeVisible()
-    await expect(page.getByText('北京-机房-A')).toBeVisible()
-    // 标签拆分渲染
-    await expect(page.getByText('核心').first()).toBeVisible()
-    await expect(page.getByText('生产').first()).toBeVisible()
+    await expect(page.getByText('S5560X-30C-EI').first()).toBeVisible()
+    await expect(page.getByText('北京-机房-A').first()).toBeVisible()
+  })
+
+  test('卡片视图标签：tags 渲染为 #tag badges', async ({ page }) => {
+    await page.goto('/#/cmdb', { waitUntil: 'networkidle' })
+    await expect(page.getByText(/^Test-Switch-1$/).first()).toBeVisible()
+
+    // 切到"分组"（卡片）视图，tags 才显示为 #tag
+    const cardBtn = page.getByRole('button', { name: '分组' })
+    await cardBtn.click()
+    // 标签（tags='核心,生产' 渲染为 #核心 #生产）
+    await expect(page.getByText('#核心').first()).toBeVisible()
+    await expect(page.getByText('#生产').first()).toBeVisible()
   })
 
   test('全量刷新：点击"刷新"按钮 → 调 assetApi.refresh（每台设备）', async ({ page }) => {
@@ -45,7 +54,7 @@ test.describe('CMDB 资产采集', () => {
     })
 
     await page.goto('/#/cmdb', { waitUntil: 'networkidle' })
-    await expect(page.getByText('Test-Switch-1')).toBeVisible()
+    await expect(page.getByText(/^Test-Switch-1$/).first()).toBeVisible()
 
     // 点击"刷新"按钮（PageHeader actions slot）
     const refreshBtn = page.getByRole('button', { name: '刷新' })
@@ -72,7 +81,7 @@ test.describe('CMDB 资产采集', () => {
     })
 
     await page.goto('/#/cmdb', { waitUntil: 'networkidle' })
-    await expect(page.getByText('Test-Switch-1')).toBeVisible()
+    await expect(page.getByText(/^Test-Switch-1$/).first()).toBeVisible()
 
     // 行内采集按钮（如果存在）
     const collectBtn = page.getByRole('button', { name: /采集|刷新/ }).nth(1)  // 跳过 PageHeader 的"刷新"
@@ -85,7 +94,7 @@ test.describe('CMDB 资产采集', () => {
 
   test('编辑资产：点击"资产编辑"按钮 → 打开 modal', async ({ page }) => {
     await page.goto('/#/cmdb', { waitUntil: 'networkidle' })
-    await expect(page.getByText('Test-Switch-1')).toBeVisible()
+    await expect(page.getByText(/^Test-Switch-1$/).first()).toBeVisible()
 
     // 行内"资产"或"编辑"按钮
     const editBtn = page.getByRole('button', { name: /资产|编辑/ }).first()
@@ -98,14 +107,14 @@ test.describe('CMDB 资产采集', () => {
 
   test('搜索过滤：输入关键词过滤资产列表', async ({ page }) => {
     await page.goto('/#/cmdb', { waitUntil: 'networkidle' })
-    await expect(page.getByText('Test-Switch-1')).toBeVisible()
+    await expect(page.getByText(/^Test-Switch-1$/).first()).toBeVisible()
 
     // 搜索 input
     const searchInput = page.locator('input[placeholder*="搜索"]')
     if (await searchInput.count() > 0) {
       await searchInput.fill('S5560X')
       // 过滤后还有 Test-Switch-1（型号 S5560X-30C-EI 匹配）
-      await expect(page.getByText('Test-Switch-1')).toBeVisible()
+      await expect(page.getByText(/^Test-Switch-1$/).first()).toBeVisible()
     }
   })
 
@@ -129,7 +138,7 @@ test.describe('CMDB 资产采集', () => {
     })
 
     await page.goto('/#/cmdb', { waitUntil: 'networkidle' })
-    await expect(page.getByText('Test-Switch-1')).toBeVisible()
+    await expect(page.getByText(/^Test-Switch-1$/).first()).toBeVisible()
 
     const result = await page.evaluate(async () => {
       const r = await fetch('/api/devices/1/asset', {

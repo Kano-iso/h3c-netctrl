@@ -1,6 +1,10 @@
 // v2.5: Playwright 配置 + webServer 自动起 vite
 import { defineConfig, devices } from '@playwright/test'
 
+// 调试：确认环境变量在容器内被读
+const _chromiumPath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
+console.log(`[playwright.config] PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=${_chromiumPath}`)
+
 export default defineConfig({
   testDir: './tests/e2e',
   // 8 e2e 场景超时 30s（mock 路由快）
@@ -27,7 +31,16 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
+      use: {
+        ...devices['Desktop Chrome'],
+        // qa 容器内 Playwright 没自带 chromium，用系统 chromium（apk add chromium）
+        // v2.5 fix: Playwright 1.49+ 默认用 chrome-headless-shell，executablePath 优先级不够
+        // 改用 channel: 'chromium' + executablePath 双保险
+        channel: 'chromium',
+        launchOptions: {
+          executablePath: _chromiumPath || undefined,
+        },
+      },
     },
   ],
 })

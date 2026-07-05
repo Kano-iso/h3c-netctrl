@@ -14,7 +14,7 @@ test.describe('Backup 备份管理', () => {
     await page.goto('/#/backup', { waitUntil: 'networkidle' })
 
     // 设备名 + 备份文件名
-    await expect(page.getByText('Test-Switch-1')).toBeVisible({ timeout: 5000 })
+    await expect(page.getByText(/^Test-Switch-1$/).first()).toBeVisible({ timeout: 5000 })
     await expect(page.getByText('startup_20240101_000000.cfg')).toBeVisible()
     await expect(page.getByText('running_20240101_000000.cfg')).toBeVisible()
   })
@@ -38,7 +38,7 @@ test.describe('Backup 备份管理', () => {
     })
 
     await page.goto('/#/backup', { waitUntil: 'networkidle' })
-    await expect(page.getByText('Test-Switch-1')).toBeVisible({ timeout: 5000 })
+    await expect(page.getByText(/^Test-Switch-1$/).first()).toBeVisible({ timeout: 5000 })
 
     // 通过 page.evaluate 直接调 API 验证 mock
     const result = await page.evaluate(async () => {
@@ -74,7 +74,7 @@ test.describe('Backup 备份管理', () => {
     })
 
     await page.goto('/#/backup', { waitUntil: 'networkidle' })
-    await expect(page.getByText('Test-Switch-1')).toBeVisible({ timeout: 5000 })
+    await expect(page.getByText(/^Test-Switch-1$/).first()).toBeVisible({ timeout: 5000 })
 
     const result = await page.evaluate(async () => {
       const r = await fetch('/api/backups', {
@@ -92,7 +92,7 @@ test.describe('Backup 备份管理', () => {
 
   test('备份列表 API：GET /api/devices/{id}/backup 返回 mock 备份', async ({ page }) => {
     await page.goto('/#/backup', { waitUntil: 'networkidle' })
-    await expect(page.getByText('Test-Switch-1')).toBeVisible({ timeout: 5000 })
+    await expect(page.getByText(/^Test-Switch-1$/).first()).toBeVisible({ timeout: 5000 })
 
     const result = await page.evaluate(async () => {
       const r = await fetch('/api/devices/1/backup')
@@ -115,7 +115,7 @@ test.describe('Backup 备份管理', () => {
     })
 
     await page.goto('/#/backup', { waitUntil: 'networkidle' })
-    await expect(page.getByText('Test-Switch-1')).toBeVisible({ timeout: 5000 })
+    await expect(page.getByText(/^Test-Switch-1$/).first()).toBeVisible({ timeout: 5000 })
 
     const result = await page.evaluate(async () => {
       const r = await fetch('/api/devices/1/backup/101/lock', {
