@@ -8,11 +8,13 @@
 """
 import logging
 import os
+from datetime import datetime, timedelta
 from typing import List, Optional
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.database import get_db
 from app.models import Asset, Backup
 from app.schemas import APIResponse
@@ -29,18 +31,29 @@ class BackupRequest(BaseModel):
 
 @router.get("/assets", response_model=APIResponse)
 def internal_list_assets(db: Session = Depends(get_db)):
-    """返回所有资产数据（供 ctrl dashboard 聚合用）"""
+    """返回所有资产数据（供 ctrl dashboard 聚合用）
+
+    v2.6.1 fix-asset-stale-status：当 ASSET_STALE_ENABLED=True 时，
+    每个 asset dict 增加 is_stale: bool 字段（(now - updated_at) > threshold）。
+    关闭时 MUST NOT 加此字段（避免污染 split 模式 ctrl 端过滤逻辑）。
+    """
     assets = db.query(Asset).all()
+    now = datetime.utcnow() if settings.ASSET_STALE_ENABLED else None
+    threshold_hours = settings.ASSET_STALE_HOURS if settings.ASSET_STALE_ENABLED else None
     data = []
     for a in assets:
-        data.append({
+        item = {
             "id": a.id,
             "device_id": a.device_id,
             "status": a.status,
             "model": a.model,
             "serial_number": a.serial_number,
             "firmware_version": a.firmware_version,
-        })
+        }
+        if settings.ASSET_STALE_ENABLED and a.updated_at is not None:
+            age_hours = (now - a.updated_at).total_seconds() / 3600.0
+            item["is_stale"] = age_hours > threshold_hours
+        data.append(item)
     return {"success": True, "data": data}
 
 
