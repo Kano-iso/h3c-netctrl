@@ -286,6 +286,8 @@ def restore_backup(device_id: int, backup_id: int, body: BackupRestoreRequest = 
 class BackupAllRequest(BaseModel):
     """全量备份请求体"""
     types: Optional[List[str]] = None  # 不传 = 全部（startup + running）
+    # v2.6.1 fix-asset-backup-state-sync Task 1.7: 全量备份 force 逃生通道
+    force: bool = False  # True = 跳过 asset 状态校验（offline/never_collected 设备也强制备份）
 
 
 @router.post("/backups", response_model=APIResponse)
@@ -324,8 +326,18 @@ def create_all_backups(body: Optional[BackupAllRequest] = None, db: Session = De
     # 并发备份（串行实现 - SQLite 写并发问题；如切 Postgres 可改 asyncio.gather）
     success_list = []
     failed_list = []
+    force = body.force  # v2.6.1 fix-asset-backup-state-sync Task 1.7
 
     for device in devices:
+        # v2.6.1 fix-asset-backup-state-sync Task 1.7: 资产状态前置校验
+        try:
+            check_asset_online(device.id, force=force)
+        except BackupError as e:
+            failed_list.append({"device_id": device.id, "device_name": device.name, "error": str(e)})
+            record_log(db, device.id, device.name, "backup_create_all",
+                       "全量备份跳过：资产离线", "failed", error_message=str(e))
+            continue
+
         try:
             # split 模式 device 是 SimpleNamespace，_password_decrypted 已解密
             # monolith 模式 device 是 ORM 对象，需要 decrypt_password
@@ -338,7 +350,7 @@ def create_all_backups(body: Optional[BackupAllRequest] = None, db: Session = De
 
         mgr = _make_manager(device, password)
         try:
-            results = mgr.create_backup(types=types, db=db)
+            results = mgr.create_backup(types=types, db=db, forced=force)  # v2.6.1 Task 1.7
             if results:
                 success_list.append({
                     "device_id": device.id,
@@ -400,11 +412,15 @@ def _async_backup_fn(task_id, cancel_event, progress_cb, device_id: int, types: 
         db.close()
 
 
-def _async_backup_all_fn(task_id, cancel_event, progress_cb, types: list[str]):
+def _async_backup_all_fn(task_id, cancel_event, progress_cb, types: list[str], force: bool = False):  # v2.6.1 Task 1.7
     """异步全量备份执行函数（多设备串行）
 
     在后台线程中运行，串行遍历所有设备，每设备走 _async_backup_fn 的核心逻辑。
     进度更新：每完成 1 设备更新一次（10% → 90% 分配给各设备）。
+
+    v2.6.1 fix-asset-backup-state-sync Task 1.7:
+    - force=True → 跳过 asset 状态校验，offline/never_collected 设备也强制备份
+    - force=False → 严格校验，offline 设备记入 failed_list
     """
     db = SessionLocal()
     try:
@@ -438,6 +454,18 @@ def _async_backup_all_fn(task_id, cancel_event, progress_cb, types: list[str]):
             if cancel_event.is_set():
                 return {"cancelled": True, "completed": idx, "total": total}
 
+            # v2.6.1 fix-asset-backup-state-sync Task 1.7: 资产状态前置校验
+            try:
+                check_asset_online(device.id, force=force)
+            except BackupError as e:
+                failed_list.append({"device_id": device.id, "device_name": device.name, "error": str(e)})
+                record_log(db, device.id, device.name, "backup_create_all",
+                           "全量备份跳过：资产离线", "failed", error_message=str(e))
+                # 更新进度（跳过也算一个设备）
+                pct = start_pct + int((idx + 1) / total * (end_pct - start_pct))
+                progress_cb(pct)
+                continue
+
             try:
                 password = getattr(device, "_password_decrypted", None) or decrypt_password(device.password_encrypted)
             except Exception as e:
@@ -446,7 +474,7 @@ def _async_backup_all_fn(task_id, cancel_event, progress_cb, types: list[str]):
 
             mgr = _make_manager(device, password)
             try:
-                results = mgr.create_backup(types=types, db=db)
+                results = mgr.create_backup(types=types, db=db, forced=force)  # v2.6.1 Task 1.7
                 if results:
                     success_list.append({
                         "device_id": device.id,
@@ -602,8 +630,8 @@ def create_all_backups_async(body: Optional[BackupAllRequest] = None):
         )
 
     # device_id 传 0 表示全量（不绑定单设备）
-    task_id = task_manager.submit("backup_all", 0, _async_backup_all_fn, types)
-    logger.info(f"异步全量备份已提交: task_id={task_id}, types={types}")
+    task_id = task_manager.submit("backup_all", 0, _async_backup_all_fn, types, body.force)  # v2.6.1 Task 1.7
+    logger.info(f"异步全量备份已提交: task_id={task_id}, types={types}, force={body.force}")
     return APIResponse(
         success=True,
         data={"task_id": task_id, "status_url": f"/api/tasks/{task_id}", "status": "pending"},

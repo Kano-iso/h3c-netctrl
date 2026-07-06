@@ -147,8 +147,10 @@ describe('CMDB.vue 组件测试', () => {
     const w = await mountCmdb()
     // 初始 2 行
     expect(w.findAll('tbody tr').length).toBe(2)
-    // 在搜索框输入关键词（CMDB 自身模板唯一的 input）
-    const searchInput = w.find('input')
+    // v2.6.1 fix-asset-backup-state-sync Task 3.4: CMDB 新增 force 勾选 input
+    // → 用 placeholder 精确定位搜索框（避免取到 force checkbox）
+    const searchInput = w.find('input[placeholder*="搜索"]')
+    expect(searchInput.exists()).toBe(true)
     await searchInput.setValue('leaf-01')
     // filtered 缩减为 1 行
     expect(w.findAll('tbody tr').length).toBe(1)

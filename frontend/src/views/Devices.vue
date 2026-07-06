@@ -45,6 +45,60 @@ function openBackupModal(d) {
   backupModalOpen.value = true
 }
 
+// v2.6.1 fix-asset-backup-state-sync Task 3.1-3.3: 强制备份
+// - forceChecked: 每设备 force 勾选（仅 offline/never_collected 显示）
+// - forceConfirmOpen: 强制备份二次确认弹窗
+// - forceConfirmBusy: 弹窗 confirm 按钮 busy 状态
+const forceChecked = ref(new Set())  // deviceId set
+const forceConfirmOpen = ref(false)
+const forceConfirmInfo = ref({ id: null, name: '', status: null })
+const forceConfirmBusy = ref(false)
+
+// 设备是否需要 force 才能备份（offline / never_collected / null）
+function needsForce(d) {
+  return d.status !== 'online'
+}
+
+function toggleForce(id) {
+  const next = new Set(forceChecked.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  forceChecked.value = next
+}
+
+function onBackupClick(d) {
+  // online → 直接打开 backup list modal（正常流程）
+  if (d.status === 'online') {
+    openBackupModal(d)
+    return
+  }
+  // offline + 已勾选 force → 二次确认
+  if (forceChecked.value.has(d.id)) {
+    forceConfirmInfo.value = { id: d.id, name: d.name, status: d.status }
+    forceConfirmOpen.value = true
+  } else {
+    // offline + 未勾选 force → tooltip 提示，无法点击（按钮 disabled）
+  }
+}
+
+async function onForceConfirm() {
+  if (!forceConfirmInfo.value.id) return
+  forceConfirmBusy.value = true
+  const r = await backupApi.create(forceConfirmInfo.value.id, true)
+  forceConfirmBusy.value = false
+  forceConfirmOpen.value = false
+  if (r.success) {
+    // 成功提示 + 刷新 backup list modal（如果开着）
+    alert(t('backup.force_success', { name: forceConfirmInfo.value.name }))
+    if (backupModalOpen.value && backupModalInfo.value.id === forceConfirmInfo.value.id) {
+      // 触发 BackupListModal 刷新（通过 backupApi.list）
+    }
+  } else {
+    alert(t('backup.force_failed', { name: forceConfirmInfo.value.name, error: r.error || t('cmdb.unknown_error') }))
+  }
+  forceConfirmInfo.value = { id: null, name: '', status: null }
+}
+
 async function loadDevices() {
   loading.value = true
   error.value = ''
@@ -253,7 +307,24 @@ const onEditAsset = (d) => {
                     {{ testing.has(d.id) ? t('device.btn_testing') : t('device.btn_test') }}
                   </button>
                   <button class="btn-soft !text-[11px] !px-2 !py-1" @click="onEditAsset(d)">{{ t('device.btn_asset') }}</button>
-                  <button class="btn-soft !text-[11px] !px-2 !py-1" @click="openBackupModal(d)">{{ t('device.btn_backup') }}</button>
+                  <!-- v2.6.1 fix-asset-backup-state-sync Task 3.1-3.3: 备份按钮 disabled + tooltip + force 勾选 -->
+                  <label v-if="needsForce(d)" class="inline-flex items-center gap-1 text-[10px] text-ink-500 select-none cursor-pointer" :title="t('backup.force_label')">
+                    <input
+                      type="checkbox"
+                      :checked="forceChecked.has(d.id)"
+                      class="rounded border-canvas-400 text-warn focus:ring-warn/40"
+                      @change="toggleForce(d.id)"
+                    />
+                    <span>{{ t('backup.force_label') }}</span>
+                  </label>
+                  <button
+                    class="btn-soft !text-[11px] !px-2 !py-1"
+                    :disabled="needsForce(d) && !forceChecked.has(d.id)"
+                    :title="needsForce(d) && !forceChecked.has(d.id) ? t('button.disabled.asset_offline') : ''"
+                    @click="onBackupClick(d)"
+                  >
+                    {{ t('device.btn_backup') }}
+                  </button>
                   <button class="btn-soft !text-[11px] !px-2 !py-1" @click="onEdit(d)">{{ t('device.btn_edit') }}</button>
                   <button class="btn-soft !text-[11px] !px-2 !py-1 hover:!text-bad" @click="onDeleteClick(d)">{{ t('device.btn_delete') }}</button>
                 </div>
@@ -293,6 +364,18 @@ const onEditAsset = (d) => {
       v-model:visible="backupModalOpen"
       :device-id="backupModalInfo.id"
       :device-name="backupModalInfo.name"
+    />
+
+    <!-- v2.6.1 fix-asset-backup-state-sync Task 3.3: 强制备份二次确认弹窗 -->
+    <ConfirmModal
+      v-model:open="forceConfirmOpen"
+      :title="t('backup.force_confirm_title')"
+      :message="forceConfirmInfo.id ? t('backup.force_confirm_msg', { name: forceConfirmInfo.name, status: forceConfirmInfo.status || t('cmdb.unknown_error') }) : ''"
+      :confirm-text="t('backup.force_confirm_btn')"
+      :cancel-text="t('iface.btn_cancel')"
+      variant="warning"
+      :busy="forceConfirmBusy"
+      @confirm="onForceConfirm"
     />
   </template>
 </template>

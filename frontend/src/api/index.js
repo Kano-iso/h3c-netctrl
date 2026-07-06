@@ -153,17 +153,21 @@ export const backupApi = {
   // 单设备备份（POST 空 body，后端 BackupCreateRequest 必填 body 否则 422）
   // 不能用 apiCall 默认 options —— 没 body 字段时 fetch 会发空 body + Content-Type: application/json
   // → FastAPI 422 "Field required: body" → 前端 r.success undefined → 显示"备份失败"
-  create: (deviceId) =>
-    apiCall(`/devices/${deviceId}/backup`, {
+  // v2.6.1 fix-asset-backup-state-sync Task 3: force=true 走 ?force=true query param
+  // （后端 asset offline/never_collected 校验跳过 + 标记 backup.forced=1）
+  create: (deviceId, force = false) =>
+    apiCall(`/devices/${deviceId}/backup${force ? '?force=true' : ''}`, {
       method: 'POST',
       body: JSON.stringify({}),
     }),
 
   // 全量备份同步（POST /api/backups，串行对所有设备，结果聚合）— 向后兼容
+  // v2.6.1 Task 3: body 支持 force 字段，全量强制备份（offline 设备也执行）
   createAll: (body) => apiCall('/backups', { method: 'POST', body: body || {} }),
 
   // 全量备份异步（POST /api/backups-async，立即返回 task_id）— v241-supplement Task 8.4
   // 前端默认走异步，避免 7 设备 × 2 type 阻塞 2-4 分钟
+  // v2.6.1 Task 3: body 支持 force 字段
   createAllAsync: (body) => apiCall('/backups-async', { method: 'POST', body: body || {} }),
 
   // 下载（返回 Blob，不走 apiCall 因为它走 .json()）
@@ -216,8 +220,9 @@ export const backupApi = {
 // 提交耗时操作（备份/回滚）后台执行，前端轮询 GET /api/tasks/{id} 获取进度
 export const taskApi = {
   // 异步备份（立即返回 task_id，后台执行）
-  backupAsync: (deviceId, types) =>
-    apiCall(`/devices/${deviceId}/backup-async`, {
+  // v2.6.1 fix-asset-backup-state-sync Task 3.4: force=true 走 ?force=true query param
+  backupAsync: (deviceId, types, force = false) =>
+    apiCall(`/devices/${deviceId}/backup-async${force ? '?force=true' : ''}`, {
       method: 'POST',
       body: JSON.stringify({ types: types || ['startup', 'running'] }),
     }),

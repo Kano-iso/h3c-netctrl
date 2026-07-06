@@ -11,6 +11,7 @@
 - [x] 1.4 force=true 路径加日志（force_backup device_id=... user=...）（已在 check_asset_online 内部实现）
 - [x] 1.5 i18n key 加 `error.backup.device_offline`（中英文）（后端 key + FALLBACK_MESSAGES 兜底）
 - [~] 1.6 qa-backend pytest 通过 + 4 个 unit case（online/offline × force=True/False） — **PENDING：4 个新 case 已写完，qa-backend 完量回归待 T4.1 补跑；历史 14 个测试问题（asset 离线场景相关）位置见 commit msg**
+- [x] 1.7 补全量端点 force 支持：BackupAllRequest 加 `force: bool = False` + POST /api/backups 同步 + POST /api/backups-async 异步 + _async_backup_all_fn(force) 透传到 BackupManager.create_backup(forced=force)（task md 漏写，CMDB.vue 3.4 需要）
 
 ## 2. 数据库：backups 表加 forced 列
 
@@ -23,22 +24,22 @@
 
 ## 3. 前端：按钮 + force 勾选框 + 二次确认 + i18n
 
-- [ ] 3.1 Devices.vue 行内"备份"按钮 `:disabled="assetStatus !== 'online' && !forceChecked"` + tooltip
-- [ ] 3.2 Devices.vue 行内加 force 勾选框（仅 offline 显示，双向绑定 `forceChecked`）
-- [ ] 3.3 Devices.vue 强制备份二次确认弹窗（ConfirmModal，确认后 `force=true` 提交）
-- [ ] 3.4 CMDB.vue 全量备份按钮 + force 勾选逻辑（全勾选后启用"全量强制备份"）
-- [ ] 3.5 i18n key（6 个）：`error.backup.device_offline` / `button.disabled.asset_offline` / `backup.force_label` / `backup.force_confirm_title` / `backup.force_confirm_msg` / `backup.force_confirm_btn`
-- [ ] 3.6 i18n 中英文翻译（zh-CN.json + en-US.json + 后端 i18n_keys.py）
-- [ ] 3.7 qa-frontend lint + build 通过
+- [x] 3.1 Devices.vue 行内"备份"按钮 `:disabled="needsForce(d) && !forceChecked.has(d.id)"` + tooltip
+- [x] 3.2 Devices.vue 行内加 force 勾选框（仅 offline/never_collected 显示，双向绑定 `forceChecked` Set）
+- [x] 3.3 Devices.vue 强制备份二次确认弹窗（ConfirmModal variant=warning，确认后 `backupApi.create(id, force=true)`）
+- [x] 3.4 CMDB.vue 全量备份按钮 + force 勾选（全量 force 透传到 backupApi.createAll({force}) + taskApi.backupAsync(force) + taskStore.submitBatchBackup(options.force)）
+- [x] 3.5 i18n key（10 个，最终列表）：`button.disabled.asset_offline` / `backup.force_label` / `backup.force_confirm_title` / `backup.force_confirm_msg` / `backup.force_confirm_btn` / `backup.force_success` / `backup.force_failed` / `cmdb.full_backup_force` / `cmdb.full_backup_force_hint` （tasks.md 3.5 漏 4 个补全：`force_success` / `force_failed` / `cmdb.full_backup_force` / `cmdb.full_backup_force_hint`；`error.backup.device_offline` 仅后端 key）
+- [x] 3.6 i18n 中英文翻译（zh-CN.js + en-US.js 同步加 10 个 key）
+- [x] 3.7 qa-frontend lint + build + 53/53 vitest + 42/42 e2e 通过（4.7m）
 
 ## 4. 测试 + 真机集成 — **PENDING：所有交换机关机中（2026-07-06 用户停机），等设备恢复后追验**
 
 - [~] 4.1 qa-backend 全量测试通过（baseline 309 → 313+ passed） — **PENDING：qa 容器**
-- [~] 4.2 qa-frontend lint + build 通过 — **PENDING：qa 容器**
+- [~] 4.2 qa-frontend 全量通过（已完成，标 [x]） — **lint + type-check + build + 53/53 vitest + 42/42 e2e 全过**
 - [~] 4.3 真机 .177（asset online）备份成功，force 流程不触发 — **PENDING：交换机 .177 关机**
 - [~] 4.4 真机 .5（asset offline）备份按钮 disabled + tooltip 正确 — **PENDING：交换机 .5 关机**
 - [~] 4.5 真机 .5（asset offline）+ 勾选 force + 二次确认 → 备份成功 + DB `backups.forced=1` — **PENDING：交换机 .5 关机**
-- [~] 4.6 MCP 浏览器验证中英文切换：6 个 key 全部正常翻译 — **PENDING：依赖 3.x 前端完成**
+- [~] 4.6 MCP 浏览器验证中英文切换：10 个 key 全部正常翻译 — **PENDING：需设备恢复后走 e2e**
 
 ## 5. Archive + A 类文档同步
 

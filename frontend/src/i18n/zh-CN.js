@@ -68,6 +68,12 @@ export default {
     all: '全部',
     or: ' · ',
   },
+  // v2.6.1 fix-asset-backup-state-sync Task 3.5: 按钮 disabled 提示
+  button: {
+    disabled: {
+      asset_offline: '设备资产未采集/离线，请先采集后再操作',
+    },
+  },
   // v2.6 设备状态显示（utils/status.js 用）
   // v2.6 Task 5: 日志状态显示（Dashboard 组件用）
   status: {
@@ -272,6 +278,9 @@ export default {
     refreshing: '采集中…',
     full_backup: '全量备份',
     full_backup_running: '全量备份中…',
+    // v2.6.1 fix-asset-backup-state-sync Task 3.4
+    full_backup_force: '全量强制备份',
+    full_backup_force_hint: '勾选后：资产离线/未采集设备也执行备份（仅审计逃生通道）',
     collect: '采集',
     collecting: '采集中…',
     edit_asset: '编辑资产',
@@ -308,6 +317,13 @@ export default {
   backup: {
     title: '配置备份',
     subtitle: '手动备份、锁定、回滚。每设备自动保留最新 5 份未锁定备份，锁定的不参与轮转。',
+    // v2.6.1 fix-asset-backup-state-sync Task 3.2-3.3
+    force_label: '强制',
+    force_confirm_title: '强制备份确认',
+    force_confirm_msg: '设备 {name} 资产状态为 {status}，强制备份可能拉取失败。是否继续？',
+    force_confirm_btn: '强制备份',
+    force_success: '设备 {name} 强制备份已提交',
+    force_failed: '设备 {name} 强制备份失败：{error}',
     type_label: '类型',
     type_all: '全部',
     type_startup: 'startup',

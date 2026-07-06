@@ -30,8 +30,9 @@ export const useTaskStore = defineStore('task', () => {
   const runningCount = computed(() => runningTasks.value.length)
 
   // 提交异步备份
-  async function submitBackup(deviceId, types, label) {
-    const r = await taskApi.backupAsync(deviceId, types)
+  // v2.6.1 fix-asset-backup-state-sync Task 3.4: options.force 透传 ?force=true
+  async function submitBackup(deviceId, types, label, options = {}) {
+    const r = await taskApi.backupAsync(deviceId, types, !!options.force)
     if (!r.success) {
       return { success: false, error: r.error }
     }
@@ -71,11 +72,12 @@ export const useTaskStore = defineStore('task', () => {
 
   // 批量提交异步备份（全量备份用）
   // 串行提交，避免瞬间 N 个 HTTP 请求；后台 TaskManager max_workers=1 保证串行执行
-  async function submitBatchBackup(devices, types, labelFn) {
+  // v2.6.1 fix-asset-backup-state-sync Task 3.4: options.force 透传 ?force=true
+  async function submitBatchBackup(devices, types, labelFn, options = {}) {
     const results = []
     for (const d of devices) {
       const label = labelFn ? labelFn(d) : `全量备份 ${d.name || '#' + d.id}`
-      const r = await submitBackup(d.id, types, label)
+      const r = await submitBackup(d.id, types, label, options)
       results.push({ device_id: d.id, device_name: d.name, ...r })
     }
     return results

@@ -30,6 +30,8 @@ const editingAsset = ref({ deviceId: null, deviceName: '', asset: {} })
 const fullBackingUp = ref(false)
 const fullResult = ref(null)
 const fullResultOpen = ref(false)
+// v2.6.1 fix-asset-backup-state-sync Task 3.4: 全量强制备份勾选
+const fullBackupForce = ref(false)
 
 async function loadAssets() {
   loading.value = true
@@ -131,12 +133,16 @@ const statusLabel = (s) => getStatusInfo(s).label
 const handleFullBackup = async () => {
   if (fullBackingUp.value) return
 
+  // v2.6.1 fix-asset-backup-state-sync Task 3.4: 全量 force 时传 body.force
+  const body = { types: ['startup', 'running'], force: fullBackupForce.value }
+
   // v24-fix-batch-async-backup: ASYNC 模式循环提交，不阻塞
   if (ASYNC_MODE) {
     const results = await taskStore.submitBatchBackup(
       items.value,
       ['startup', 'running'],
       (d) => `${t('cmdb.full_backup')} ${d.name}`,
+      { force: fullBackupForce.value },  // v2.6.1 Task 3.4
     )
     const failed = results.filter((r) => !r.success)
     if (failed.length) {
@@ -151,7 +157,7 @@ const handleFullBackup = async () => {
   // 同步模式（v2.3 行为不变）
   fullBackingUp.value = true
   fullResult.value = null
-  const r = await backupApi.createAll()
+  const r = await backupApi.createAll(body)
   fullBackingUp.value = false
   if (!r.success) {
     error.value = r.error || t('cmdb.full_backup_failed')
@@ -188,6 +194,15 @@ const onEditAsset = (d) => {
           <svg :class="['size-3.5', refreshing && 'animate-spin']" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 12a9 9 0 109-9 9.75 9.75 0 00-6.74 2.74L3 8M3 3v5h5"/></svg>
           {{ refreshing ? t('cmdb.refreshing') : t('cmdb.refresh_all') }}
         </button>
+        <!-- v2.6.1 fix-asset-backup-state-sync Task 3.4: 全量强制备份勾选 -->
+        <label class="inline-flex items-center gap-1.5 text-xs text-ink-700 cursor-pointer select-none" :title="t('cmdb.full_backup_force_hint')">
+          <input
+            type="checkbox"
+            v-model="fullBackupForce"
+            class="rounded border-canvas-400 text-warn focus:ring-warn/40"
+          />
+          <span>{{ t('cmdb.full_backup_force') }}</span>
+        </label>
         <button class="btn-primary" :disabled="fullBackingUp" @click="handleFullBackup">
           <svg v-if="fullBackingUp" class="size-3.5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg>
           {{ fullBackingUp ? t('cmdb.full_backup_running') : t('cmdb.full_backup') }}

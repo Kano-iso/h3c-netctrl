@@ -9,7 +9,7 @@ const props = defineProps({
   message: { type: String, default: '' },
   confirmText: { type: String, default: () => '' },
   cancelText: { type: String, default: () => '' },
-  variant: { type: String, default: 'default' }, // 'default' | 'danger'
+  variant: { type: String, default: 'default' }, // 'default' | 'danger' | 'warning'
   busy: { type: Boolean, default: false },
 })
 
@@ -38,7 +38,7 @@ const finalCancel = () => props.cancelText || t('component.confirm.default_cance
           <div class="px-5 py-3 border-t border-canvas-300 flex justify-end gap-2">
             <button class="btn-soft !text-xs" :disabled="busy" @click="onCancel">{{ finalCancel() }}</button>
             <button
-              :class="[variant === 'danger' ? 'bg-bad hover:bg-bad/90 text-white' : 'btn-primary', 'inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-medium transition']"
+              :class="[variant === 'danger' ? 'bg-bad hover:bg-bad/90 text-white' : variant === 'warning' ? 'bg-warn hover:bg-warn/90 text-white' : 'btn-primary', 'inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-medium transition']"
               :disabled="busy"
               @click="onConfirm"
             >

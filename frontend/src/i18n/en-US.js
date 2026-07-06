@@ -69,6 +69,12 @@ export default {
     all: 'All',
     or: ' · ',
   },
+  // v2.6.1 fix-asset-backup-state-sync Task 3.5: 按钮 disabled 提示
+  button: {
+    disabled: {
+      asset_offline: 'Device asset is uncollected / offline. Please collect first.',
+    },
+  },
   // v2.6 设备状态显示（utils/status.js 用）
   status: {
     device: {
@@ -267,6 +273,9 @@ export default {
     refreshing: 'Collecting…',
     full_backup: 'Full Backup',
     full_backup_running: 'Backing up all…',
+    // v2.6.1 fix-asset-backup-state-sync Task 3.4
+    full_backup_force: 'Force full backup',
+    full_backup_force_hint: 'When checked: offline / uncollected devices are also backed up (audit-only escape hatch)',
     collect: 'Collect',
     collecting: 'Collecting…',
     edit_asset: 'Edit Asset',
@@ -303,6 +312,13 @@ export default {
   backup: {
     title: 'Configuration Backup',
     subtitle: 'Manual backup, lock, rollback. Each device retains the latest 5 unlocked backups; locked backups are excluded from rotation.',
+    // v2.6.1 fix-asset-backup-state-sync Task 3.2-3.3
+    force_label: 'Force',
+    force_confirm_title: 'Force Backup Confirmation',
+    force_confirm_msg: 'Device {name} asset status is {status}, force backup may fail to pull. Continue?',
+    force_confirm_btn: 'Force Backup',
+    force_success: 'Device {name} force backup submitted',
+    force_failed: 'Device {name} force backup failed: {error}',
     type_label: 'Type',
     type_all: 'All',
     type_startup: 'startup',
