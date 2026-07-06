@@ -43,7 +43,7 @@ services:
       - .env
     environment:
       - SERVICE_NAME=ctrl
-      - DB_PATH=./data/ctrl.db
+      - DB_PATH=/app/data/ctrl.db
       - INTERNAL_CTRL_URL=http://ctrl:8000
       - INTERNAL_CONFIG_URL=http://config:8000
       - INTERNAL_DATA_URL=http://data:8000
@@ -67,7 +67,7 @@ services:
       - .env
     environment:
       - SERVICE_NAME=config
-      - DB_PATH=./data/config.db
+      - DB_PATH=/app/data/config.db
       - INTERNAL_CTRL_URL=http://ctrl:8000
       - INTERNAL_CONFIG_URL=http://config:8000
       - INTERNAL_DATA_URL=http://data:8000
@@ -92,7 +92,7 @@ services:
       - .env
     environment:
       - SERVICE_NAME=data
-      - DB_PATH=./data/data.db
+      - DB_PATH=/app/data/data.db
       - INTERNAL_CTRL_URL=http://ctrl:8000
       - INTERNAL_CONFIG_URL=http://config:8000
       - INTERNAL_DATA_URL=http://data:8000

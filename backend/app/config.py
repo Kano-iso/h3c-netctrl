@@ -6,7 +6,10 @@ class Settings(BaseSettings):
 
     LOG_LEVEL: str = "INFO"
     ENCRYPTION_KEY: str = ""
-    DB_PATH: str = "./data/dev.db"
+    # v2.6.1 fix-backup-data-integrity Task 3a: 改绝对路径，避免依赖 cwd
+    # 容器内 WORKDIR=/app，所以 /app/data/data.db 即 volume 挂载的 data 目录
+    # monolith 模式可用 .env DB_PATH=./data/dev.db 覆盖（本地开发机不一定有 /app 目录）
+    DB_PATH: str = "/app/data/data.db"
     BACKEND_PORT: int = 8000
 
     # 备份配置（v2.2）
