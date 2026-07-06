@@ -1,8 +1,9 @@
 import { defineConfig } from 'vitest/config'
 import vue from '@vitejs/plugin-vue'
+import http from 'node:http'
 
 // v2.5: 双模式 proxy，由 VITE_API_MODE 控制（split | core，默认 split）
-// - split（默认，3 容器）：按路径分发到 ctrl / config / data
+// - split（默认，3 容器）：按路径精确分发到 ctrl / config / data
 // - core（monolith，--profile core）：全部转发到 backend:8000
 const API_MODE = process.env.VITE_API_MODE || 'split'
 const isSplit = API_MODE === 'split'
@@ -13,31 +14,68 @@ const CONFIG = 'http://config:8000'
 const DATA = 'http://data:8000'
 const BACKEND = 'http://backend:8000'
 
-// core 模式全部走 backend，split 模式按服务分发
-const targetFor = (svc) => isSplit ? svc : BACKEND
+// v2.6.1 fix-vite-proxy-route: 用路径正则精确分发，避免 prefix 匹配导致
+// /api/devices/{id}/execute 等端点被错误路由到 ctrl 容器。
+// 优先级：data 容器（备份/任务/资产）→ config 容器（执行/接口/VLAN/VPN/batch）→ ctrl 兜底（CRUD/test/dashboard/logs）
+const DATA_PATTERN = /^\/api\/(?:devices\/\d+\/backup(?:-async)?(?:\/\d+\/(?:lock|restore|restore-async))?|tasks(?:\/.*)?|assets(?:\/.*)?|backups(?:-async)?(?:\/.*)?)\/?$/
+const CONFIG_PATTERN = /^\/api\/(?:devices\/\d+\/(?:execute|interfaces|vlans|vpn-instances|interfaces\/\d+\/(?:link-type|link-mode|ipv4-address|vpn-instance))|batch(?:\/.*)?|interfaces(?:\/.*)?|vlans(?:\/.*)?|execute(?:\/.*)?)\/?$/
+
+function pickTarget(url) {
+  if (DATA_PATTERN.test(url)) {
+    return isSplit ? DATA : BACKEND
+  }
+  if (CONFIG_PATTERN.test(url)) {
+    return isSplit ? CONFIG : BACKEND
+  }
+  return isSplit ? CTRL : BACKEND
+}
+
+// 简易 HTTP forward（避免引入 http-proxy 依赖）
+function forward(req, res, target) {
+  const url = new URL(req.url, target)
+  const opts = {
+    hostname: url.hostname,
+    port: url.port || 80,
+    path: url.pathname + url.search,
+    method: req.method,
+    headers: { ...req.headers, host: url.host },
+  }
+  const proxyReq = http.request(opts, (proxyRes) => {
+    res.writeHead(proxyRes.statusCode, proxyRes.headers)
+    proxyRes.pipe(res)
+  })
+  proxyReq.on('error', (err) => {
+    console.error(`[vite-proxy] forward error: ${err.message} (${req.method} ${req.url} → ${target})`)
+    if (!res.headersSent) {
+      res.statusCode = 502
+      res.setHeader('Content-Type', 'application/json')
+    }
+    res.end(JSON.stringify({ success: false, error: `proxy error: ${err.message}` }))
+  })
+  req.pipe(proxyReq)
+}
+
+// API 路由 plugin（拦截 /api/* 请求到对应容器）
+function apiRouterPlugin() {
+  return {
+    name: 'h3c-api-router',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        if (!req.url || !req.url.startsWith('/api/')) {
+          return next()
+        }
+        const target = pickTarget(req.url)
+        forward(req, res, target)
+      })
+    },
+  }
+}
 
 export default defineConfig({
-  plugins: [vue()],
+  plugins: [vue(), apiRouterPlugin()],
   server: {
     host: '0.0.0.0',
     port: 5173,
-    proxy: {
-      // ctrl 容器：设备身份 / 日志 / 仪表盘
-      '/api/devices': { target: targetFor(CTRL), changeOrigin: true },
-      '/api/logs': { target: targetFor(CTRL), changeOrigin: true },
-      '/api/dashboard': { target: targetFor(CTRL), changeOrigin: true },
-      // config 容器：接口 / VLAN / 执行 / 批量
-      '/api/interfaces': { target: targetFor(CONFIG), changeOrigin: true },
-      '/api/vlans': { target: targetFor(CONFIG), changeOrigin: true },
-      '/api/execute': { target: targetFor(CONFIG), changeOrigin: true },
-      '/api/batch': { target: targetFor(CONFIG), changeOrigin: true },
-      // data 容器：资产 / 备份 / 任务
-      '/api/assets': { target: targetFor(DATA), changeOrigin: true },
-      '/api/backups': { target: targetFor(DATA), changeOrigin: true },
-      '/api/tasks': { target: targetFor(DATA), changeOrigin: true },
-      // 兜底：其他 /api 请求走 backend（core 模式）或 ctrl（split 模式，ctrl 兜底）
-      '/api': { target: targetFor(BACKEND), changeOrigin: true },
-    },
   },
   test: {
     environment: 'happy-dom',
