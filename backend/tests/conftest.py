@@ -222,7 +222,13 @@ def real_device_netconf():
 
 @pytest.fixture
 def created_device(client):
-    """创建一个测试设备，返回 device dict"""
+    """创建一个测试设备，返回 device dict
+
+    v2.6.1 fix-asset-backup-state-sync patch: 同时插入 status=online 的 asset
+    → 避免 check_asset_online(device_id) 在测试里抛 BACKUP_DEVICE_OFFLINE
+       （这是真实默认场景：被采集过的设备，asset 默认 online）
+    → 需要 offline/never_collected 场景的测试（如 test_asset_guard.py）单独覆盖
+    """
     resp = client.post("/api/devices", json={
         "name": "Test-Device",
         "host": "192.168.100.100",
@@ -232,4 +238,21 @@ def created_device(client):
         "protected_interfaces": [2],
     })
     assert resp.status_code == 200, resp.text
-    return resp.json()["data"]
+    device = resp.json()["data"]
+    # v2.6.1 patch: device.py POST /api/devices 路由已自动插 status=unknown asset
+    # → fixture 改为 update 已有 asset 为 online（如有），不再 insert
+    # → 兜底：若 device.py 未来不再自动插，则 insert（兼容老逻辑）
+    from app.models import Asset
+    db = SessionLocal()
+    try:
+        asset = db.query(Asset).filter(Asset.device_id == device["id"]).first()
+        if asset is not None:
+            asset.status = "online"
+            db.commit()
+        else:
+            asset = Asset(device_id=device["id"], status="online")
+            db.add(asset)
+            db.commit()
+    finally:
+        db.close()
+    return device
