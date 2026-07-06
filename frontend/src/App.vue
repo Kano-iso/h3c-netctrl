@@ -52,7 +52,7 @@ const currentName = computed(() => route.name)
 
 // 当前路由所属组（用于高亮组 tab）
 const activeGroup = computed(() => {
-  for (const g of groups) {
+  for (const g of groups.value) {  // v2.6.1 patch: groups 是 computed ref，JS 里需 .value
     if (g.items.some(it => it.name === currentName.value)) return g.key
   }
   return null
