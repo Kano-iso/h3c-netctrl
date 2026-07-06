@@ -15,7 +15,7 @@ import logging
 import os
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -26,6 +26,7 @@ from app.models import Backup, Device
 from app.schemas import APIResponse
 from app.i18n_keys import err, error_response
 from app.task_manager import task_manager
+from app.utils.asset_guard import check_asset_online  # v2.6.1 fix-asset-backup-state-sync Task 1.2
 from app.utils.backup_manager import BackupError, BackupManager
 from app.utils.crypto import decrypt_password
 from app.utils.log_recorder import record_log
@@ -84,12 +85,31 @@ def _make_manager(device: Device, password: str) -> BackupManager:
 
 
 @router.post("/devices/{device_id}/backup", response_model=APIResponse)
-def create_backup(device_id: int, body: BackupCreateRequest, db: Session = Depends(get_db)):
+def create_backup(
+    device_id: int,
+    body: BackupCreateRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
     """对指定设备创建配置备份（拉取 startup.cfg / running.cfg）
 
     日志记录：BackupManager.create_backup() 内部已经按 btype 粒度（startup / running）
     成功/失败都 record_log，路由层不重复记日志（避免重复 + device_name 字段不一致）。
+
+    v2.6.1 fix-asset-backup-state-sync Task 1.2: asset 状态前置校验
+    - 资产 offline/never_collected → 422 拒绝（除非 ?force=true）
     """
+    # v2.6.1 fix-asset-backup-state-sync Task 1.2: 资产状态前置校验
+    force = request.query_params.get("force", "").lower() == "true"
+    try:
+        check_asset_online(device_id, force=force)
+    except BackupError as e:
+        return error_response(
+            err.BACKUP_DEVICE_OFFLINE,
+            params={"device_id": device_id},
+            fallback=f"设备 {device_id} 资产未采集/离线，请先采集后再备份",
+        )
+
     device, password, error = _get_device_with_password(db, device_id)
     if error:
         return error
@@ -107,7 +127,7 @@ def create_backup(device_id: int, body: BackupCreateRequest, db: Session = Depen
 
     mgr = _make_manager(device, password)
     try:
-        results = mgr.create_backup(types=types, db=db)
+        results = mgr.create_backup(types=types, db=db, forced=force)  # v2.6.1 Task 2.5
         if not results:
             return error_response(err.OPERATION_FAILED, params={"error": "所有类型备份均失败"}, fallback="所有类型备份均失败，请查看 logs")
         return APIResponse(
@@ -485,11 +505,30 @@ def _async_restore_fn(
 
 
 @router.post("/devices/{device_id}/backup-async", response_model=APIResponse)
-def create_backup_async(device_id: int, body: BackupCreateRequest, db: Session = Depends(get_db)):
+def create_backup_async(
+    device_id: int,
+    body: BackupCreateRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
     """异步备份（v24-feat-async-backup-status）
 
     立即返回 task_id，后台执行备份。前端轮询 GET /api/tasks/{task_id} 获取进度。
+
+    v2.6.1 fix-asset-backup-state-sync Task 1.3: asset 状态前置校验
+    - 资产 offline/never_collected → 422 拒绝（除非 ?force=true）
     """
+    # v2.6.1 fix-asset-backup-state-sync Task 1.3: 资产状态前置校验
+    force = request.query_params.get("force", "").lower() == "true"
+    try:
+        check_asset_online(device_id, force=force)
+    except BackupError as e:
+        return error_response(
+            err.BACKUP_DEVICE_OFFLINE,
+            params={"device_id": device_id},
+            fallback=f"设备 {device_id} 资产未采集/离线，请先采集后再备份",
+        )
+
     device, password, error = _get_device_with_password(db, device_id)
     if error:
         return error
@@ -504,8 +543,8 @@ def create_backup_async(device_id: int, body: BackupCreateRequest, db: Session =
             fallback=f"不支持的备份类型: {invalid}（仅支持 startup / running）",
         )
 
-    task_id = task_manager.submit("backup", device_id, _async_backup_fn, device_id, types)
-    logger.info(f"异步备份已提交: device_id={device_id}, task_id={task_id}")
+    task_id = task_manager.submit("backup", device_id, _async_backup_fn, device_id, types, force)  # v2.6.1 Task 2.5
+    logger.info(f"异步备份已提交: device_id={device_id}, task_id={task_id}, force={force}")
     return APIResponse(
         success=True,
         data={"task_id": task_id, "status_url": f"/api/tasks/{task_id}", "status": "pending"},

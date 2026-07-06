@@ -20,14 +20,17 @@
 - **后端**：
   - `backend/app/routers/backup.py` 同步备份 + 异步备份端点增加 asset.status 校验
   - 离线/未知资产返回明确错误（如 `err.BACKUP_DEVICE_OFFLINE`）
-  - 用户明确选择"强制备份"时可绕过（v2.6.x 不暴露，留 TODO）
+  - **新增 `force=true` 请求参数**：勾选时绕过 asset 状态校验；落库时记录 `forced=1` 审计字段
 - **前端**：
   - `frontend/src/views/Devices.vue` "备份"按钮根据 `asset.status` 禁用
   - `frontend/src/views/CMDB.vue`（如有）"全量备份"按钮同样禁用
+  - **新增"我已了解风险，仍要备份"勾选框**（force 勾选后按钮可用）
   - tooltip 解释为什么禁用（"资产未采集/离线，请先采集"）
+  - **二次确认**：勾选强制备份后弹 ConfirmModal 提示风险，用户确认才提交
 - **i18n**：
   - 加 `error.backup.device_offline` 中英文 key
   - 加 `button.disabled.asset_offline` 提示 key
+  - 加 `backup.force_label` / `backup.force_confirm_title` / `backup.force_confirm_msg` / `backup.force_confirm_btn` 中英文 key
 
 ## 设计决策
 
@@ -36,10 +39,15 @@
 - **理由**：asset 状态是"设备可达性"的最准确指标（refresh_asset 内部跑 SSH/NETCONF 自检）
 - **取舍**：从采集到备份可能有时间差（asset 陈旧），但可通过 prompt 提示用户重采
 
-### 决策 2：强制备份开关暂不暴露
+### 决策 2：v2.6.1 加"强制备份"勾选框 + 二次确认
 
-- **理由**：先堵漏（offline 不能备份），强制备份是高风险操作（可能掩盖问题），推到 v2.7+
-- **替代**：tooltip 提示用户"如确需备份，先点采集"（采集失败再判断）
+- **理由**：现场应急场景需要"明知有风险也要备份"的逃生通道；纯禁用是过度严格
+- **实施**：
+  - 前端 Devices.vue / CMDB.vue 全量备份按钮旁加 checkbox「我已了解风险，仍要备份」
+  - 勾上后按钮从 disabled 变 enabled；提交时附 `force=true` 请求参数
+  - 勾选后**必须**先弹 ConfirmModal（标题"强制备份确认"），用户点"确认"才真提交
+  - 后端记录 `backups.forced=1` 审计字段（数据库迁移加列 + downgrade 回退方案）
+- **安全考量**：勾选框是**显式用户行为**+**二次确认**+**审计字段**，三道关避免误操作
 
 ## Apply 拆细（待 Propose 时细化）
 
@@ -53,35 +61,39 @@
 ## Impact
 
 - **代码**：
-  - `backend/app/routers/backup.py`（+asset 校验）
-  - `frontend/src/views/Devices.vue`（按钮 disabled 条件）
-  - `frontend/src/views/CMDB.vue`（如有）
-  - `backend/app/i18n_keys.py`（+2 key）
-  - `frontend/src/i18n/locales/*.json`（+2 key）
-- **API**：行为变更（offline 备份 → 失败），但功能等价（用户可先采集再备份）
-- **测试 baseline**：309 → 311+ passed（+2 unit）
+  - `backend/app/routers/backup.py`（+asset 校验 + force 参数）
+  - `backend/app/database.py`（+Backups.forced 字段，DB 迁移加列）
+  - `frontend/src/views/Devices.vue`（按钮 disabled 条件 + force 勾选框 + 二次确认）
+  - `frontend/src/views/CMDB.vue`（如有，同上）
+  - `backend/app/i18n_keys.py`（+6 key）
+  - `frontend/src/i18n/locales/*.json`（+6 key）
+- **数据库迁移**：backups 表加 `forced` 字段（BOOLEAN DEFAULT 0），需 alembic 迁移 + downgrade 脚本
+- **API**：行为变更（offline 备份 → 失败），新增 `?force=true` 参数
+- **测试 baseline**：309 → 313+ passed（+4 unit：force=True/False × 同步/异步）
 - **用户体验**：
   - 修复前：asset offline 但可备份，结果矛盾
-  - 修复后：asset offline 时按钮灰显 + tooltip 提示
+  - 修复后：asset offline 时按钮灰显 + tooltip 提示；勾选 force 后二次确认可绕过
 
 ## Non-Goals
 
-- 不做强制备份开关（推到 v2.7+）
 - 不改 asset 状态机（status: online / offline / never_collected / stale）
 - 不改 backup 业务逻辑（走 SSH/NETCONF 通道不变）
 - 不做 UI 状态实时刷新（前端依赖 dashboard 轮询）
+- 不做"自动定时重采"（推到 v3.0）
 
 ## QA 验证计划
 
-### 单元测试（2 case）
+### 单元测试（4 case）
 
-1. POST /api/devices/{id}/backup 在 asset.status=offline 时返回失败
+1. POST /api/devices/{id}/backup 在 asset.status=offline 时返回 422 `BACKUP_DEVICE_OFFLINE`
 2. POST /api/devices/{id}/backup 在 asset.status=online 时正常
+3. POST /api/devices/{id}/backup?force=true 在 asset.status=offline 时正常 + DB 落 forced=1
+4. POST /api/devices/{id}/backup-async 在 asset.status=offline 时返回 422
 
-### 集成测试（1 case）
+### 集成测试（2 case）
 
 1. 真机 .177 先采集 → 备份按钮可用 → 备份成功
-2. 真机 .4 不可达 → 资产 offline → 备份按钮 disabled → 后端 422
+2. 真机 .4 / .5 不可达 → 资产 offline → 备份按钮 disabled → 后端 422 → 勾选 force → 二次确认 → 备份成功 + DB forced=1
 
 ## 报告（用户原始反馈）
 
@@ -91,5 +103,5 @@
 
 ## 状态
 
-- ⏳ 草稿（v2.6.1 backlog）
-- 待 Apply：v2.6.1 push 后启动
+- ✅ 决策 1（严格：只 online） + 决策 2（v2.6.1 加 force 勾选框）已确定
+- ⏳ 待写 tasks.md → Apply 阶段：v2.6.1 push 后启动

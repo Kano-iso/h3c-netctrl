@@ -123,6 +123,8 @@ class Backup:
     ASYNC_RESTORE_SUBMIT_FAILED = I18nKey("backup.async_restore_submit_failed")  # 提交异步回滚任务失败
     FILE_NOT_FOUND = I18nKey("backup.file_not_found")          # 备份文件不存在
     INVALID_ID = I18nKey("backup.invalid_id")                  # 备份 ID 不合法
+    # v2.6.1 fix-asset-backup-state-sync Task 1.5: 资产离线错误
+    DEVICE_OFFLINE = I18nKey("error.backup.device_offline")    # 设备 {device_id} 资产未采集/离线，请先采集后再备份
 
 
 # ===== 批量（batch）=====
@@ -215,6 +217,7 @@ err = SimpleNamespace(
     BACKUP_ASYNC_RESTORE_SUBMIT_FAILED=Backup.ASYNC_RESTORE_SUBMIT_FAILED,
     BACKUP_FILE_NOT_FOUND=Backup.FILE_NOT_FOUND,
     BACKUP_INVALID_ID=Backup.INVALID_ID,
+    BACKUP_DEVICE_OFFLINE=Backup.DEVICE_OFFLINE,  # v2.6.1 fix-asset-backup-state-sync Task 1.5
     # batch
     BATCH_NO_DEVICES=Batch.NO_DEVICES,
     BATCH_EMPTY_COMMAND=Batch.EMPTY_COMMAND,
@@ -306,6 +309,8 @@ FALLBACK_MESSAGES = {
     Backup.ASYNC_RESTORE_SUBMIT_FAILED: "提交异步回滚任务失败: {error}",
     Backup.FILE_NOT_FOUND: "备份文件不存在",
     Backup.INVALID_ID: "备份 ID 不合法: {id}",
+    # v2.6.1 fix-asset-backup-state-sync Task 1.5: 资产离线错误兜底
+    Backup.DEVICE_OFFLINE: "设备 {device_id} 资产未采集/离线，请先采集后再备份",
     # batch
     Batch.NO_DEVICES: "未选择设备",
     Batch.EMPTY_COMMAND: "命令不能为空",

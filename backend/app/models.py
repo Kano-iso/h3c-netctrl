@@ -104,6 +104,11 @@ class Backup(Base):
     size: Mapped[int] = mapped_column(Integer, nullable=False)  # 字节
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False)  # SHA256 hex
     locked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # v2.6.1 fix-asset-backup-state-sync Task 2.4: 审计字段
+    # - True: 经由 force=true 强制备份（绕过 asset 状态校验）
+    # - False: 正常备份（asset online）
+    # 不参与业务逻辑（不影响下载/回滚/删除/轮转），仅供审计查询
+    forced: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False, index=True
     )

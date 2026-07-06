@@ -218,7 +218,7 @@ class BackupManager:
             )
         return text.encode("utf-8")
 
-    def create_backup(self, types: list[str] = None, db=None) -> list[dict]:
+    def create_backup(self, types: list[str] = None, db=None, forced: bool = False) -> list[dict]:
         """创建备份
 
         Args:
@@ -226,6 +226,9 @@ class BackupManager:
               - "startup" 走 SCP 拉 flash:/startup.cfg
               - "running" 走 SSH CLI 跑 `display current-configuration`
             db: SQLAlchemy Session
+            forced: v2.6.1 fix-asset-backup-state-sync Task 2.5 审计标记
+              - True: 经由 force=true 强制备份（绕过 asset 状态校验）
+              - False: 正常备份（默认）
 
         Returns:
             [{"id", "type", "size", "content_hash", "filename", "created_at"}, ...]
@@ -290,6 +293,7 @@ class BackupManager:
                 size=size,
                 content_hash=content_hash,
                 locked=False,
+                forced=forced,  # v2.6.1 fix-asset-backup-state-sync Task 2.5
             )
             db.add(backup)
             db.flush()  # 分配 id
