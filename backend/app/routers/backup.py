@@ -98,7 +98,13 @@ def create_backup(
 
     v2.6.1 fix-asset-backup-state-sync Task 1.2: asset 状态前置校验
     - 资产 offline/never_collected → 422 拒绝（除非 ?force=true）
+    - v2.6.1 patch: 先查 device 存在性，再校验 asset（避免 device 不存在时返 BACKUP_DEVICE_OFFLINE 而非 NOT_FOUND）
     """
+    # 先查 device 存在性（_get_device_with_password 已含 device 不存在处理）
+    device, password, error = _get_device_with_password(db, device_id)
+    if error:
+        return error
+
     # v2.6.1 fix-asset-backup-state-sync Task 1.2: 资产状态前置校验
     force = request.query_params.get("force", "").lower() == "true"
     try:
@@ -109,10 +115,6 @@ def create_backup(
             params={"device_id": device_id},
             fallback=f"设备 {device_id} 资产未采集/离线，请先采集后再备份",
         )
-
-    device, password, error = _get_device_with_password(db, device_id)
-    if error:
-        return error
 
     types = body.types or ["startup", "running"]
     # 校验类型
@@ -389,7 +391,7 @@ def create_all_backups(body: Optional[BackupAllRequest] = None, db: Session = De
 # ============ v24-feat-async-backup-status: 异步备份/回滚 ============
 
 
-def _async_backup_fn(task_id, cancel_event, progress_cb, device_id: int, types: list[str]):
+def _async_backup_fn(task_id, cancel_event, progress_cb, device_id: int, types: list[str], force: bool = False):  # v2.6.1 Task 2.5: force 透传到 BackupManager
     """异步备份执行函数（在后台线程中运行）"""
     db = SessionLocal()
     try:
@@ -402,7 +404,7 @@ def _async_backup_fn(task_id, cancel_event, progress_cb, device_id: int, types: 
             return {"cancelled": True}
 
         mgr = _make_manager(device, password)
-        results = mgr.create_backup(types=types, db=db)
+        results = mgr.create_backup(types=types, db=db, forced=force)  # v2.6.1 Task 2.5
         progress_cb(90)
 
         if not results:
@@ -545,7 +547,13 @@ def create_backup_async(
 
     v2.6.1 fix-asset-backup-state-sync Task 1.3: asset 状态前置校验
     - 资产 offline/never_collected → 422 拒绝（除非 ?force=true）
+    - v2.6.1 patch: 先查 device 存在性，再校验 asset
     """
+    # 先查 device 存在性
+    device, password, error = _get_device_with_password(db, device_id)
+    if error:
+        return error
+
     # v2.6.1 fix-asset-backup-state-sync Task 1.3: 资产状态前置校验
     force = request.query_params.get("force", "").lower() == "true"
     try:
@@ -556,10 +564,6 @@ def create_backup_async(
             params={"device_id": device_id},
             fallback=f"设备 {device_id} 资产未采集/离线，请先采集后再备份",
         )
-
-    device, password, error = _get_device_with_password(db, device_id)
-    if error:
-        return error
 
     types = body.types or ["startup", "running"]
     valid_types = {"startup", "running"}
