@@ -72,6 +72,14 @@ def on_startup():
         # 启动期降级失败不阻塞容器启动（采集按钮仍可手动触发）
         logger.error(f"data 容器启动降级失败: {e}", exc_info=True)
 
+    # v2.6.1 fix-backup-data-integrity Task 2a: backup 物理文件自检
+    # WARN 列出 DB 有但磁盘上不存在的 backup 记录（不删不改，避免误删用户数据）
+    try:
+        from app.utils.backup_integrity import run_startup_check
+        run_startup_check()
+    except Exception as e:
+        logger.error(f"data 容器启动 backup 物理文件自检失败: {e}", exc_info=True)
+
 
 @app.get("/health")
 def health_check():
