@@ -20,7 +20,15 @@ const BACKEND = 'http://backend:8000'
 const DATA_PATTERN = /^\/api\/(?:devices\/\d+\/backup(?:-async)?(?:\/\d+\/(?:lock|restore|restore-async))?|tasks(?:\/.*)?|assets(?:\/.*)?|backups(?:-async)?(?:\/.*)?)\/?$/
 const CONFIG_PATTERN = /^\/api\/(?:devices\/\d+\/(?:execute|interfaces|vlans|vpn-instances|interfaces\/\d+\/(?:link-type|link-mode|ipv4-address|vpn-instance))|batch(?:\/.*)?|interfaces(?:\/.*)?|vlans(?:\/.*)?|execute(?:\/.*)?)\/?$/
 
+// v2.6.1 fix-backup-data-integrity Task 1: 纯 GET 下载 URL（/api/devices/{id}/backup/{id} 无后缀）
+// 上面 DATA_PATTERN 只覆盖了 lock/restore/restore-async 后缀，纯下载 URL 走兜底 → ctrl → 404
+// 单独加 DOWNLOAD_PATTERN 优先匹配，路由到 data 容器
+const DOWNLOAD_PATTERN = /^\/api\/devices\/\d+\/backup\/\d+\/?$/
+
 function pickTarget(url) {
+  if (DOWNLOAD_PATTERN.test(url)) {
+    return isSplit ? DATA : BACKEND
+  }
   if (DATA_PATTERN.test(url)) {
     return isSplit ? DATA : BACKEND
   }
