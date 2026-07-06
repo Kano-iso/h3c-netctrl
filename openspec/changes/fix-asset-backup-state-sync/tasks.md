@@ -32,14 +32,23 @@
 - [x] 3.6 i18n 中英文翻译（zh-CN.js + en-US.js 同步加 10 个 key）
 - [x] 3.7 qa-frontend lint + build + 53/53 vitest + 42/42 e2e 通过（4.7m）
 
-## 4. 测试 + 真机集成 — **PENDING：所有交换机关机中（2026-07-06 用户停机），等设备恢复后追验**
+## 4. 测试 + 真机集成（**2026-07-07 追验完成**）
 
-- [~] 4.1 qa-backend 全量测试通过（baseline 309 → 313+ passed） — **PENDING：qa 容器**
-- [~] 4.2 qa-frontend 全量通过（已完成，标 [x]） — **lint + type-check + build + 53/53 vitest + 42/42 e2e 全过**
-- [~] 4.3 真机 .177（asset online）备份成功，force 流程不触发 — **PENDING：交换机 .177 关机**
-- [~] 4.4 真机 .5（asset offline）备份按钮 disabled + tooltip 正确 — **PENDING：交换机 .5 关机**
-- [~] 4.5 真机 .5（asset offline）+ 勾选 force + 二次确认 → 备份成功 + DB `backups.forced=1` — **PENDING：交换机 .5 关机**
-- [~] 4.6 MCP 浏览器验证中英文切换：10 个 key 全部正常翻译 — **PENDING：需设备恢复后走 e2e**
+- [x] 4.1 qa-backend 全量测试通过（baseline 309 → 313+ passed）
+- [x] 4.2 qa-frontend 全量通过（lint + type-check + build + 53/53 vitest + 42/42 e2e）
+- [x] 4.3 真机 .177（asset online）备份成功，force 流程不触发（API 默认路径，无 force 不入强制分支）
+- [x] 4.4 真机 .5（asset offline）备份按钮 disabled + tooltip 正确 — **API + UI 双验**：临时把 .5 asset 改 offline → GET /api/assets/device/5 status=offline + POST /api/devices/5/backup 无 force → 422 error.backup.device_offline；MCP 浏览器 Devices.vue 第 5 行（Leaf-04）"强制"checkbox + 备份按钮 disabled
+- [x] 4.5 真机 .5（asset offline）+ 勾选 force + 二次确认 → 备份成功 + DB `backups.forced=1` — **API 验证**：POST /api/devices/5/backup?force=true → 200 + DB backup id=79 forced=1；UI 验证：MCP 浏览器勾选 force → 备份按钮变 enabled → 点击弹"强制备份确认"弹窗（取消/强制备份按钮 + 标题）→ 取消关闭
+- [x] 4.6 MCP 浏览器验中英文切换 10 个 key 全部正常翻译 — 切换后 "强制/Force、设备/Devices、备份/Backup、资产/Asset、连接测试/Test、编辑/Edit、删除/Delete、新增设备/New Device、全部/All/在线/Online/离线/Offline、footer 链接（Device Management / Ops Terminal / Interface Config / Batch Operations / CMDB Assets / Operation Logs / Backup / Rollback / Topology / Tech Docs / Changelog / About Project / Tech Stack / Dev Convention / MIT License / Contact Author）" 全部正确
+
+**追验 commit hash**（v2.6.1 fix-asset-backup-state-sync）：
+- `5d72a15` — 后端强制备份校验 + 审计字段
+- `52de2b2` — 前端 force 流程 + 后端全量端点补全
+- `b5e7b3e` — 006 迁移加 IF EXISTS 守卫 + conftest fixture
+- `3489546` — _async_backup_fn 签名补 force 参数
+- `c4456ef` — App.vue activeGroup computed 需 groups.value
+
+**追验后清理**：.5 asset 状态已从 offline 恢复为 online（生产数据未被污染）；新增 DB 记录 backup id=78/79 forced=1（force 流程审计样本，可保留）
 
 ## 5. Archive + A 类文档同步
 
