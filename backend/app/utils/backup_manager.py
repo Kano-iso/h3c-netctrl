@@ -229,6 +229,10 @@ class BackupManager:
 
         Returns:
             [{"id", "type", "size", "content_hash", "filename", "created_at"}, ...]
+
+        v2.6.1 fix-backup-data-integrity Task 3b: 每个 backup 行 add+flush 后
+        立即 commit + db.refresh 验证行真在 DB（避免 commit 失败但 row 已在
+        session 缓存 → "假成功"）。
         """
         types = types or list(SUPPORTED_TYPES)
         if db is None:
@@ -288,7 +292,26 @@ class BackupManager:
                 locked=False,
             )
             db.add(backup)
-            db.flush()
+            db.flush()  # 分配 id
+
+            # v2.6.1 T3b: commit + refresh 验证行真在 DB（防假成功）
+            try:
+                db.commit()
+                db.refresh(backup)
+                if backup.id is None:
+                    raise BackupError(f"backup commit 后 id 为空 (device_id={self.device_id}, type={btype})")
+            except Exception as e:
+                db.rollback()
+                logger.error(f"backup commit/refresh 失败 device_id={self.device_id} type={btype}: {e}")
+                # 文件已落盘但 DB 没行 → 删文件避免孤儿
+                try:
+                    os.remove(local_path)
+                except OSError:
+                    pass
+                from app.utils.log_recorder import record_log
+                record_log(db, self.device_id, self.host, "backup_create",
+                           f"备份 {btype} 提交失败（已清理）", "failed", error_message=str(e))
+                continue
 
             results.append({
                 "id": backup.id,
@@ -302,10 +325,9 @@ class BackupManager:
             record_log(db, self.device_id, self.host, "backup_create",
                        f"备份 {btype} 成功 ({size} bytes, hash={content_hash[:8]})", "success")
 
-        db.commit()
         logger.info(f"备份完成 device_id={self.device_id} 成功 {len(results)} 份（{len(types)} 份请求）")
 
-        # 轮转
+        # 轮转（每个 backup 已在循环内 commit，此处仅 delete+commit）
         rotated = self.rotate(self.device_id, keep=settings.BACKUP_KEEP, db=db)
         if rotated > 0:
             logger.info(f"轮转删除 device_id={self.device_id} 删除 {rotated} 份非锁定备份")
