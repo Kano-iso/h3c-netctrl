@@ -6,21 +6,19 @@
 |---|---|---|---|
 | 1 | fix-asset-stale-status 子 change（Propose + Apply + Archive） | `fix-asset-stale-status` | ✅ 已闭环 |
 | 2 | fix-asset-collect-failure 子 change（Propose + Apply + Archive） | `fix-asset-collect-failure` | ✅ 已闭环 |
-| 3 | fix-asset-split-password-decrypt 子 change（split 模式密码二次解密 bug） | `fix-asset-split-password-decrypt` | ✅ 已闭环（2026-07-06）|
-| 4 | add-auto-collect 子 change（Propose + Apply + Archive） | `add-auto-collect` | ⏳ Propose 完，Apply 待开始 |
-| 5 | REVIEW-v261-bugfix-round 报告（QA 套件盲区反思） | 本路线 | ⏳ |
-| 6 | VERSION-ROADMAP §v2.6.1 + §1 全景表加 1 行 | 本路线 | ⏳ |
-| 7 | RELEASE-NOTES-v2.6.1.md | 本路线 | ⏳ |
-| 8 | README.md 顶部版本表 + 当前架构表 | 本路线 | ⏳ |
-| 9 | git tag v2.6.1 + push（**需用户确认**） | 本路线 | ⏳ |
+| 3 | fix-asset-split-password-decrypt 子 change（split 模式密码二次解密 bug） | `fix-asset-split-password-decrypt` | ✅ 已闭环 |
+| 4 | fix-vite-proxy-route 子 change（vite proxy 长前缀错配 /api/devices/{id}/* → 404） | `fix-vite-proxy-route` | ✅ 已闭环 |
+| 5 | add-auto-collect 子 change（**拆细重做**——subagent 跑得太快，9 commit 没真验证） | `add-auto-collect` | ⏳ Propose 完，Apply 待开始 |
+| 6 | REVIEW-v261-bugfix-round 报告（QA 套件盲区反思） | 本路线 | ⏳ |
+| 7 | VERSION-ROADMAP §v2.6.1 + §1 全景表加 1 行 | 本路线 | ⏳ |
+| 8 | RELEASE-NOTES-v2.6.1.md | 本路线 | ⏳ |
+| 9 | README.md 顶部版本表 + 当前架构表 | 本路线 | ⏳ |
+| 10 | git tag v2.6.1 + push（**需用户确认**） | 本路线 | ⏳ |
 
-## 串行顺序（用户决定 + 调整）
+## 串行顺序
 
-1. → fix-asset-stale-status ✅
-2. → fix-asset-collect-failure ✅
-3. → fix-asset-split-password-decrypt（**add-auto-collect 强前置**——auto-collect 在 data 容器调 refresh 业务逻辑，密码不解密直接挂）
-4. → add-auto-collect
-5. → 路线级文档 + tag
+1 → 2 → 3 → 4 ✅
+5 → 6 → 7 → 8 → 9 → 10
 
 ---
 
