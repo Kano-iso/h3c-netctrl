@@ -23,6 +23,7 @@ H3C V7 适配说明（v2.2 真机验证 192.168.100.4 Leaf-03）：
   业界主流做法（RANCID / Oxidized / Ansible Network / NAPALM / H3C iMC）。
 """
 import hashlib
+import io
 import logging
 import os
 import re
@@ -76,13 +77,15 @@ class BackupManager:
         username/password: 设备认证
     """
 
-    def __init__(self, device_id: int, host: str, port: int, username: str, password: str, db=None):
+    def __init__(self, device_id: int, host: str, port: int, username: str, password: str, db=None, device_model: Optional[str] = None):
         self.device_id = device_id
         self.host = host
         self.port = port  # SSH 端口 22（startup 走 SCP，running 走 SSH CLI）
         self.username = username
         self.password = password
         self.db = db  # SQLAlchemy Session
+        # v2.6.2 fix-backup-restore-support Task 1: 设备型号（错误日志用）
+        self.device_model = device_model
 
         # 备份目录：{BACKUP_DIR}/{device_id}/
         self.device_backup_dir = os.path.join(settings.BACKUP_DIR, str(device_id))
@@ -119,6 +122,63 @@ class BackupManager:
             look_for_keys=False,
         )
         return client
+
+    # ===================== 协议支持检测（v2.6.2 fix-backup-restore-support Task 1）=====================
+
+    def check_restore_support(self) -> dict:
+        """Probe 设备是否支持 SCP 推回（restore）。
+
+        流程：
+        1. SSH 连接设备
+        2. 试推 1 字节 dummy 文件 `_probe_<ts>.tmp`
+        3. 推成功 → 用 SSH exec channel 跑 `delete /unreserved flash:/...` 清理
+        4. 推失败 → 返回 {supported: False, reason, error_type}
+
+        **重要**：H3C V7 S6850 (CMW 7.1.070) 等系列 SFTP/SCP subsystem 默认禁用，
+        paramiko scp.putfo 会抛 `SSHException: Channel closed.`，与 .177 测试设备行为不一致。
+        通过 probe 区分两设备，让端点能 fail-fast 返回 422 + 明确错误（不再"无反应"）。
+
+        Returns:
+            {"supported": bool, "reason": str, "error_type": Optional[str]}
+        """
+        client = self._connect_ssh()
+        dummy_name = f"_probe_{int(time.time())}.tmp"
+        try:
+            scp = SCPClient(client.get_transport())
+            try:
+                # 推 1 字节 dummy（BytesIO 内容）
+                scp.putfo(io.BytesIO(b"\x00"), dummy_name)
+                # 推成功，清理（用 SSH exec channel 跑 delete）
+                try:
+                    chan = client.invoke_shell()
+                    chan.settimeout(10)
+                    try:
+                        chan.send(f"delete /unreserved flash:/{dummy_name}\n".encode())
+                        time.sleep(1)
+                        while chan.recv_ready():
+                            chan.recv(8192)
+                    finally:
+                        chan.close()
+                except Exception as cleanup_err:
+                    # 清理失败不影响"supported"判断（probe 推回本身成功）
+                    logger.warning(
+                        f"probe 清理 dummy 失败 device_model={self.device_model or 'Unknown'} "
+                        f"host={self.host} name={dummy_name}: {cleanup_err}"
+                    )
+                return {"supported": True, "reason": "scp push ok", "error_type": None}
+            finally:
+                scp.close()
+        except Exception as e:
+            return {
+                "supported": False,
+                "reason": str(e),
+                "error_type": type(e).__name__,
+            }
+        finally:
+            try:
+                client.close()
+            except Exception:
+                pass
 
     # ===================== 拉取 =====================
 

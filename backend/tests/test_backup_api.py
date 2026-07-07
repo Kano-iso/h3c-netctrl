@@ -348,3 +348,67 @@ def test_create_all_invalid_type(client, created_device):
     assert r.status_code == 200
     assert r.json()["success"] is False
     assert "不支持的备份类型" in r.json()["error"]
+
+
+# ======================== v2.6.2 fix-backup-restore-support Task 1: check_restore_support ========================
+
+def test_check_restore_support_returns_false_on_scp_channel_closed():
+    """v2.6.2 Task 1: scp.putfo 抛 SSHException → 返回 {supported: False}
+
+    模拟 H3C V7 S6850 SFTP/SCP subsystem 禁用场景。
+    """
+    from paramiko.ssh_exception import SSHException
+    from app.utils.backup_manager import BackupManager
+
+    with patch.object(BackupManager, "_connect_ssh") as mock_connect:
+        mock_client = MagicMock()
+        mock_transport = MagicMock()
+        mock_client.get_transport.return_value = mock_transport
+        mock_connect.return_value = mock_client
+
+        with patch("app.utils.backup_manager.SCPClient") as MockSCP:
+            mock_scp = MagicMock()
+            mock_scp.putfo.side_effect = SSHException("Channel closed.")
+            MockSCP.return_value = mock_scp
+
+            mgr = BackupManager(
+                device_id=1, host="192.168.100.5", port=22,
+                username="admin", password="x", device_model="H3C S6850",
+            )
+            result = mgr.check_restore_support()
+
+            assert result["supported"] is False
+            assert "Channel closed" in result["reason"]
+            assert result["error_type"] == "SSHException"
+
+
+def test_check_restore_support_returns_true_on_success():
+    """v2.6.2 Task 1: scp.putfo 成功 + 清理 dummy 文件 → 返回 {supported: True}"""
+    from app.utils.backup_manager import BackupManager
+
+    with patch.object(BackupManager, "_connect_ssh") as mock_connect:
+        mock_client = MagicMock()
+        mock_transport = MagicMock()
+        mock_client.get_transport.return_value = mock_transport
+        mock_chan = MagicMock()
+        mock_client.invoke_shell.return_value = mock_chan
+        mock_chan.recv_ready.return_value = False
+        mock_connect.return_value = mock_client
+
+        with patch("app.utils.backup_manager.SCPClient") as MockSCP:
+            mock_scp = MagicMock()
+            mock_scp.putfo.return_value = None  # 推成功
+            MockSCP.return_value = mock_scp
+
+            mgr = BackupManager(
+                device_id=1, host="192.168.100.177", port=22,
+                username="admin", password="x", device_model="H3C Test-Switch",
+            )
+            result = mgr.check_restore_support()
+
+            assert result["supported"] is True
+            assert result["reason"] == "scp push ok"
+            assert result["error_type"] is None
+            # 清理 dummy 文件命令被调用
+            assert mock_chan.send.called
+            assert b"delete /unreserved" in mock_chan.send.call_args[0][0]
