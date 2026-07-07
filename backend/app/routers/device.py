@@ -1,5 +1,6 @@
 import json
 import logging
+import time
 from typing import Optional
 
 from fastapi import APIRouter, Depends
@@ -16,6 +17,68 @@ from app.utils.log_recorder import record_log
 logger = logging.getLogger("app")
 
 router = APIRouter(tags=["device"])
+
+
+# v2.6.2 fix-backup-restore-support Task 6: restore 支持缓存
+# 缓存 key → (timestamp, supported_bool_or_None)
+# - True = 不支持（如 S6850）
+# - False = 支持
+# - None = 探测失败（前端按"未知"处理）
+_RESTORE_SUPPORT_TTL = 5.0
+_restore_support_cache: dict = {}
+
+
+def _get_restore_support_cached(device: Device) -> Optional[bool]:
+    """获取设备是否支持 SCP 推回，5s TTL 缓存
+
+    实现：
+    1. 命中缓存 → 返回缓存值
+    2. 缓存过期 → 重新 probe（probe 失败返回 None）
+    3. probe 失败也不影响 device list 返回（仅记日志）
+    """
+    key = f"device:{device.id}:restore_support"
+    now = time.time()
+    cached = _restore_support_cache.get(key)
+    if cached is not None:
+        timestamp, value = cached
+        if now - timestamp <= _RESTORE_SUPPORT_TTL:
+            return value
+
+    # 缓存未命中 / 过期：探测
+    try:
+        from app.utils.backup_manager import BackupManager
+
+        # 解密密码（如失败 → 返回 None）
+        try:
+            password = decrypt_password(device.password_encrypted)
+        except Exception as e:
+            logger.warning(
+                f"restore_support probe: device_id={device.id} 解密密码失败: {e}"
+            )
+            return None
+
+        mgr = BackupManager(
+            device_id=device.id,
+            host=device.host,
+            port=22,
+            username=device.username,
+            password=password,
+            device_model=getattr(device, "model", None),
+        )
+        result = mgr.check_restore_support()
+        supported = result.get("supported", False)
+        # supported=True → False（支持）
+        # supported=False → True（不支持）
+        value = not supported
+        _restore_support_cache[key] = (now, value)
+        return value
+    except Exception as e:
+        logger.warning(
+            f"restore_support probe 失败: device_id={device.id} host={device.host}: {e}"
+        )
+        # 探测失败 → 缓存 None（不阻塞 list）
+        _restore_support_cache[key] = (now, None)
+        return None
 
 
 def _get_device_or_404(db: Session, device_id: int):
@@ -45,20 +108,34 @@ def _classify_with_i18n(error_msg: str):
 
 @router.get("/devices", response_model=APIResponse)
 def list_devices(db: Session = Depends(get_db)):
-    """获取设备列表"""
+    """获取设备列表
+
+    v2.6.2 fix-backup-restore-support Task 6: 填充 restore_unsupported 字段
+    - 探测失败（None）不阻塞 list 返回
+    - 5s TTL 缓存避免重复探测
+    """
     devices = db.query(Device).all()
-    data = [DeviceResponse.model_validate(d).model_dump() for d in devices]
+    data = []
+    for d in devices:
+        item = DeviceResponse.model_validate(d).model_dump()
+        item["restore_unsupported"] = _get_restore_support_cached(d)
+        data.append(item)
     return APIResponse(success=True, data=data)
 
 
 @router.get("/devices/{device_id}", response_model=APIResponse)
 def get_device(device_id: int, db: Session = Depends(get_db)):
-    """获取单个设备详情"""
+    """获取单个设备详情
+
+    v2.6.2 Task 6: 填充 restore_unsupported 字段
+    """
     device, error = _get_device_or_404(db, device_id)
     if error:
         return error
     resp = DeviceResponse.model_validate(device)
-    return APIResponse(success=True, data=resp.model_dump())
+    item = resp.model_dump()
+    item["restore_unsupported"] = _get_restore_support_cached(device)
+    return APIResponse(success=True, data=item)
 
 
 @router.post("/devices", response_model=APIResponse)

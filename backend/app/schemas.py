@@ -33,6 +33,11 @@ class DeviceResponse(BaseModel):
     protected_interfaces: List[int] = []
     created_at: datetime
     updated_at: datetime
+    # v2.6.2 fix-backup-restore-support Task 6: 设备是否支持 SCP 推回
+    # True = 不支持（如 S6850），前端可在 UI 上禁用"回滚"按钮 + 提示
+    # None = 未知（未探测过 / 探测失败），前端按"未知"处理
+    # False = 支持
+    restore_unsupported: Optional[bool] = None
 
     @field_validator("protected_interfaces", mode="before")
     @classmethod
