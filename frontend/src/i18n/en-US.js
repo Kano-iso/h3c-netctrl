@@ -539,6 +539,8 @@ export default {
       title: 'Background Tasks',
       running_count: '{n} running',
       none_running: 'No running tasks',
+      failed_count: '{n} failed',
+      failed_badge: '{n} failed',
       clear_history: 'Clear history',
       empty: 'No task records',
       remove_title: 'Remove record',

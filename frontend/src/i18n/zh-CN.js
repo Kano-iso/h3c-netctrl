@@ -550,6 +550,8 @@ export default {
       title: '后台任务',
       running_count: '{n} 个执行中',
       none_running: '无运行中',
+      failed_count: '{n} 个失败',
+      failed_badge: '{n} 失败',
       clear_history: '清空历史',
       empty: '暂无任务记录',
       remove_title: '移除记录',

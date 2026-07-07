@@ -11,9 +11,14 @@ const taskStore = useTaskStore()
 
 const expanded = ref(false)
 
+// v2.6.2 fix-backup-restore-support Task 5: 失败任务高亮
 const recent = computed(() => taskStore.recentTasks)
 const hasRunning = computed(() => taskStore.hasRunning)
 const runningCount = computed(() => taskStore.runningCount)
+const failedCount = computed(() =>
+  taskStore.recentTasks.filter(t => t.status === 'failed').length
+)
+const hasFailed = computed(() => failedCount.value > 0)
 
 // 任务状态 → 显示样式
 function statusMeta(status) {
@@ -64,9 +69,9 @@ onMounted(() => {
   <!-- 右下角浮动面板 -->
   <Teleport to="body">
     <div class="fixed bottom-4 right-4 z-40 print:hidden">
-      <!-- 折叠态：仅当无 running 且未展开时不显示；有 running 时显示小圆点 -->
+      <!-- 折叠态：v2.6.2 Task 5: 有失败任务时即使无 running 也显示 -->
       <Transition name="panel-fade">
-        <div v-if="hasRunning || expanded" class="panel w-[360px] shadow-elevated overflow-hidden">
+        <div v-if="hasRunning || expanded || hasFailed" :class="['panel w-[360px] shadow-elevated overflow-hidden', hasFailed && !hasRunning && 'ring-2 ring-bad/40']">
           <!-- 头部 -->
           <div
             class="px-4 py-2.5 flex items-center justify-between cursor-pointer select-none border-b border-canvas-300/70"
@@ -76,11 +81,20 @@ onMounted(() => {
               <svg v-if="hasRunning" class="size-3.5 animate-spin text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
                 <path d="M21 12a9 9 0 11-6.219-8.56" stroke-linecap="round"/>
               </svg>
-              <span class="text-[13px] font-medium text-ink-900">后台任务</span>
+              <!-- v2.6.2 Task 5: 无 running 但有 failed 时显示红色警示图标 -->
+              <svg v-else-if="hasFailed" class="size-3.5 text-bad" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"/>
+                <path d="M12 8v4M12 16h.01"/>
+              </svg>
+              <span class="text-[13px] font-medium text-ink-900">{{ t('component.bg_task.title') }}</span>
               <span v-if="hasRunning" class="chip bg-accent/10 text-accent !text-[10px] !px-1.5 !py-0">
-                {{ runningCount }} 个执行中
+                {{ t('component.bg_task.running_count', { n: runningCount }) }}
               </span>
-              <span v-else class="text-[11px] text-ink-500">无运行中</span>
+              <!-- v2.6.2 Task 5: 失败计数 chip -->
+              <span v-else-if="hasFailed" class="chip bg-bad/10 text-bad !text-[10px] !px-1.5 !py-0">
+                {{ t('component.bg_task.failed_badge', { n: failedCount }) }}
+              </span>
+              <span v-else class="text-[11px] text-ink-500">{{ t('component.bg_task.none_running') }}</span>
             </div>
             <div class="flex items-center gap-2">
               <button
