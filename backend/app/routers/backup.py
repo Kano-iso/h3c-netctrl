@@ -71,6 +71,8 @@ def _make_manager(device: Device, password: str) -> BackupManager:
     - 恢复：统一 SCP 推 + `startup saved-configuration`，不依赖 NETCONF
 
     故统一用 SSH 端口 22。
+
+    v2.6.2 fix-backup-restore-support Task 1: 传 device_model 给 BackupManager
     """
     return BackupManager(
         device_id=device.id,
@@ -78,6 +80,7 @@ def _make_manager(device: Device, password: str) -> BackupManager:
         port=22,  # SSH 端口（startup 走 SCP，running 走 SSH CLI）
         username=device.username,
         password=password,
+        device_model=getattr(device, "model", None),  # v2.6.2 Task 1
     )
 
 
@@ -590,6 +593,10 @@ def restore_backup_async(
     """异步回滚（v24-feat-async-backup-status）
 
     立即返回 task_id，后台执行回滚。前端轮询 GET /api/tasks/{task_id} 获取进度。
+
+    v2.6.2 fix-backup-restore-support Task 2: 启动前 probe 设备 SCP 支持
+    - 不支持 → 立即 422 + error_key=RESTORE_NOT_SUPPORTED（不再"无反应"）
+    - 支持 → 原 task_manager.submit 流程
     """
     device, password, error = _get_device_with_password(db, device_id)
     if error:
@@ -599,6 +606,36 @@ def restore_backup_async(
     backup = db.query(Backup).filter(Backup.id == backup_id, Backup.device_id == device_id).first()
     if not backup:
         return error_response(err.BACKUP_NOT_FOUND, params={"id": backup_id})
+
+    # v2.6.2 fix-backup-restore-support Task 2: 启动前 probe
+    mgr = _make_manager(device, password)
+    try:
+        support = mgr.check_restore_support()
+    except Exception as e:
+        # probe 自身失败（如 SSH 连接失败）不影响原 task 流程，记录并继续
+        logger.error(
+            f"check_restore_support 失败 device_id={device_id} host={device.host}: {e}",
+            exc_info=True,
+        )
+        support = {"supported": True, "reason": f"probe 失败: {e}，按支持处理", "error_type": None}
+
+    if not support.get("supported"):
+        # 设备不支持 SCP 推回，立即返回 422 明确错误
+        device_model = device.model or "Unknown"
+        reason = support.get("reason", "unknown")
+        return error_response(
+            err.BACKUP_RESTORE_NOT_SUPPORTED,
+            params={
+                "device_id": device_id,
+                "device_model": device_model,
+                "device_ip": device.host,
+                "reason": reason,
+            },
+            fallback=(
+                f"设备 {device_model} ({device.host}) 不支持 SCP 推回，无法回滚。"
+                f"原因: {reason}。建议: 该系列设备暂不支持程序化回滚，请使用设备 console 手工恢复。"
+            ),
+        )
 
     task_id = task_manager.submit(
         "restore", device_id, _async_restore_fn, device_id, backup_id, body.with_reboot

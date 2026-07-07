@@ -125,6 +125,8 @@ class Backup:
     INVALID_ID = I18nKey("backup.invalid_id")                  # 备份 ID 不合法
     # v2.6.1 fix-asset-backup-state-sync Task 1.5: 资产离线错误
     DEVICE_OFFLINE = I18nKey("error.backup.device_offline")    # 设备 {device_id} 资产未采集/离线，请先采集后再备份
+    # v2.6.2 fix-backup-restore-support Task 2: 设备不支持 restore（SCP subsystem 不可用）
+    RESTORE_NOT_SUPPORTED = I18nKey("backup.restore_not_supported")  # 设备 {device_model} 不支持 SCP 推回，无法回滚: {reason}
 
 
 # ===== 批量（batch）=====
