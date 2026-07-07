@@ -630,6 +630,8 @@ class BackupManager:
         2. SCP 推 backup 文件到设备 flash（remote=`recover_<backup_id>.cfg`）
         3. user-view 跑 `startup saved-configuration recover_<backup_id>.cfg`
         4. 失败时记录错误，不主动清理设备上的临时文件（让用户决定）
+
+        v2.6.2 fix-backup-restore-support Task 3: 详细 paramiko 错误日志
         """
         client = self._connect_ssh()
         remote_name = f"recover_{backup.id}.cfg"
@@ -645,7 +647,16 @@ class BackupManager:
             finally:
                 scp.close()
         except Exception as e:
-            raise BackupError(f"SCP 推回失败: {e}") from e
+            # v2.6.2 Task 3: 详细错误日志
+            logger.error(
+                f"SCP 推回失败: device_model={self.device_model or 'Unknown'} "
+                f"host={self.host} backup_id={backup.id} type={backup.backup_type} "
+                f"error_type={type(e).__name__} error_message={e}"
+            )
+            raise BackupError(
+                f"SCP 推回失败 (device={self.device_model or self.host}, "
+                f"type={type(e).__name__}): {e}"
+            ) from e
         finally:
             client.close()
 
@@ -672,6 +683,11 @@ class BackupManager:
             finally:
                 chan.close()
         except Exception as e:
+            logger.error(
+                f"设置启动配置失败: device_model={self.device_model or 'Unknown'} "
+                f"host={self.host} backup_id={backup.id} "
+                f"error_type={type(e).__name__} error_message={e}"
+            )
             raise BackupError(f"设置启动配置失败: {e}") from e
         finally:
             client.close()
