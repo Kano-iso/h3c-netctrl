@@ -621,7 +621,14 @@ def restore_backup_async(
 
     if not support.get("supported"):
         # 设备不支持 SCP 推回，立即返回 422 明确错误
-        device_model = device.model or "Unknown"
+        # v2.6.2 patch: Device ORM model 没 model 字段（model 在 Asset 上）
+        # → 从 asset 关联拿 model；asset 缺失/未采集则降级 Unknown
+        device_model = "Unknown"
+        try:
+            if getattr(device, "asset", None) and device.asset.model:
+                device_model = device.asset.model
+        except Exception:
+            pass
         reason = support.get("reason", "unknown")
         return error_response(
             err.BACKUP_RESTORE_NOT_SUPPORTED,

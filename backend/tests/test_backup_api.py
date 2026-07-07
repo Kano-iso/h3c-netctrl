@@ -412,3 +412,133 @@ def test_check_restore_support_returns_true_on_success():
             # 清理 dummy 文件命令被调用
             assert mock_chan.send.called
             assert b"delete /unreserved" in mock_chan.send.call_args[0][0]
+
+
+# ======================== v2.6.2 fix-backup-restore-support Task 7: restore_async 422 测试 ========================
+
+def test_restore_async_returns_error_when_scp_unsupported(client, db, created_device):
+    """v2.6.2 Task 7: check_restore_support 返回 unsupported → restore_async 立即返错
+
+    模拟 H3C V7 S6850 SFTP/SCP subsystem 禁用场景，验证后端：
+    1. 不进入 task_manager.submit（不再"无反应"）
+    2. 返回 success=False + error_key=BACKUP_RESTORE_NOT_SUPPORTED
+    3. fallback 消息含"不支持 SCP 推回"
+    """
+    from app.utils.backup_manager import BackupManager
+    from app.models import Backup
+
+    # 1. 给 created_device 插一条 backup 记录
+    backup = Backup(
+        device_id=created_device["id"],
+        filename="test_restore_422.cfg",
+        file_path="/tmp/test_restore_422.cfg",
+        backup_type="running",
+        size=100,
+        content_hash="abc",
+    )
+    db.add(backup)
+    db.commit()
+    db.refresh(backup)
+
+    # 2. mock check_restore_support → unsupported
+    with patch.object(
+        BackupManager, "check_restore_support",
+        return_value={
+            "supported": False,
+            "reason": "Channel closed.",
+            "error_type": "SSHException",
+        },
+    ):
+        resp = client.post(
+            f"/api/devices/{created_device['id']}/backup/{backup.id}/restore-async",
+            json={},
+        )
+
+    # 3. 验证：APIResponse 包装 + success=False + 错误 key
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["success"] is False
+    # error_key 是 i18n key（"backup.restore_not_supported"），不是错误码名
+    assert body["error_key"] == "backup.restore_not_supported"
+    # 降级消息含"不支持 SCP 推回"
+    assert "不支持 SCP 推回" in body["error"]
+    # 错误参数透传
+    assert body["error_params"]["device_id"] == created_device["id"]
+    assert body["error_params"]["reason"] == "Channel closed."
+
+
+def test_restore_async_proceed_when_scp_supported(client, db, created_device):
+    """v2.6.2 Task 7: check_restore_support 返回 supported → restore_async 进入 task_manager.submit
+
+    反向验证：确保 probe 通过时仍走原 task 流程（不被预检拦截）。
+    """
+    from app.utils.backup_manager import BackupManager
+    from app.models import Backup
+    from app.task_manager import task_manager
+
+    backup = Backup(
+        device_id=created_device["id"],
+        filename="test_restore_ok.cfg",
+        file_path="/tmp/test_restore_ok.cfg",
+        backup_type="running",
+        size=100,
+        content_hash="abc",
+    )
+    db.add(backup)
+    db.commit()
+    db.refresh(backup)
+
+    with patch.object(
+        BackupManager, "check_restore_support",
+        return_value={"supported": True, "reason": "scp push ok", "error_type": None},
+    ), patch("app.routers.backup._async_restore_fn") as mock_async_fn:
+        # 模拟 task_fn（task_manager.submit 会调起 _async_restore_fn）
+        mock_async_fn.return_value = None
+        resp = client.post(
+            f"/api/devices/{created_device['id']}/backup/{backup.id}/restore-async",
+            json={},
+        )
+
+    # 验证：成功提交，task_id 存在
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["success"] is True
+    assert "task_id" in body["data"]
+    assert body["data"]["status"] in ("pending", "running")
+
+
+def test_restore_async_probe_failure_falls_back_to_supported(client, db, created_device):
+    """v2.6.2 Task 7: probe 自身失败（如 SSH 连接失败）→ 按支持处理
+
+    兜底逻辑：probe 抛异常不应阻塞原有 task 流程（避免探测失败导致无法回滚）。
+    """
+    from app.utils.backup_manager import BackupManager
+    from app.models import Backup
+
+    backup = Backup(
+        device_id=created_device["id"],
+        filename="test_restore_probe_fail.cfg",
+        file_path="/tmp/test_restore_probe_fail.cfg",
+        backup_type="running",
+        size=100,
+        content_hash="abc",
+    )
+    db.add(backup)
+    db.commit()
+    db.refresh(backup)
+
+    # mock probe 抛异常（模拟 SSH 连接失败）
+    with patch.object(
+        BackupManager, "check_restore_support",
+        side_effect=ConnectionError("SSH unreachable"),
+    ), patch("app.routers.backup._async_restore_fn"):
+        resp = client.post(
+            f"/api/devices/{created_device['id']}/backup/{backup.id}/restore-async",
+            json={},
+        )
+
+    # 验证：probe 失败时按"支持"处理 → task 提交成功
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["success"] is True
+    assert "task_id" in body["data"]

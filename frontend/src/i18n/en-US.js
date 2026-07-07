@@ -370,6 +370,8 @@ export default {
     // Result
     op_failed: 'Operation failed: {error}',
     submit_restore_failed: 'Submit rollback task failed: {error}',
+    // v2.6.2 fix-backup-restore-support Task 2
+    restore_not_supported: 'Device {device_model} does not support SCP push, cannot rollback: {reason}',
     load_failed_devices: 'Failed to load device list',
     download_failed: 'Download failed',
     full_backup_failed: 'Full backup failed',

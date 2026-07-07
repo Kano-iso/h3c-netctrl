@@ -220,6 +220,7 @@ err = SimpleNamespace(
     BACKUP_FILE_NOT_FOUND=Backup.FILE_NOT_FOUND,
     BACKUP_INVALID_ID=Backup.INVALID_ID,
     BACKUP_DEVICE_OFFLINE=Backup.DEVICE_OFFLINE,  # v2.6.1 fix-asset-backup-state-sync Task 1.5
+    BACKUP_RESTORE_NOT_SUPPORTED=Backup.RESTORE_NOT_SUPPORTED,  # v2.6.2 fix-backup-restore-support Task 2
     # batch
     BATCH_NO_DEVICES=Batch.NO_DEVICES,
     BATCH_EMPTY_COMMAND=Batch.EMPTY_COMMAND,
@@ -313,6 +314,8 @@ FALLBACK_MESSAGES = {
     Backup.INVALID_ID: "备份 ID 不合法: {id}",
     # v2.6.1 fix-asset-backup-state-sync Task 1.5: 资产离线错误兜底
     Backup.DEVICE_OFFLINE: "设备 {device_id} 资产未采集/离线，请先采集后再备份",
+    # v2.6.2 fix-backup-restore-support Task 2: 设备不支持 SCP 推回
+    Backup.RESTORE_NOT_SUPPORTED: "设备 {device_model} 不支持 SCP 推回，无法回滚: {reason}",
     # batch
     Batch.NO_DEVICES: "未选择设备",
     Batch.EMPTY_COMMAND: "命令不能为空",

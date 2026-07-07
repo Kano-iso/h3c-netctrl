@@ -375,6 +375,8 @@ export default {
     // 结果
     op_failed: '操作失败：{error}',
     submit_restore_failed: '提交回滚任务失败：{error}',
+    // v2.6.2 fix-backup-restore-support Task 2
+    restore_not_supported: '设备 {device_model} 不支持 SCP 推回，无法回滚：{reason}',
     load_failed_devices: '加载设备列表失败',
     download_failed: '下载失败',
     full_backup_failed: '全量备份失败',
