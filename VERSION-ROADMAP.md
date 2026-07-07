@@ -26,7 +26,8 @@
 | **v2.5.0 P1 工程化收口** | ✅ 2026-07-05 (tag: v2.5.0) | split 模式默认（**BREAKING**） + internal-api 5s TTL 缓存 + vitest 30 case + Playwright 37 case + ops-toolkit 第 8/9 脚本（interface-config + task-monitor） | [archive/2026-07-05-v25-roadmap](openspec/changes/archive/2026-07-05-v25-roadmap/) + [RELEASE-NOTES-v2.5.0.md](RELEASE-NOTES-v2.5.0.md) |
 | **v2.6.0 i18n 中英双语** | ✅ 2026-07-06 (tag: v2.6.0) | vue-i18n v9 + 顶导「中 \| EN」切换 + localStorage 持久化 + **400+ 翻译 key（zh-CN + en-US）** + 后端 `APIResponse.error_key` schema 扩展（**BREAKING**） + 9 router 改造 + 26 后端单测 + 25 前端测试 | [archive/2026-07-06-v26-i18n](openspec/changes/archive/2026-07-06-v26-i18n/) + [RELEASE-NOTES-v2.6.0.md](RELEASE-NOTES-v2.6.0.md) + [docs/i18n-guide.md](docs/i18n-guide.md) |
 | **v2.6.1 bug 修复轮次** | ✅ 2026-07-07 (tag: v2.6.1) | 6 个子 change：资产陈旧自动降级 / 采集失败可读化 / split 密码解密修 / vite proxy 精确分发 / **备份数据完整性**（下载 404 + 启动自检 + commit refresh + expire_on_commit + dump_db 工具） / **资产备份状态同步**（offline 设备按钮 disabled + force 逃生 + `backups.forced` 审计字段） / 备份回滚 SFTP 根因定位 + 1 个 review 反思 | [RELEASE-NOTES-v2.6.1.md](RELEASE-NOTES-v2.6.1.md) + [REVIEW-v261-bugfix-round.md](docs/REVIEW-v261-bugfix-round.md) |
-| **v3.0 VPC** | ⏳ 规划 | VPC + etcd（SDN 起步） | 暂未起 spec |
+| **v2.6.2 回滚预检 + 失败 UX** | ⏳ 2026-07-08 (待 tag v2.6.2) | 1 个 change：H3C V7 S6850 回滚无反应修复（probe + 端点 422 + paramiko 详细日志 + 前端 toast + 面板失败高亮 + `device.status.restore_unsupported` 字段）+ 1 review 反思 | [RELEASE-NOTES-v2.6.2.md](RELEASE-NOTES-v2.6.2.md) + [REVIEW-v262-bugfix-round-real-device-validation.md](docs/REVIEW-v262-bugfix-round-real-device-validation.md) |
+| **v3.0 VPC** | ⏳ PRD 初稿 | VPC + 端口随接随入 + 分布式网关状态闭环（SDN 起步） | [PRD-V3.0.md](PRD-V3.0.md)，v2.6.2 闭环后起 spec |
 | **monitor** | ⏳ 远期 | 监控 / 告警 / dashboard 独立化 | 暂未起 spec |
 
 ---
@@ -169,17 +170,23 @@
 
 ---
 
-### v3.0 VPC（⏳ 规划）
+### v3.0 VPC（⏳ PRD 初稿）
 
-**目标**：SDN 起步，引入 VPC 能力 + etcd 协调。
+**目标**：SDN 起步，引入 VPC 能力、端口随接随入、分布式网关配置自动化与状态校验闭环。
+
+**PRD**：[PRD-V3.0.md](PRD-V3.0.md)
 
 **前置依赖**：
 - v2.4.1 完成 3 容器拆分（ctrl + config + data，数据层独立）✅ 已发版
 - 容器解耦蓝图落地（已在 v2.1.x patch 预留，v2.4.1 实施）✅
 
 **预计 change**：
+- `sdn-vpc-prd-and-model` — VPC / 租户 / 端口绑定资源模型与 PRD/Spec 定稿
 - `sdn-vpc-foundation` — VPC 基础能力（创建 / 删除 / 绑定到交换机）
-- `sdn-etcd-coordination` — etcd 集群协调
+- `sdn-vpc-device-templates` — H3C IP VPN / VSI / Vsi-interface / service-instance 模板
+- `sdn-l3vni-validation` — L3VNI、RD/RT、EVPN route、ARP/MAC 状态采集与校验
+- `sdn-port-binding` — 端口随接随入与端口状态可视化
+- `sdn-etcd-coordination` — 可选单节点 etcd / 轻量协调方案评估（不作为 P0 前置依赖）
 
 ---
 
@@ -618,6 +625,63 @@ localStorage: {"locale": "en-US"} 保留
 **v3.0 推进**（v2.6.1 闭环后）：
 - v2.6.2 待定（按需启动小 patch）
 - v3.0 VPC（SDN + etcd 协调）正式开始
+
+---
+
+## 15. v2.6.2 回滚预检 + 失败 UX（⏳ 2026-07-08 待 tag v2.6.2）
+
+详见 [RELEASE-NOTES-v2.6.2.md](RELEASE-NOTES-v2.6.2.md) + [docs/REVIEW-v262-bugfix-round-real-device-validation.md](docs/REVIEW-v262-bugfix-round-real-device-validation.md) + main spec [`openspec/specs/backup-restore-support/spec.md`](openspec/specs/backup-restore-support/spec.md)。
+
+**主题**：v2.6.1 复盘发现 H3C V7 设备"回滚无反应"根因是 S6850/S6860/S9850 系列默认禁用 SFTP/SCP subsystem，v2.6.2 落地"启动前 probe + 端点预检 + 前端可视化"3 套防线 + 1 个新 `device.status` 字段。
+**无 BREAKING SCHEMA** — 纯修 bug + 加 1 个新 `DeviceResponse.restore_unsupported: Optional[bool]` 字段。
+
+**包含 2 个子 change + 1 review 反思 + 11 commit**：
+1. **2026-07-08-fix-backup-restore-support** — H3C V7 SCP 不支持设备预检 + 422 + 前端 toast + 面板高亮 + 状态字段（9 commit + 3 mock 测试）
+2. **2026-07-08-v262-roadmap** — 总入口 proposal + tasks
+3. **docs/REVIEW-v262-bugfix-round-real-device-validation.md** — 真机 .177/.5 验证记录（dev 环境跳过，逻辑已 mock 覆盖）
+4. **openspec/specs/backup-restore-support/spec.md** — main spec 沉淀（7 requirement + 各 task Scenario）
+
+**关键设计决策**：
+| 决策 | 方案 | 理由 |
+|---|---|---|
+| probe 机制 | 推 1 字节 dummy 文件 + SSH exec delete 清理 | 不依赖具体 H3C 型号；scp subsystem 禁用时立即 `Channel closed`，SSH exec 仍可用 |
+| 端点预检位置 | `restore_async` 启动前 probe | 提前拦截，避免 task 提交后才发现不可用（"无反应"问题根因） |
+| 设备状态字段 | `device.status.restore_unsupported: Optional[bool]` + 5s TTL 缓存 | 前端可基于此字段禁用"回滚"按钮 + 显示提示（无需等用户点回滚才知道） |
+| 缓存 TTL | 5s | 与 v2.5 internal-api 5s TTL 一致；list 接口 N 设备 × probe 1s 性能可接受 |
+| probe 失败兜底 | 按"支持"处理 + ERROR 日志 | 探测失败不应阻塞原 task 流程（如 SSH 偶发抖动） |
+| 前端 toast | Pinia store + 全局组件 + 5s 自动消失 | 任务失败 UX 提升（v2.6.1 复盘"用户必须点进面板才看到错误"） |
+| 失败 chip 视觉 | `text-bad` 颜色 + 红色 SVG + `ring-2 ring-bad/40` 描边 | 即使折叠态也醒目（v2.6.1 复盘"折叠态无反馈"） |
+| `device_model` 来源 | `device.asset.model`（不在 Device ORM 上） | Device 模型只存网络身份；硬件属性在 Asset |
+| 错误码 fallback | `Backup.RESTORE_NOT_SUPPORTED: "设备 {device_model} 不支持 SCP 推回，无法回滚: {reason}"` | 明确给设备型号 + 原因（v2.6.1 复盘"无反应"调试困难） |
+
+**测试统计**：
+- **backend 单元**：245+ → **317 passed**（+5：T1 probe 函数 2 个 + T7 restore_async 422/支持/probe 失败兜底 3 个）
+- **backend 失败**：3（baseline 已存在，与本次改动无关：test_backups_async_success_with_2_devices + 2 split integration）
+- **frontend lint + build**：全过
+- **真机集成**：dev 环境 `.5/.177` 不可达（仅 `.100` Spine 可达），逻辑已通过 mock 覆盖
+
+**真机回归（待生产环境窗口）**：
+- [ ] .5 设备点回滚 → toast 弹"设备 S6850 不支持 SCP 推回，无法回滚"
+- [ ] .5 设备 Backend log 含 `paramiko.ssh_exception.SSHException: Channel closed.`
+- [ ] .177 设备点回滚 → toast 弹"回滚成功"或正常进度
+- [ ] .177 设备 Backend log 含 `restore success`
+
+**关键 commit 序列**：
+- T1 `a40dde2` probe 函数 + device_model 参数
+- T2 `c1b33bb` 端点预检 + 422（`fa140de` 修 T2 device.model bug + 加 err 注册）
+- T3 `5cd3ad7` 详细 paramiko 错误日志
+- T4 `9a5f26f` toast 系统 + taskStore 失败触发
+- T5 `44d59be` BackgroundTaskPanel 失败高亮
+- T6 `167063e` device.status restore_unsupported 字段
+- T7 `fa140de` mock scp.put Channel closed 测试（合并 T2 patch）
+- T8 `62511d9` 真机验证记录
+- T9 `828cba2` docs/ops-toolkit.md S6850 SCP 限制
+- archive `fee6d33` 2 change 闭环
+- main spec `7080c46` 沉淀
+
+**v3.0 推进**（v2.6.2 闭环后）：
+- v3.0 VPC（SDN + etcd 协调）正式开始起 spec
+- 远期 vision 12.1 节按 v3.0 进展更新
 
 ---
 

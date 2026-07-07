@@ -24,15 +24,17 @@
 | **v2.5.0 P1 工程化收口** | ✅ **2026-07-05 (tag: v2.5.0)** | **split 模式为默认（BREAKING）** + internal-api 5s TTL 缓存 + vitest 30 单元 + Playwright 37 e2e + ops-toolkit 第 8/9 脚本（interface-config + task-monitor） | [RELEASE-NOTES-v2.5.0.md](RELEASE-NOTES-v2.5.0.md) · [v25-roadmap](openspec/changes/archive/2026-07-05-v25-roadmap/) |
 | **v2.6.0 i18n 中英双语** | ✅ **2026-07-06 (tag: v2.6.0)** | vue-i18n v9 + 顶导「中 \| EN」切换 + localStorage 持久化 + **400+ 翻译 key（zh-CN + en-US）** + 后端 `APIResponse.error_key` schema 扩展（**BREAKING**，向后兼容） + 9 router 改造 + 26 后端单测 + 25 前端测试 | [RELEASE-NOTES-v2.6.0.md](RELEASE-NOTES-v2.6.0.md) · [v26-i18n](openspec/changes/archive/2026-07-06-v26-i18n/) · [docs/i18n-guide.md](docs/i18n-guide.md) |
 | **v2.6.1 bug 修复轮次** | ✅ **2026-07-07 (tag: v2.6.1)** | 6 个子 change：资产陈旧自动降级 / 采集失败可读化 / split 密码解密修 / vite proxy 精确分发 / **备份数据完整性**（下载 404 + 启动自检 + commit refresh + expire_on_commit + dump_db 工具） / **资产备份状态同步**（offline 设备按钮 disabled + force 逃生 + `backups.forced` 审计字段） / 备份回滚 SFTP 根因定位 + 1 个 review 反思 | [**RELEASE-NOTES-v2.6.1.md**](RELEASE-NOTES-v2.6.1.md) · [REVIEW-v261-bugfix-round.md](docs/REVIEW-v261-bugfix-round.md) |
-| v3.0 VPC | ⏳ 规划 | VPC 能力（SDN）+ etcd 协调 | 延后 |
+| **v2.6.2 回滚预检 + 失败 UX** | ⏳ 2026-07-08 (待 tag v2.6.2) | 1 个 change：H3C V7 S6850 回滚无反应修复（probe + 端点 422 + paramiko 详细日志 + 前端 toast + 面板失败高亮 + `device.status.restore_unsupported` 字段）+ 1 review 反思 | [RELEASE-NOTES-v2.6.2.md](RELEASE-NOTES-v2.6.2.md) · [REVIEW-v262-bugfix-round-real-device-validation.md](docs/REVIEW-v262-bugfix-round-real-device-validation.md) |
+| v3.0 VPC | ⏳ PRD 初稿 | VPC 能力（SDN）+ 端口随接随入 + 分布式网关状态闭环 | [PRD-V3.0.md](PRD-V3.0.md) |
 
 详细进度、约束、决策记录见 [VERSION-ROADMAP.md](VERSION-ROADMAP.md)。
 已归档 change 见 [openspec/changes/archive/](openspec/changes/archive/)。
 主规格沉淀见 [openspec/specs/](openspec/specs/)。
+V3.0 产品蓝图见 [PRD-V3.0.md](PRD-V3.0.md)。
 
-## 当前架构（v2.5.0）
+## 当前架构（v2.6.2）
 
-> 详见 [VERSION-ROADMAP.md §v2.5 P1 工程化收口](VERSION-ROADMAP.md)。v2.4.1 拆 3 容器，v2.4.2 review 报告出 6 项 P1 工程化遗留，v2.5 集中收口（split 默认 + 缓存 + 测试体系 + 2 新脚本）。
+> 详见 [VERSION-ROADMAP.md §v2.6.2 回滚预检 + 失败 UX](VERSION-ROADMAP.md)。v2.5 split 模式为默认，v2.6.0 i18n 上线，v2.6.1 修 6 类 bug，v2.6.2 集中修回滚链路 + 提升失败任务 UX。
 
 | 容器 | 职责 | 实施 | 状态 |
 |---|---|---|---|
@@ -41,9 +43,22 @@
 | **data** | 采集 / 存储 / 聚合（备份 / 操作日志 / 资产采集） | v2.4.1 实施 | ✅ 默认 split 模式 |
 | **backend (monolith)** | ctrl + config + data 合并 | v2.4.1 双模式共存 | ✅ 兼容老调用，profile: core |
 | **qa-backend / qa-frontend** | pytest / lint / build / vitest / playwright | v2.4.2 加 lint+build 必跑 / v2.5 加 vitest+playwright 必跑 | ✅ Archive 必跑 |
-| **ops-toolkit** | **9 个排错脚本**（check-host / ssh-test / check-netconf / capture-config / reboot-wait / audit-switch / paramiko-batch-exec / **interface-config** / **task-monitor**） | v2.4.1 + v2.4.2.1 + **v2.5.0** | ✅ 按需启动 |
+| **ops-toolkit** | **9 个排错脚本**（check-host / ssh-test / check-netconf / capture-config / reboot-wait / audit-switch / paramiko-batch-exec / **interface-config** / **task-monitor**） | v2.4.1 + v2.4.2.1 + v2.5.0 + **v2.6.2 文档**（S6850 SCP 限制） | ✅ 按需启动 |
 | **sdn (v3.0)** | VPC + etcd 协调 | 规划 | ⏳ v3.0 |
 | **monitor (未来)** | 实时指标 / 告警 / dashboard | 远期 | ⏳ v3.0+ 评估 |
+
+## v2.6.2 增量能力
+
+- **回滚预检链路**（fix-backup-restore-support）：
+  - 后端 `BackupManager.check_restore_support()` probe（H3C V7 S6850 默认禁 SCP subsystem → 推 1 字节 dummy 立即失败）
+  - `POST /api/devices/{id}/backup/{bid}/restore-async` 启动前 probe → 不支持直接 422 + `error_key=backup.restore_not_supported`
+  - `_restore_via_scp` 失败日志含 device_model / host / backup_id / error_type / error_message（v2.6.1 复盘"无反应"调试困难问题修复）
+- **失败任务 UX**（fix-backup-restore-support Task 4-5）：
+  - 全局 toast 系统（taskStore 检测 `pending/running → failed` 跃迁自动弹）
+  - `BackgroundTaskPanel` 失败高亮（折叠态红点 + 头部 failed chip + ring 描边）
+- **设备状态字段**（fix-backup-restore-support Task 6）：
+  - `device.status.restore_unsupported: Optional[bool]` 5s TTL 缓存
+  - 前端可基于此字段禁用"回滚"按钮 + 显示提示
 
 ## 功能概览
 
@@ -139,6 +154,7 @@ h3c-netctrl/
 ├── openspec/                    # OpenSpec 变更管理
 ├── docs/                        # 文档
 ├── PRD-V2.0.md                  # V2.0 产品需求文档
+├── PRD-V3.0.md                  # V3.0 VPC/SDN 产品需求文档
 └── docker-compose.dev.yml
 ```
 
