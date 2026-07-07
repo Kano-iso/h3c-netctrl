@@ -319,5 +319,5 @@ if __name__ == '__main__':
 - [x] RELEASE-NOTES-v2.6.1.md 写完
 - [x] VERSION-ROADMAP.md §v2.6.1 + §1 加 1 行
 - [x] README.md 顶部版本表同步
-- [x] change archive：`git mv openspec/changes/fix-backup-data-integrity/ archive/2026-07-06-fix-backup-data-integrity/`
-- [ ] git tag v2.6.1 + push（**需用户确认**）
+- [x] change archive：`git mv openspec/changes/fix-backup-data-integrity/ archive/2026-07-07-fix-backup-data-integrity/`
+- [ ] git tag v2.6.1 + push（**待执行**）
