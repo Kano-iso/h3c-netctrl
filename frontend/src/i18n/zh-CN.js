@@ -567,6 +567,14 @@ export default {
         cancelled: '已取消',
       },
     },
+    // ToastContainer (v2.6.2 fix-backup-restore-support Task 4)
+    toast: {
+      type_success: '成功',
+      type_error: '错误',
+      type_warning: '警告',
+      type_info: '提示',
+      close: '关闭',
+    },
   },
   // v2.6 Task 8: Form / Modal 组件
   form: {

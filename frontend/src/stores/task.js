@@ -2,9 +2,12 @@
 //
 // 维护后台备份/回滚任务状态，前端轮询 + localStorage 持久化。
 // 切页面/刷新浏览器后，未完成任务可从 localStorage 恢复并继续轮询。
+//
+// v2.6.2 fix-backup-restore-support Task 4: 任务失败时弹全局 toast
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { taskApi } from '../api/index.js'
+import { useToastStore } from './toast.js'  // v2.6.2 Task 4
 
 const STORAGE_KEY = 'h3c-netctrl-tasks'
 const POLL_INTERVAL = 2000  // 2s 轮询
@@ -99,6 +102,7 @@ export const useTaskStore = defineStore('task', () => {
   }
 
   // 轮询一次
+  // v2.6.2 Task 4: 检测 running → failed 状态跃迁 → 弹全局 toast
   async function _pollOnce(taskId) {
     const r = await taskApi.get(taskId)
     if (!r.success) {
@@ -107,6 +111,11 @@ export const useTaskStore = defineStore('task', () => {
       if (t && (t.status === 'pending' || t.status === 'running')) {
         t.status = 'failed'
         t.error = r.error || '任务不存在'
+        // v2.6.2 Task 4: 弹 toast
+        try {
+          const toast = useToastStore()
+          toast.error(`任务 #${taskId} 失败: ${t.error}`)
+        } catch (e) { /* toast store 不可用时忽略 */ }
       }
       _stopPolling(taskId)
       _persist()
@@ -114,7 +123,16 @@ export const useTaskStore = defineStore('task', () => {
     }
     const data = r.data
     const old = tasks.value[taskId]
+    const oldStatus = old?.status
     tasks.value[taskId] = { ...old, ...data, _label: old?._label }
+    // v2.6.2 Task 4: 检测 running/pending → failed 跃迁，弹 toast
+    if (oldStatus && ['pending', 'running'].includes(oldStatus) && data.status === 'failed') {
+      try {
+        const toast = useToastStore()
+        const errMsg = data.error || '未知错误'
+        toast.error(`任务 #${taskId} 失败: ${errMsg}`)
+      } catch (e) { /* toast store 不可用时忽略 */ }
+    }
     if (['success', 'failed', 'cancelled'].includes(data.status)) {
       _stopPolling(taskId)
     }

@@ -6,6 +6,7 @@ import { storeToRefs } from 'pinia'
 import { useLocaleStore } from './stores/locale.js'
 import AppFooter from './components/AppFooter.vue'
 import BackgroundTaskPanel from './components/BackgroundTaskPanel.vue'
+import ToastContainer from './components/ToastContainer.vue'  // v2.6.2 fix-backup-restore-support Task 4
 
 const route = useRoute()
 const { t } = useI18n()
@@ -205,6 +206,9 @@ const Icons = {
 
     <!-- 后台任务面板（v24-feat-async-backup-status） -->
     <BackgroundTaskPanel />
+
+    <!-- 全局 toast 通知（v2.6.2 fix-backup-restore-support Task 4） -->
+    <ToastContainer />
   </div>
 </template>
 

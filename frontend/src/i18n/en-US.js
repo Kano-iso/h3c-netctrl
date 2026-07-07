@@ -556,6 +556,14 @@ export default {
         cancelled: 'Cancelled',
       },
     },
+    // ToastContainer (v2.6.2 fix-backup-restore-support Task 4)
+    toast: {
+      type_success: 'Success',
+      type_error: 'Error',
+      type_warning: 'Warning',
+      type_info: 'Info',
+      close: 'Close',
+    },
   },
   // v2.6 Task 8: Form / Modal components
   form: {
