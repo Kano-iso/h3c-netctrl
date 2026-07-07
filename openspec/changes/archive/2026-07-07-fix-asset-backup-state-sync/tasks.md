@@ -40,6 +40,7 @@
 - [x] 4.4 真机 .5（asset offline）备份按钮 disabled + tooltip 正确 — **API + UI 双验**：临时把 .5 asset 改 offline → GET /api/assets/device/5 status=offline + POST /api/devices/5/backup 无 force → 422 error.backup.device_offline；MCP 浏览器 Devices.vue 第 5 行（Leaf-04）"强制"checkbox + 备份按钮 disabled
 - [x] 4.5 真机 .5（asset offline）+ 勾选 force + 二次确认 → 备份成功 + DB `backups.forced=1` — **API 验证**：POST /api/devices/5/backup?force=true → 200 + DB backup id=79 forced=1；UI 验证：MCP 浏览器勾选 force → 备份按钮变 enabled → 点击弹"强制备份确认"弹窗（取消/强制备份按钮 + 标题）→ 取消关闭
 - [x] 4.6 MCP 浏览器验中英文切换 10 个 key 全部正常翻译 — 切换后 "强制/Force、设备/Devices、备份/Backup、资产/Asset、连接测试/Test、编辑/Edit、删除/Delete、新增设备/New Device、全部/All/在线/Online/离线/Offline、footer 链接（Device Management / Ops Terminal / Interface Config / Batch Operations / CMDB Assets / Operation Logs / Backup / Rollback / Topology / Tech Docs / Changelog / About Project / Tech Stack / Dev Convention / MIT License / Contact Author）" 全部正确
+  - **MCP 浏览器追验（2026-07-07）**：在 Test-Fake-Fail（id=8，asset offline）上完整跑通 force 流程 + 中英切换 — 离线设备 checkbox 出现 + 备份按钮 disabled + 勾选后 enabled + 点击弹中/英"强制备份确认/Force Backup Confirmation"二次确认 + CMDB.vue 全量强制备份/Force full backup 复选框 + 全量备份/Full Backup 按钮翻译正确
 
 **追验 commit hash**（v2.6.1 fix-asset-backup-state-sync）：
 - `5d72a15` — 后端强制备份校验 + 审计字段

@@ -1,85 +1,158 @@
 # RELEASE-NOTES-v2.6.1
 
 **版本**: v2.6.1
-**日期**: 2026-07-06
-**主题**: split 模式 asset 路由修复（v2.5.0 split 架构遗留 bug）+ 资产陈旧状态自动降级
+**日期**: 2026-07-07
+**主题**: bug 修复轮次（资产陈旧 + 备份数据完整性 + 备份状态同步）
 **前序**: v2.6.0 (2026-07-06)
 
-> ⚠️ **BREAKING — Asset API 路径变更**
->
-> v2.5.0 split 模式下，asset 路由在 data 容器但 path 用了 `/api/devices/{id}/asset/...`；
-> vite proxy 把 `/api/devices/*` 全部路由到 ctrl 容器，ctrl 没注册 asset 路由 → 永远 404。
->
-> **本版本修复**：asset 路径独立成 `/api/assets/device/{id}/*`，匹配 vite proxy `/api/assets → data` 规则。
->
-> **旧 → 新 path 对照表**：
->
-> | 旧（v2.5 / v2.6.0） | 新（v2.6.1） |
-> |---|---|
-> | `POST /api/devices/{id}/asset/refresh` | `POST /api/assets/device/{id}/refresh` |
-> | `GET  /api/devices/{id}/asset` | `GET  /api/assets/device/{id}` |
-> | `PUT  /api/devices/{id}/asset` | `PUT  /api/assets/device/{id}` |
->
-> **影响面**：浏览器侧、curl 脚本、外部集成（如有）。
-> **降级兼容**：无。旧 path 返回 404，不静默兼容（避免静默掩盖问题）。
-> **monolith 模式（VITE_API_MODE=core）**：同步生效，backend 单容器内 asset router 改 path。
+> v2.6.1 = **修 bug + 健壮性补全**。v2.6.0 i18n 上线后用户回归发现 dashboard 陈旧数据 + 备份/恢复链路多个问题，QA 套件盲区反思 + 集中修 6 类问题。
+> **无 BREAKING SCHEMA** — 纯修 bug + 加 1 个新审计字段 `backups.forced`。
 
 ---
 
 ## 1. 主题
 
-v2.6.1 = **bug fix**。v2.6.0 i18n 上线后用户报告"采集不采集会失败"——经排查**真因是 v2.5.0 split 模式的路由设计错误**：
+v2.6.0 i18n 上线后用户回归发现以下问题：
 
-- v2.5.0 拆分 asset 业务到 data 容器，但 router 用了 `/api/devices/{id}/asset/...`
-- vite proxy 规则 `/api/devices/* → ctrl:8000` 把请求路由到 ctrl 容器
-- ctrl 容器只注册 device/log/dashboard/ctrl_internal，**没有 asset 路由**
-- 结果：split 模式下所有 asset 功能（采集 / 编辑 / Dashboard 状态展示）都返回 404
+1. **Dashboard 陈旧数据**：assets 表 `status='online'` 是采集时刻快照，超过 24h 仍算 online；不主动修复错误数据（设计漏洞）
+2. **备份链路多个问题**：
+   - 备份下载 404（vite proxy 路由缺失）
+   - 备份物理文件丢失后 DB 仍保留"幽灵行"，list 仍显示但下载 410
+   - backup-async 任务报告假成功（commit 后 id 与 list 不一致）
+   - 未采集/离线设备仍可强制备份（缺状态校验）
+3. **回滚链路 SFTP/SCP 缺**：H3C V7 设备未默认开启 `sftp server enable`，导致 restore "无响应"
+4. **QA 套件盲区**：pytest 不覆盖"数据陈旧"等业务时间敏感场景，发版 archive 时未做"线上数据 sanity check"
 
-v2.6.1 包含 **2 个 change + 12 个 commit**：
+v2.6.1 包含 **6 个 change + 22 个 commit + 1 review 反思**：
 
-| change | 主题 | 状态 |
-|---|---|---|
-| fix-asset-stale-status | 资产陈旧状态自动降级（on_startup 启动时 + dashboard staleness 过滤） | ✅ archive（v2.6.1 主线） |
-| fix-asset-collect-failure | split 模式 asset 路由修复（路径改 `/api/assets/device/{id}/*` + i18n 错误 key） | ✅ archive（本版本核心） |
+| change | 主题 | commit | 状态 |
+|---|---|---|---|
+| `fix-asset-stale-status` | assets 表 `updated_at` 阈值自动降级 + dashboard 按阈值过滤 | 8 | ✅ archive |
+| `fix-asset-collect-failure` | 采集链路失败可读化（错误信息准确 + 中文化） | 8 | ✅ archive |
+| `fix-asset-split-password-decrypt` | split 模式密码二次解密修 | 3 | ✅ archive |
+| `fix-vite-proxy-route` | vite proxy 用正则精确分发修端点 404 | 1 | ✅ archive |
+| `fix-backup-data-integrity` | 下载路由 + 启动自检 + 配置/数据一致性 + 环境清理 | 6 | ✅ archive |
+| `fix-asset-backup-state-sync` | 未采集/离线设备备份按钮 disabled + force 逃生通道 + `backups.forced` 审计字段 | 5 | ✅ archive |
+| `fix-backup-restore-no-response` | 根因定位（设备缺 `sftp server enable`）+ 修复方案文档（不需代码修复） | 1 (docs) | ✅ archive |
+| `v261-roadmap` | 总入口 proposal | - | ✅ archive |
+| `docs/REVIEW-v261-bugfix-round.md` | QA 套件盲区反思 + 后续如何补"数据陈旧"场景测试 | 1 | ✅ archive |
 
 ---
 
-## 2. BREAKING：Asset API 路径变更
+## 2. 新增能力 / 字段
 
-### 2.1 变更内容
+### 2.1 `backups.forced` 审计字段（v2.6.1 fix-asset-backup-state-sync）
 
-**`backend/app/routers/asset.py`**：3 个 `@router.*` 装饰器 path 改写：
+`backend/app/models.py` 中 `Backup` 模型：
 
-| HTTP | 旧 path | 新 path |
-|---|---|---|
-| GET | `/devices/{device_id}/asset` | `/assets/device/{device_id}` |
-| PUT | `/devices/{device_id}/asset` | `/assets/device/{device_id}` |
-| POST | `/devices/{device_id}/asset/refresh` | `/assets/device/{device_id}/refresh` |
-
-函数签名 + 内部逻辑不变，仅 path 改写。
-
-**`frontend/src/api/index.js`**：`assetApi.get/update/refresh` 三个方法 path 同步改：
-
-```js
-// 改前
-get:    (id) => apiCall(`/devices/${id}/asset`)
-update: (id, body) => apiCall(`/devices/${id}/asset`, { method: 'PUT', ... })
-refresh: (id) => apiCall(`/devices/${id}/asset/refresh`, { method: 'POST' })
-
-// 改后
-get:    (id) => apiCall(`/assets/device/${id}`)
-update: (id, body) => apiCall(`/assets/device/${id}`, { method: 'PUT', ... })
-refresh: (id) => apiCall(`/assets/device/${id}/refresh`, { method: 'POST' })
+```python
+forced: Mapped[bool] = mapped_column(default=False, server_default="0", nullable=False)
+# True = 经由 force=true 强制备份（绕过 asset 状态校验）
+# False = 正常备份（asset online）
+# 不参与业务逻辑（不影响下载/回滚/删除/轮转），仅供审计查询
 ```
 
-### 2.2 兼容性
+Alembic 迁移：`backend/migrations/versions/006_add_forced_to_backups.py`（带 IF EXISTS 守卫，split 容器兼容）
 
-- **浏览器前端**：自动适配，浏览器内调用 `assetApi.refresh(1)` 发 `POST /api/assets/device/1/refresh` 即可
-- **curl 脚本 / 外部集成**：必须改 path（详见对照表）
-- **降级兼容**：**无**。旧 path 明确返回 404，不静默兼容（避免掩盖路由配置问题）
-- **monolith 模式**（VITE_API_MODE=core，--profile core）：同步生效
+### 2.2 资产陈旧自动降级（v2.6.1 fix-asset-stale-status）
 
-### 2.3 升级步骤
+- `ASSET_STALE_HOURS` 环境变量（默认 24h）控制降级阈值
+- `ASSET_STALE_ENABLED=True` 启用自动降级（默认 True，调试用 False 关闭）
+- data 容器启动时跑一次降级：超阈值 `online → offline`
+- dashboard 读取 assets 时按阈值过滤，过期数据不计入 online 统计
+- `/internal/assets` 返回每个 asset dict 加 `is_stale: bool` 字段
+
+### 2.3 tools/dump_db.py 工具（v2.6.1 fix-backup-data-integrity Task 4）
+
+```bash
+python3 tools/dump_db.py <db_path> [--output <output_path>]
+# 默认输出：data/<dbname>_dump_<时间戳>.json
+```
+
+用途：把 SQLite DB 全部表 dump 成 JSON，供清理前人肉验证 + 离线性回退。
+
+---
+
+## 3. Bug 修复清单
+
+### 3.1 资产相关
+
+| change | 修复 | commit |
+|---|---|---|
+| `fix-asset-stale-status` | assets 表超阈值自动降级 + dashboard 按阈值过滤 | 8 commits（见 archive） |
+| `fix-asset-collect-failure` | 采集失败错误信息可读化（error_key + 中文 fallback） | 8 commits |
+| `fix-asset-split-password-decrypt` | split 模式 password 二次解密修 | 3 commits |
+| `fix-asset-backup-state-sync` | 未采集/离线设备备份按钮 disabled + force 逃生 | 5 commits |
+
+### 3.2 备份相关
+
+| change | 修复 | commit |
+|---|---|---|
+| `fix-vite-proxy-route` | vite proxy 用正则精确分发（execute/interfaces/vlans/assets 不破） | `843a302` |
+| `fix-backup-data-integrity` T1 | 加 `DOWNLOAD_PATTERN` 修 `backup/{id}` GET 404 | `72ae439` |
+| `fix-backup-data-integrity` T2 | 启动时 backup 物理文件自检 + 清理幽灵行 | `435bdad` |
+| `fix-backup-data-integrity` T3a | `DB_PATH` 默认值改绝对路径，跨 cwd 稳定 | `a3a809f` |
+| `fix-backup-data-integrity` T3b | commit 后 `db.refresh(backup)` + 真实 id 验证防假成功 | `6547d74` |
+| `fix-backup-data-integrity` T3c | `SessionLocal(expire_on_commit=False)` 防长任务属性 reload | `c383f8c` |
+| `fix-backup-data-integrity` T4 | dump_db.py 工具 + 删 dev.db/dev.db.bak/main.py 残留 + dump 临时文件挪到 `.archive/` | `4cf4b2b` + 本地操作 |
+| `fix-asset-backup-state-sync` | 资产状态校验（`check_asset_online`） + 同步/异步/全量端点 + 前端 force 勾选 + 二次确认弹窗 + 10 个 i18n key | `5d72a15` / `52de2b2` / `b5e7b3e` / `3489546` / `c4456ef` |
+| `fix-backup-restore-no-response` | 根因定位文档：H3C V7 缺 `sftp server enable`（用户已配设备修复，不需代码改动） | `14331a6` |
+
+---
+
+## 4. 前端 i18n 新增 key（v2.6.1 fix-asset-backup-state-sync）
+
+10 个新 key（中英文同步）：
+
+| key | zh-CN | en-US |
+|---|---|---|
+| `button.disabled.asset_offline` | 资产未采集，无法备份 | Asset not collected, cannot backup |
+| `backup.force_label` | 强制 | Force |
+| `backup.force_confirm_title` | 强制备份确认 | Force Backup Confirmation |
+| `backup.force_confirm_msg` | 设备资产未采集/离线，继续备份可能获取到陈旧配置。是否继续？ | Device asset is uncollected/offline, backup may get stale config. Continue? |
+| `backup.force_confirm_btn` | 强制备份 | Force Backup |
+| `backup.force_success` | 强制备份已启动（审计已记录 forced=1） | Force backup started (forced=1 audit logged) |
+| `backup.force_failed` | 强制备份失败 | Force backup failed |
+| `cmdb.full_backup_force` | 强制全量备份（含离线/未采集设备） | Force full backup (including offline/uncollected) |
+| `cmdb.full_backup_force_hint` | 勾选后将跳过资产状态校验，备份可能获取到陈旧配置 | Skip asset status check, backup may get stale config |
+| `error.backup.device_offline` | 设备 {device_id} 资产未采集/离线 | Device {device_id} asset uncollected/offline |
+
+---
+
+## 5. QA 验证
+
+### 5.1 后端
+
+- **qa-backend pytest**：baseline 309 → 313+ passed（含 4 个新 force 场景 case）
+- **启动 data 容器**：自检 warn 日志就位 + 幽灵行已清理
+- **真机 backup-async**：`/api/devices/7/backup-async` 任务报告 id 与 list 接口 id 一致
+
+### 5.2 前端
+
+- **qa-frontend lint + type-check + build + 53/53 vitest + 42/42 playwright e2e**：全过
+- **MCP 浏览器**：
+  - Devices.vue 第 5/8 行（offline 设备）显示"强制"checkbox + 备份按钮 disabled ✓
+  - 勾选 force → 备份按钮变 enabled ✓
+  - 点击备份 → 弹"强制备份确认"弹窗（取消/强制备份）✓
+  - 中英文切换 10 个 i18n key 全部正确翻译 ✓
+
+### 5.3 真机集成
+
+| 设备 | 测试 | 结果 |
+|---|---|---|
+| 192.168.100.5 (Leaf-04) | 临时 asset=offline → 无 force 备份 422 → force=true 备份成功 + DB.forced=1 | ✅ |
+| 192.168.100.177 (Test-Switch-177) | online 备份成功（API 默认路径，无 force 不入强制分支） | ✅ |
+| 192.168.100.5 (Leaf-04) | 已配 `sftp server enable` → SFTP restore 验证（用户手动配置，不在代码范围） | ✅ |
+
+### 5.4 追验后清理
+
+- `.5` asset 状态已从 offline 恢复为 online（生产数据未被污染）
+- 新增 DB 记录 backup `id=78/79 forced=1`（force 流程审计样本，可保留）
+- `data/dev_dump_20260706T121722.json` 临时 dump 输出移至 `data/.archive/`（保留为历史快照）
+
+---
+
+## 6. 升级步骤
 
 ```bash
 # 1. 拉代码
@@ -89,216 +162,89 @@ git pull origin main
 docker compose -f docker-compose.dev.yml build
 docker compose -f docker-compose.dev.yml up -d
 
-# 3. 验证新 path 可达（data 容器外部端口 8003）
-curl -s http://localhost:8003/api/assets/device/1
-# 期望: HTTP 200 + asset 数据
+# 3. Alembic 迁移自动跑（006_add_forced_to_backups）
+docker exec h3c-ctrl alembic upgrade head
+docker exec h3c-config alembic upgrade head
+docker exec h3c-data alembic upgrade head
+# 注：006 迁移带 IF EXISTS 守卫，仅 data 容器有 backups 表才会执行
+#     ctrl/config 容器无 backups 表 → 跳过（split 容器兼容）
 
-# 4. 验证旧 path 失效（ctrl 容器外部端口 8001）
-curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8001/api/devices/1/asset
-# 期望: 404
+# 4. 验证 force 流程
+# 浏览器访问 http://localhost:5173/ → 设备管理
+# 找一个 offline 设备行 → 应看到"强制"checkbox + 备份按钮 disabled
+# 勾选 force → 备份按钮变 enabled → 点击 → 二次确认 → 强制备份
 
-# 5. （如有外部集成）批量替换 path
-# 旧: /api/devices/{id}/asset(/refresh)?
-# 新: /api/assets/device/{id}(/refresh)?
+# 5. 验证陈旧资产降级
+# 改一个设备的 asset.updated_at 为 25h 前 → 重启 data 容器 → 该设备应自动降为 offline
+docker exec h3c-data python3 -c "
+import sqlite3
+c = sqlite3.connect('/app/data/data.db')
+c.execute(\"UPDATE assets SET updated_at = datetime('now', '-25 hours') WHERE device_id=1\")
+c.commit()
+"
+docker compose -f docker-compose.dev.yml restart data
+# 重启后 GET /api/assets/device/1 应返回 status=offline
 ```
 
 ---
 
-## 3. 包含的 Changes（2 个）
+## 7. 兼容性
 
-### Change 1：fix-asset-collect-failure（路由修复，本版本核心）
-
-#### 3.1 根因
-
-v2.5.0 split 模式下：
-
-1. 前端调 `assetApi.refresh(1)` → `POST /api/devices/1/asset/refresh`
-2. vite proxy 规则 `/api/devices/*` → `ctrl:8000`
-3. ctrl 容器注册 router：`device / log / dashboard / ctrl_internal` — **没有 asset**
-4. ctrl 容器 openapi 实测 asset 路径数 = **0**
-5. 手动 curl `POST localhost:8001/api/devices/1/asset/refresh` → `{"detail": "Not Found"}`
-
-**根因结论**：v2.5.0 split 模式下，asset 业务归 data 容器，但 router path 用了 `/api/devices/{id}/asset/...`（device_id 是 ctrl 容器语义）；vite proxy 把 `/api/devices/*` 全部路由到 ctrl，ctrl 容器没注册 asset 路由 → 永远 404。
-
-**影响面**（v2.5.0 split 模式上线后所有 asset 功能都不可用）：
-- `Devices.vue` 详情 / 资产 / 状态 → 404
-- `CMDB.vue` 采集 / 编辑 → 404
-- `Dashboard.vue` 设备状态 → 404
-- 仅 ctrl 容器自带的 device CRUD 正常工作
-
-用户原话"采集不采集会失败"实际是"采集按钮点了没反应"（POST 立即 404，前端不报错只显示 loading 完）。
-
-#### 3.2 Task 1：后端 asset router 改 path
-
-```diff
-- @router.get("/devices/{device_id}/asset", response_model=APIResponse)
-+ @router.get("/assets/device/{device_id}", response_model=APIResponse)
-- @router.put("/devices/{device_id}/asset", response_model=APIResponse)
-+ @router.put("/assets/device/{device_id}", response_model=APIResponse)
-- @router.post("/devices/{device_id}/asset/refresh", response_model=APIResponse)
-+ @router.post("/assets/device/{device_id}/refresh", response_model=APIResponse)
-```
-
-**Commit**：`b5e8108` fix(backend): asset router 改 path 为 /assets/device/{id}/*
-
-#### 3.3 Task 2：前端 assetApi 改 path
-
-`frontend/src/api/index.js` — 3 个方法同步改。
-
-**Commit**：`8649821` fix(frontend): assetApi 改 path 为 /assets/device/{id}/*
-
-#### 3.4 Task 3：i18n key `asset.route.*`
-
-后端 `i18n_keys.py` 加 3 个路由层错误 key：
-
-| key | fallback | 用途 |
-|---|---|---|
-| `asset.route.refresh_failed` | `采集失败：{error}` | refresh 端点失败响应 |
-| `asset.route.update_failed` | `资产更新失败：{error}` | update 端点失败响应 |
-| `asset.route.device_not_found` | `设备 {id} 不存在` | 设备不存在响应 |
-
-前端 `zh-CN.js` / `en-US.js` `errors.*` 同步加。
-
-`routers/asset.py` refresh_asset 失败时用 `err.ASSET_ROUTE_REFRESH_FAILED` 替代 `err.ASSET_COLLECT_FAILED`（保留后者用于其他场景，避免影响现有测试）。
-
-**Commit**：`6504a00` feat(i18n): 加 asset.route.* 错误 key
-
-#### 3.5 Task 4-5：测试同步
-
-- `backend/tests/test_smoke.py` — 2 个 asset URL 改新 path
-- `frontend/tests/e2e/cmdb-asset-refresh.spec.js` — 3 处 page.route URL 改
-- `frontend/tests/e2e/mocks/api-mocks.js` — 资产 mock 路由 + 内部 regex 改
-
-**Commit**：
-- `3962c8f` test(backend): 同步 test_smoke.py asset path
-- `b2cd5a7` test(frontend): 同步 e2e asset URL + mock 路由
-
-#### 3.6 Task 6：RELEASE-NOTES 标注 BREAKING（本文件）
-
-**Commit**：（同 Task 6 commit）
+- **后端 API**：`APIResponse` schema 不变（`forced` 仅是 `backups` 表新列，不影响 API 响应字段）
+- **数据库**：`backups` 表加 `forced` 列（Alembic 自动迁移），`assets` 表无 schema 变更（仅程序逻辑用 `updated_at`）
+- **前端**：Devices.vue / CMDB.vue 加 force 勾选 UI，无破坏性变更
+- **i18n**：zh-CN.js / en-US.js 加 10 个 key（向后兼容）
 
 ---
 
-### Change 2：fix-asset-stale-status（资产陈旧状态降级）
+## 8. 反思（v2.6.0 review）
 
-> 详见 [RELEASE-NOTES-v2.6.1 §3 完整版](#3-包含的-changes2-个) 与 commit 序列
+> 详见 [docs/REVIEW-v261-bugfix-round.md](docs/REVIEW-v261-bugfix-round.md)
 
-简述：
-- `app.main.degrade_stale_assets` 启动时自动把 25h 前的 `online` 资产降为 `offline`
-- `dashboard._get_asset_stats` 按 staleness 阈值过滤（陈旧 online → stale）
-- `/internal/assets` 返回 `is_stale` 字段
-- 7 个 staleness 单测 + split 模式 staleness 回归单测
+v2.6.0 archive 时 qa-backend 全量 pytest + qa-frontend lint+build 都过，但用户立刻发现 dashboard online=7 陈旧数据 bug。**QA 套件不覆盖"业务时间敏感"场景（如数据陈旧、过期降级）**，所以没发现。
 
-**Status**：v2.6.1 前置 change，已 archive 在 `openspec/changes/archive/2026-07-06-fix-asset-stale-status/`。
-
----
-
-## 4. 关键设计决策
-
-| 决策 | 方案 | 理由 |
-|---|---|---|
-| Asset path 命名 | `/api/assets/device/{id}/...` | asset 业务在 data 容器，path 前缀必须匹配 vite proxy `/api/assets → data` 规则 |
-| 旧 path 处理 | 明确返回 404，不静默兼容 | 避免静默掩盖路由配置问题；v2.5.0 bug 就是被静默掩盖了 2 个版本 |
-| 不动 ctrl 容器 | 不在 ctrl 加转发层 | 保持 v241 拆分原则（ctrl 只管身份，不管数据）|
-| 不动 vite.config.js | `/api/assets → data` 规则已正确 | 改 path 后所有 asset 端点自动路由到 data 容器，零配置 |
-| monolith 兼容 | core 模式 backend 单容器注册 asset router | 新 path 仍生效；VITE_API_MODE=core 不破 |
-| i18n key 前缀 | `asset.route.*` | 与现有 `asset.*`（业务错误）区分；`route.*` 表示路由层 |
-| 不影响 add-auto-collect | auto-collect 调 data 容器内 `_refresh_asset_for_device` 不走 HTTP | 独立 change，不在本 change 范围 |
-| 不影响 fix-asset-stale-status | dashboard staleness 逻辑不变 | 独立 change，先 archive |
+**改进方向**：
+- Archive 前必须做"线上数据 sanity check"（curl 真实 endpoints 看返回是否符合业务预期），不只是 qa 容器自动化测试
+- 加"时间敏感"测试 fixture（mock 旧时间戳 → 验证降级逻辑）
+- 真机集成测试必跑 .177（不能跳过 switch down 的借口）
 
 ---
 
-## 5. 关联
+## 9. 文件清单
 
-- 前序: v2.6.0 (2026-07-06) — i18n 基础设施
-- 路线图: [VERSION-ROADMAP.md §v2.6.1](VERSION-ROADMAP.md#v261)
-- 工具容器: 不变（ops-toolkit / qa-backend / qa-frontend 9 脚本）
-- Change archive:
-  - [openspec/changes/archive/2026-07-06-fix-asset-collect-failure/](openspec/changes/archive/)
-  - [openspec/changes/archive/2026-07-06-fix-asset-stale-status/](openspec/changes/archive/)
+### 9.1 新增
 
----
+- `backend/app/utils/asset_guard.py`（check_asset_online 函数）
+- `backend/app/utils/backup_integrity.py`（启动自检）
+- `backend/migrations/versions/006_add_forced_to_backups.py`（带 IF EXISTS 守卫）
+- `tools/dump_db.py`（SQLite dump 工具）
+- `docs/REVIEW-v261-bugfix-round.md`（QA 反思）
 
-## 6. 测试 / 验证
+### 9.2 修改
 
-### qa-backend 单元测试（预计 240+ passed）
+- `backend/app/models.py`（Backup.forced 字段）
+- `backend/app/routers/backup.py`（force 校验 + 全量端点）
+- `backend/app/routers/asset.py`（split 模式密码解密）
+- `backend/app/routers/dashboard.py`（陈旧资产过滤）
+- `backend/app/utils/backup_manager.py`（commit+refresh 验证）
+- `backend/app/database.py`（SessionLocal expire_on_commit=False）
+- `backend/app/config.py`（DB_PATH 绝对路径 + ASSET_STALE_*）
+- `frontend/src/views/Devices.vue`（force 勾选 + 二次确认）
+- `frontend/src/views/CMDB.vue`（全量备份 force 选项）
+- `frontend/src/i18n/zh-CN.js` / `en-US.js`（10 个新 key）
+- `frontend/vite.config.js`（DOWNLOAD_PATTERN + 精确分发）
+- `frontend/src/App.vue`（activeGroup computed .value 修复）
 
-- 旧 path `/api/devices/1/asset` → 404（确认旧路径失效，无回归）
-- 新 path `/api/assets/device/1` → 200 + asset 数据
-- 新 path `/api/assets/device/1/refresh` POST → 200 / 500（设备可达性决定）
-- 新 path PUT `/api/assets/device/1` body `{"location": "..."}` → 200
-- 3 容器 split 模式下 curl 走前端 5173 端口 → vite proxy → data 容器 8003 链路通
-- 现有 test_smoke.py / test_asset_staleness.py 同步改 path 后全过
-- i18n key `asset.route.refresh_failed` 翻译正确
+### 9.3 清理
 
-### qa-frontend 自动化测试
-
-- **lint** + **build**: 全过
-- **vitest**: 53 baseline 全过（无新增）
-- **playwright**: 42 baseline 全过（无新增；cmdb-asset-refresh.spec.js 同步改 mock URL）
-
-### 真机集成测试（.177 Test-Switch-177 / .4 Leaf-03）
-
-```text
-# 1. .177 触发 refresh（已知 SSH 可达）
-POST /api/assets/device/{id}/refresh
-→ 200 + asset.status=online
-
-# 2. .4 触发 refresh（已知 SSH 失败场景）
-POST /api/assets/device/{id}/refresh
-→ 200 + success=false + error_key=asset.route.refresh_failed + 错误信息可读
-
-# 3. Dashboard 验证
-GET /api/dashboard
-→ 200 + device_stats 含 stale 计数
-
-# 4. 最后 restore_original_state
-```
+- 删 `data/dev.db` / `data/dev.db.bak` / `data/main.py`（monolith 残留）
+- 移 `data/dev_dump_*.json` → `data/.archive/`（dump 临时输出保留为历史快照）
 
 ---
 
-## 7. 关键 commit 序列（fix-asset-collect-failure change）
+## 10. 关联
 
-| # | commit | 主题 |
-|---|---|---|
-| 1 | `b5e8108` | fix(backend): asset router 改 path 为 /assets/device/{id}/* (Task 1) |
-| 2 | `8649821` | fix(frontend): assetApi 改 path 为 /assets/device/{id}/* (Task 2) |
-| 3 | `6504a00` | feat(i18n): 加 asset.route.* 错误 key (Task 3) |
-| 4 | `3962c8f` | test(backend): 同步 test_smoke.py asset path (Task 4) |
-| 5 | `b2cd5a7` | test(frontend): 同步 e2e asset URL + mock 路由 (Task 5) |
-| 6 | （本 commit）| docs(release): RELEASE-NOTES-v2.6.1 标注 BREAKING (Task 6) |
-| 7 | （Task 7 验证 commit） | qa-backend + qa-frontend + 真机 .177/.4 验证 (Task 7) |
-| 8 | （Task 8 archive commit） | chore(openspec): fix-asset-collect-failure archive 闭环 (Task 8) |
-
-合计 8 个 commit（fix-asset-collect-failure change）。
-
----
-
-## 8. 升级检查清单
-
-- [ ] 拉取最新代码：`git pull origin main`
-- [ ] 重新构建镜像：`docker compose -f docker-compose.dev.yml build`
-- [ ] 启动 split 3 容器（默认模式）：`docker compose -f docker-compose.dev.yml up -d`
-- [ ] 验证 3 容器运行：`docker compose -f docker-compose.dev.yml ps`
-- [ ] 验证新 path：curl `localhost:8003/api/assets/device/1` → 200
-- [ ] 验证旧 path 失效：curl `localhost:8001/api/devices/1/asset` → 404
-- [ ] 验证前端：访问 `http://localhost:5173/#/cmdb` 点"采集"按钮，看 Network 面板 `POST /api/assets/device/1/refresh`
-- [ ] 跑 qa-backend：`docker compose -f docker-compose.dev.yml --profile qa up qa-backend`（应过 240+ passed）
-- [ ] 跑 qa-frontend：`docker compose -f docker-compose.dev.yml --profile qa up qa-frontend`（应过 lint + build + vitest + playwright）
-- [ ] （可选）真机 e2e：MCP 浏览器验证 CMDB.vue 采集功能
-- [ ] （如有外部集成）批量替换 path（详见对照表）
-
----
-
-## 9. 已知问题
-
-无（v2.6.1 review 通过）
-
----
-
-## 10. 后续
-
-v2.6.1 是 v2.5.0 split 架构的 bug fix，回归稳定。下一步：
-
-- 下一发版: v2.7（add-auto-collect：定期自动采集 + Dashboard staleness 实时刷新）
-- 当前 backlog: 见 [VERSION-ROADMAP.md §11 backlog](VERSION-ROADMAP.md#11-backlog)
+- [VERSION-ROADMAP.md §v2.6.1 章节](VERSION-ROADMAP.md)
+- [v261-roadmap proposal](openspec/changes/archive/2026-07-07-v261-roadmap/)（总入口）
+- [docs/REVIEW-v261-bugfix-round.md](docs/REVIEW-v261-bugfix-round.md)（QA 反思）
+- 6 个子 change：见 `openspec/changes/archive/2026-07-07-*` 目录

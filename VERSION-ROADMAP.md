@@ -25,6 +25,7 @@
 | **v2.4.2.1 ops-toolkit 第 7 脚本** | ✅ 2026-07-04 (tag: v2.4.2.1) | paramiko-batch-exec.sh 单设备 SSH 批命令（复用 backend SSHExecutor + 4 级凭据 + Fernet 密文 + JSON 输出 + 11 单元 + 3 真机） | [v242-paramiko-tool](openspec/changes/archive/2026-07-04-v242-paramiko-tool/) + [RELEASE-NOTES-v2.4.2.1.md](RELEASE-NOTES-v2.4.2.1.md) |
 | **v2.5.0 P1 工程化收口** | ✅ 2026-07-05 (tag: v2.5.0) | split 模式默认（**BREAKING**） + internal-api 5s TTL 缓存 + vitest 30 case + Playwright 37 case + ops-toolkit 第 8/9 脚本（interface-config + task-monitor） | [archive/2026-07-05-v25-roadmap](openspec/changes/archive/2026-07-05-v25-roadmap/) + [RELEASE-NOTES-v2.5.0.md](RELEASE-NOTES-v2.5.0.md) |
 | **v2.6.0 i18n 中英双语** | ✅ 2026-07-06 (tag: v2.6.0) | vue-i18n v9 + 顶导「中 \| EN」切换 + localStorage 持久化 + **400+ 翻译 key（zh-CN + en-US）** + 后端 `APIResponse.error_key` schema 扩展（**BREAKING**） + 9 router 改造 + 26 后端单测 + 25 前端测试 | [archive/2026-07-06-v26-i18n](openspec/changes/archive/2026-07-06-v26-i18n/) + [RELEASE-NOTES-v2.6.0.md](RELEASE-NOTES-v2.6.0.md) + [docs/i18n-guide.md](docs/i18n-guide.md) |
+| **v2.6.1 bug 修复轮次** | ✅ 2026-07-07 (tag: v2.6.1) | 6 个子 change：资产陈旧自动降级 / 采集失败可读化 / split 密码解密修 / vite proxy 精确分发 / **备份数据完整性**（下载 404 + 启动自检 + commit refresh + expire_on_commit + dump_db 工具） / **资产备份状态同步**（offline 设备按钮 disabled + force 逃生 + `backups.forced` 审计字段） / 备份回滚 SFTP 根因定位 + 1 个 review 反思 | [RELEASE-NOTES-v2.6.1.md](RELEASE-NOTES-v2.6.1.md) + [REVIEW-v261-bugfix-round.md](docs/REVIEW-v261-bugfix-round.md) |
 | **v3.0 VPC** | ⏳ 规划 | VPC + etcd（SDN 起步） | 暂未起 spec |
 | **monitor** | ⏳ 远期 | 监控 / 告警 / dashboard 独立化 | 暂未起 spec |
 
@@ -561,6 +562,62 @@ localStorage: {"locale": "en-US"} 保留
 - v3.0 VPC（SDN + etcd 协调）正式开始
 - i18n 拓展到 4 语言（zh-CN / en-US / ja-JP / ko-KR），面向亚太/全球用户
 - 监控容器拆分（等需求明确后启动）
+
+---
+
+## 14. v2.6.1 bug 修复轮次（✅ 2026-07-07 tag: v2.6.1）
+
+详见 [RELEASE-NOTES-v2.6.1.md](RELEASE-NOTES-v2.6.1.md) + [docs/REVIEW-v261-bugfix-round.md](docs/REVIEW-v261-bugfix-round.md)。
+
+**主题**：v2.6.0 i18n 上线后用户回归发现 dashboard 陈旧数据 + 备份/恢复链路多个问题，QA 套件盲区反思 + 集中修 6 类问题。
+**无 BREAKING SCHEMA** — 纯修 bug + 加 1 个新审计字段 `backups.forced`。
+
+**包含 6 个子 change + 1 review 反思 + 22 commit**：
+1. **2026-07-07-fix-asset-stale-status** — assets 表超阈值自动降级 + dashboard 按阈值过滤（8 commit）
+2. **2026-07-07-fix-asset-collect-failure** — 采集链路失败可读化（error_key + 中文 fallback，8 commit）
+3. **2026-07-07-fix-asset-split-password-decrypt** — split 模式 password 二次解密修（3 commit）
+4. **2026-07-07-fix-vite-proxy-route** — vite proxy 用正则精确分发修端点 404（1 commit）
+5. **2026-07-07-fix-backup-data-integrity** — 下载 404 + 启动自检 + commit refresh + expire_on_commit + dump_db 工具（6 commit）
+6. **2026-07-07-fix-asset-backup-state-sync** — offline 设备备份按钮 disabled + force 逃生 + `backups.forced` 审计字段（5 commit）+ 10 个 i18n key
+7. **2026-07-07-fix-backup-restore-no-response** — 根因定位（设备缺 `sftp server enable`）+ 修复方案文档（1 docs）
+8. **2026-07-07-v261-roadmap** — 总入口 proposal
+
+**关键设计决策**：
+| 决策 | 方案 | 理由 |
+|---|---|---|
+| `backups.forced` 审计字段 | Alembic 006 + `Mapped[bool]` + `server_default="0"` | 强制备份独立审计标记，不参与业务逻辑（不影响下载/回滚/删除/轮转） |
+| 006 迁移 split 兼容 | `if "backups" not in insp.get_table_names(): return` 守卫 | ctrl/config 容器无 backups 表 → 直接跳过，避免 alembic 启动失败 |
+| 资产陈旧降级 | `ASSET_STALE_HOURS` 配置 + 启动时一次性降级 | 24h 默认值，调试用 `ASSET_STALE_ENABLED=False` 关闭 |
+| 备份数据完整性 4 防线 | 下载路由（vite proxy DOWNLOAD_PATTERN） + 启动自检（幽灵行清理） + commit refresh（防假成功） + expire_on_commit=False（防长任务属性 reload） | 分层防御，每层独立可关 |
+| dump_db 工具 | `tools/dump_db.py` SQLite → JSON | 清理前人肉验证 + 离线性回退 |
+| force 逃生 UI | Devices.vue 离线/未采集行内 force checkbox + 二次确认弹窗 + CMDB.vue 全量 force 选项 | 不挡正常用户流程（online 设备 0 摩擦），离线设备走二次确认防误操作 |
+
+**真机实测（192.168.100.5 / .177 / .99 Test-Fake-Fail）**：
+- 192.168.100.5 (Leaf-04)：临时 asset=offline → 无 force 备份 422 → force=true 备份成功 + DB.forced=1 → 恢复 online
+- 192.168.100.177 (Test-Switch-177)：online 备份成功（API 默认路径，无 force 不入强制分支）
+- 192.168.100.99 (Test-Fake-Fail，asset offline)：MCP 浏览器完整跑通 force 流程 + 中英切换验证 10 个 i18n key
+
+**测试统计**：
+- **backend 单元**：265 + 4 = **309+ passed**（v2.6.0 baseline + 4 个新 force 场景 case）
+- **frontend 单元（vitest）**：53 case 全过（v2.6.0 baseline 不破）
+- **frontend e2e（playwright）**：42 case 全过（v2.6.0 baseline 不破）
+- **真机集成**：3 case PASS（.5 force 流程 / .177 online / .99 浏览器端到端）
+
+**反思（v2.6.0 review）**：
+> 详见 [docs/REVIEW-v261-bugfix-round.md](docs/REVIEW-v261-bugfix-round.md)
+>
+> v2.6.0 archive 时 qa-backend 全量 pytest + qa-frontend lint+build 都过，但用户立刻发现 dashboard online=7 陈旧数据 bug。**QA 套件不覆盖"业务时间敏感"场景（如数据陈旧、过期降级）**。
+>
+> 改进方向：
+> - Archive 前必须做"线上数据 sanity check"（curl 真实 endpoints 看返回是否符合业务预期）
+> - 加"时间敏感"测试 fixture（mock 旧时间戳 → 验证降级逻辑）
+> - 真机集成测试必跑 .177（不能跳过 switch down 的借口）
+
+**关键 commit 序列**：见 RELEASE-NOTES-v2.6.1.md §3.1 / §3.2 + tasks.md 追验段（22 commit：8 stale + 8 collect + 3 split + 1 vite + 6 backup-data + 5 asset-backup-sync + 1 docs backup-restore + 1 tasks 追验 + 1 changelog 反思 + 1 fix c4456ef App.vue + 1 fix 3489546 _async_backup_fn）。
+
+**v3.0 推进**（v2.6.1 闭环后）：
+- v2.6.2 待定（按需启动小 patch）
+- v3.0 VPC（SDN + etcd 协调）正式开始
 
 ---
 

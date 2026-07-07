@@ -23,6 +23,7 @@
 | **v2.4.2.1 ops-toolkit 第 7 脚本** | ✅ **2026-07-04 (tag: v2.4.2.1)** | paramiko-batch-exec.sh 单设备 SSH 批命令（复用 backend SSHExecutor + 4 级凭据 + Fernet 密文 + JSON 输出 + 11 单元 + 3 真机） | [RELEASE-NOTES-v2.4.2.1.md](RELEASE-NOTES-v2.4.2.1.md) · [v242-paramiko-tool](openspec/changes/archive/2026-07-04-v242-paramiko-tool/) |
 | **v2.5.0 P1 工程化收口** | ✅ **2026-07-05 (tag: v2.5.0)** | **split 模式为默认（BREAKING）** + internal-api 5s TTL 缓存 + vitest 30 单元 + Playwright 37 e2e + ops-toolkit 第 8/9 脚本（interface-config + task-monitor） | [RELEASE-NOTES-v2.5.0.md](RELEASE-NOTES-v2.5.0.md) · [v25-roadmap](openspec/changes/archive/2026-07-05-v25-roadmap/) |
 | **v2.6.0 i18n 中英双语** | ✅ **2026-07-06 (tag: v2.6.0)** | vue-i18n v9 + 顶导「中 \| EN」切换 + localStorage 持久化 + **400+ 翻译 key（zh-CN + en-US）** + 后端 `APIResponse.error_key` schema 扩展（**BREAKING**，向后兼容） + 9 router 改造 + 26 后端单测 + 25 前端测试 | [RELEASE-NOTES-v2.6.0.md](RELEASE-NOTES-v2.6.0.md) · [v26-i18n](openspec/changes/archive/2026-07-06-v26-i18n/) · [docs/i18n-guide.md](docs/i18n-guide.md) |
+| **v2.6.1 bug 修复轮次** | ✅ **2026-07-07 (tag: v2.6.1)** | 6 个子 change：资产陈旧自动降级 / 采集失败可读化 / split 密码解密修 / vite proxy 精确分发 / **备份数据完整性**（下载 404 + 启动自检 + commit refresh + expire_on_commit + dump_db 工具） / **资产备份状态同步**（offline 设备按钮 disabled + force 逃生 + `backups.forced` 审计字段） / 备份回滚 SFTP 根因定位 + 1 个 review 反思 | [**RELEASE-NOTES-v2.6.1.md**](RELEASE-NOTES-v2.6.1.md) · [REVIEW-v261-bugfix-round.md](docs/REVIEW-v261-bugfix-round.md) |
 | v3.0 VPC | ⏳ 规划 | VPC 能力（SDN）+ etcd 协调 | 延后 |
 
 详细进度、约束、决策记录见 [VERSION-ROADMAP.md](VERSION-ROADMAP.md)。
@@ -56,7 +57,7 @@
 | CMDB | 设备资产台账、硬件信息自动采集（SSH）、位置/标签/状态手动编辑、单设备采集 |
 | 批量操作 | 多设备勾选、批量执行命令、结果汇总 |
 | 操作日志 | 全操作自动记录、按类型/状态筛选 |
-| **备份 / 回滚**（v2.2 新增） | **3 个入口**（全局 Backup 页 / 设备行 / CMDB 顶部）+ **1 个 Modal**，拉取 startup.cfg + running-config（SCP + SSH CLI），回滚（全文本 + SCP 文件级替换 + reboot + verify），每设备保留最新 5 份非锁定备份 |
+| **备份 / 回滚**（v2.2 新增 / **v2.6.1 增强**） | **3 个入口**（全局 Backup 页 / 设备行 / CMDB 顶部）+ **1 个 Modal**，拉取 startup.cfg + running-config（SCP + SSH CLI），回滚（全文本 + SCP 文件级替换 + reboot + verify），每设备保留最新 5 份非锁定备份，**离线/未采集设备备份按钮 disabled + force 逃生 + `backups.forced` 审计字段** |
 
 ## 快速启动
 
