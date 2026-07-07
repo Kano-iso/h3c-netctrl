@@ -344,3 +344,62 @@ task-monitor task-restore-001 --json
 ## 关联文档
 
 - [QA-GUIDE.md](QA-GUIDE.md)：QA 测试指南
+
+---
+
+## S6850 / S6860 / S9850 系列 SCP 限制（v2.6.2 新增）
+
+> 适用：H3C V7 S6850 (CMW 7.1.070) / S6860 / S9850 等系列
+> **默认禁用 SFTP/SCP subsystem**（v2.6.1 复盘"回滚无反应"问题根因）
+
+### 现象对照
+
+| 操作 | SSH exec channel | SCP/SFTP subsystem |
+|---|---|---|
+| `display version` | ✅ 正常 | — |
+| `display current-configuration` | ✅ 正常 | — |
+| **拉取文件**（scp.get / sftp.get） | — | ⚠️ 部分支持 |
+| **推送文件**（scp.put / sftp.put） | — | ❌ `Channel closed` |
+
+### 影响
+
+- **备份拉取**（startup.cfg / running.cfg 文本抓取）✅ 不受影响
+- **备份回滚**（需真上传文件）❌ **不支持**——NetCtrl UI 点回滚会立即 toast 提示
+
+### 验证方法
+
+```bash
+# .5 设备（不支持）：scp.push 立即 Channel closed
+docker compose -f docker-compose.dev.yml --profile ops run --rm ops-toolkit paramiko-batch-exec \
+  --device leaf-04 --command "display version"
+# 预期：可正常执行 SSH CLI 命令
+
+# 真机验证 SCP 推回（仅在支持设备上做）
+docker compose -f docker-compose.dev.yml --profile ops run --rm ops-toolkit paramiko-batch-exec \
+  --device test --command "scp /a/b localhost:/dev/null"
+# .5 设备：失败（Channel closed）
+# .177 设备：成功
+```
+
+### NetCtrl UI 行为
+
+- **支持设备**（.177）：点"回滚" → 正常提交回滚任务
+- **不支持设备**（.5）：点"回滚" → 立即 toast 弹"设备 S6850 不支持 SCP 推回，无法回滚"
+- **预检机制**：v2.6.2 起，restore_async 端点启动前先 probe → 不支持直接 422 + error_key=backup.restore_not_supported
+- **设备状态字段**：`device.status.restore_unsupported`（5s TTL 缓存）→ 前端可禁用"回滚"按钮
+
+### 兜底 / 应急
+
+如必须给 S6850 系列设备回滚配置：
+
+1. **推荐方案**：用设备 console / SSH CLI 手工 `startup saved-configuration` + reboot
+2. **不推荐**：用 `sftp server enable` 强行开启 SFTP（H3C V7 默认无此命令，部分固件支持）
+3. **生产建议**：用支持 SCP 的设备做临时中转（如 .177），中转后手工同步
+
+### 关联
+
+- T1 probe 函数：[`backend/app/utils/backup_manager.py`](../../backend/app/utils/backup_manager.py) `check_restore_support()`
+- T2 端点预检：[`backend/app/routers/backup.py`](../../backend/app/routers/backup.py) `restore_backup_async`
+- T6 设备状态字段：[`backend/app/routers/device.py`](../../backend/app/routers/device.py) `_get_restore_support_cached`
+- 真机验证记录：[`docs/REVIEW-v262-bugfix-round-real-device-validation.md`](REVIEW-v262-bugfix-round-real-device-validation.md)
+- v2.6.1 复盘："回滚无反应"问题根因
