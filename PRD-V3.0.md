@@ -25,6 +25,24 @@ V3.0 是能力进阶版本，不是单点功能补丁。其核心是：
 资源建模 -> 配置计划 -> 设备下发 -> 状态采集 -> 闭环校验 -> 可视化呈现
 ```
 
+### 1.1 给后续开发者的阅读路径
+
+本 PRD 是大版本蓝图，不是最终实现 spec。后续联合开发时，建议按下面顺序阅读，避免直接从命令模板跳进代码：
+
+1. 先读 [README.md](README.md) 顶部版本表和当前架构，确认项目当前处于 v2.6.2 后、v3.0 PRD 初稿阶段。
+2. 再读 [VERSION-ROADMAP.md](VERSION-ROADMAP.md) 的 v3.0 VPC 小节，确认 v3.0 与历史版本、OpenSpec 流程的关系。
+3. 读本文 `§3 核心概念` 与 `§4 V3.0 功能范围`，先理解业务边界。
+4. 读 `§5 配置与校验设计`，理解设备侧最小闭环，但不要把命令模板视为最终实现。
+5. 读 `§6` / `§7` 的数据库和 API Draft，作为 OpenSpec 设计输入，而不是直接照抄 migration 或 route。
+6. 最后按 `§8 OpenSpec 拆分建议` 启动具体 change，每个 change 独立完成 proposal、design、tasks、实现、QA 与 archive。
+
+### 1.2 文档复用原则
+
+- 本文适合被产品、后端、前端、网络实验和项目管理共同引用。
+- 本文中标为 Draft、候选、待验证的内容，必须在对应 OpenSpec change 中二次确认。
+- 本文沉淀“为什么做、边界是什么、优先级如何分”，不替代实现级设计。
+- 后续实现如发现 PRD 结论不准确，应先回写 PRD 或在 OpenSpec design 中明确修正原因，再进入编码。
+
 ---
 
 ## 2. 架构边界
@@ -58,6 +76,19 @@ V3.0 初期默认不强制新增独立 `sdn` 容器。实现上优先沿用既�
 ---
 
 ## 3. 核心概念
+
+### 3.0 术语速查
+
+| 术语 | 在本项目中的含义 | 设备侧大致对应 |
+|---|---|---|
+| 租户 | 网络隔离域，一个租户下可有多个 VPC | `ip vpn-instance`、RD、RT、L3VNI |
+| VPC | 一个可接入业务子网，本项目不做 VPC 内再嵌套子网 | L2VNI、VSI、Vsi-interface、网关 IP/MAC |
+| 端口绑定 | 交换机端口归属到某个 VPC | interface + service-instance + `xconnect vsi` |
+| 分布式网关 | 多 VTEP 上承载同一 VPC 网关，跨设备通过 EVPN/VXLAN 学习主机 | `distributed-gateway local`、L3VNI |
+| 集中式网关降级 | 排障模式，用单设备本地网关验证 AC/VSI/主机侧是否正常 | 临时 undo 分布式网关相关配置 |
+| 期望态 | 数据库中记录的“系统认为应该存在的资源和配置” | planned config / deployment |
+| 实际态 | 从设备 display 命令采集到的真实状态 | VSI、ARP、MAC、BGP EVPN、route |
+| 闭环校验 | 对比期望态与实际态，生成用户可理解的状态 | active / degraded / failed |
 
 ### 3.1 租户
 
@@ -338,6 +369,28 @@ V3.0 不建议一个巨型 change 完成，建议拆为：
 | `sdn-ops-toolkit-probes` | ops-toolkit 增加 VPC/EVPN 专用探测与 ping statistics 读取修复 |
 | `sdn-etcd-coordination` | 可选单节点 etcd / 轻量协调方案评估；不作为 V3.0 P0 前置依赖 |
 
+### 8.1 建议推进顺序
+
+| 顺序 | change-id | 为什么先做 |
+|---|---|---|
+| 1 | `sdn-vpc-prd-and-model` | 统一术语、模型、编号策略和待验证问题，避免后续多人并行时各自理解不同 |
+| 2 | `sdn-vpc-foundation` | 建立后端资源、配置计划与最小 API，给后续模板和前端提供稳定入口 |
+| 3 | `sdn-vpc-device-templates` | 固化 H3C 配置模板与 dry-run / planned_config 机制 |
+| 4 | `sdn-l3vni-validation` | 先把分布式网关最容易错的 RD/RT/L3VNI 校验跑通 |
+| 5 | `sdn-port-binding` | 落地随接随入的端口绑定主流程 |
+| 6 | `sdn-gateway-fallback` | 补排障降级能力，便于后续真实设备定位问题 |
+| 7 | `sdn-visual-overview` | 在后端闭环稳定后做前端大屏和详情页 |
+| 8 | `sdn-ops-toolkit-probes` | 按真实调试痛点补工具，不提前发散 |
+| 9 | `sdn-etcd-coordination` | 等 P0 流程跑通后再判断是否需要独立协调层 |
+
+### 8.2 每个 OpenSpec change 必须说明
+
+- 本 change 依赖哪些已有能力：接口管理、VPN instance、ops-toolkit、任务系统、资产/设备模型等。
+- 是否修改数据库 schema，是否需要 Alembic upgrade/downgrade。
+- 是否新增设备命令模板，模板是否有 fixture 和真机样本。
+- 是否需要 qa-backend / qa-frontend / MCP 浏览器验证。
+- 是否更新 README、VERSION-ROADMAP、PRD 或工具文档。
+
 ---
 
 ## 9. 风险与应对
@@ -385,3 +438,28 @@ V3.0 不建议一个巨型 change 完成，建议拆为：
 2. 集中式网关降级在不同设备版本上的最小命令集是否稳定，目前按 `undo distributed-gateway local` 与 `undo local-proxy-arp enable` 作为候选模板。
 3. `sdn` 独立容器是否有必要，需在 `sdn-vpc-foundation` 设计和代码量评估后决定。
 4. etcd 是否比数据库锁/任务表更适合当前规模，需要在 P0 基础能力设计完成后再单独判断。
+
+---
+
+## 12. 联合开发交接清单
+
+后续任何开发者接手 V3.0 时，至少需要完成以下确认：
+
+1. 已阅读 `.trae/rules/project-convention.md` 与 `.trae/rules/qa规范.md`。
+2. 已确认当前分支、版本 tag、README、VERSION-ROADMAP 与本 PRD 没有互相矛盾。
+3. 已明确自己正在做哪个 OpenSpec change，不直接在 PRD 上开写实现代码。
+4. 已确认本 change 的 P0/P1/P2 边界，不把前端大屏、etcd、外网路由、ACL 提前混入后端 P0。
+5. 已确认设备操作只能通过 ops-toolkit 或后端已有 SSHExecutor 能力，不裸写 SSH/paramiko。
+6. 已为设备 display 输出准备 fixture，避免状态解析只能依赖实时设备。
+7. 已在任务或 PR 描述中写清楚：本次改变的是资源模型、配置模板、状态采集、校验规则、前端展示还是工具能力。
+8. 如发现 PRD 与实测不一致，必须记录修正点，并同步到对应 OpenSpec design 或回写 PRD。
+
+交接时推荐给下一位开发者的最小上下文：
+
+```text
+目标：V3.0 VPC/SDN，优先后端闭环。
+入口文档：PRD-V3.0.md + VERSION-ROADMAP.md v3.0 小节。
+当前原则：config 容器先承载；RD/RT/VNI 自动分配；VNI 暂按设备侧全局唯一；前端大屏 P1；etcd 非 P0。
+第一个 change：sdn-vpc-prd-and-model。
+验证红线：设备走 ops-toolkit，测试走 qa 容器。
+```
