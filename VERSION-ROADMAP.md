@@ -503,7 +503,7 @@ $ docker compose -f docker-compose.dev.yml run --rm ops-toolkit \
 **关键 commit 序列**：见 RELEASE-NOTES-v2.5.0.md §6（15 commit：1 feat(cache) + 1 feat(BREAKING compose) + 2 test(vitest) + 2 test(playwright) + 1 test(e2e 修复) + 3 feat(ops-toolkit 脚本) + 3 fix + 1 docs(ops-toolkit) + 1 docs(tasks)）。
 
 **v3.0 推进**（v2.5 闭环后）：
-- v3.0 VPC（SDN + etcd 协调）正式开始
+- v3.0 VPC/SDN PRD 与 OpenSpec 拆分准备
 - 监控容器拆分（等需求明确后启动）
 
 ---
@@ -566,7 +566,7 @@ localStorage: {"locale": "en-US"} 保留
 **关键 commit 序列**：见 RELEASE-NOTES-v2.6.0.md §7（14 commit：1 vue-i18n 骨架 + 1 切换 UI + 1 App/Footer + 1 utils/api + 5 views + 1 components + 1 BREAKING schema + 1 tasks chore + 2 test + 2 fix conftest）。
 
 **v3.0 推进**（v2.6 闭环后）：
-- v3.0 VPC（SDN + etcd 协调）正式开始
+- v3.0 VPC/SDN PRD 与 OpenSpec 拆分准备
 - i18n 拓展到 4 语言（zh-CN / en-US / ja-JP / ko-KR），面向亚太/全球用户
 - 监控容器拆分（等需求明确后启动）
 
@@ -624,7 +624,7 @@ localStorage: {"locale": "en-US"} 保留
 
 **v3.0 推进**（v2.6.1 闭环后）：
 - v2.6.2 待定（按需启动小 patch）
-- v3.0 VPC（SDN + etcd 协调）正式开始
+- v3.0 VPC/SDN PRD 与 OpenSpec 拆分准备
 
 ---
 
@@ -680,7 +680,7 @@ localStorage: {"locale": "en-US"} 保留
 - main spec `7080c46` 沉淀
 
 **v3.0 推进**（v2.6.2 闭环后）：
-- v3.0 VPC（SDN + etcd 协调）正式开始起 spec
+- v3.0 VPC/SDN 正式进入 PRD 与 OpenSpec 拆分阶段
 - 远期 vision 12.1 节按 v3.0 进展更新
 
 ---

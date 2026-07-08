@@ -44,7 +44,7 @@ V3.0 产品蓝图见 [PRD-V3.0.md](PRD-V3.0.md)。
 | **backend (monolith)** | ctrl + config + data 合并 | v2.4.1 双模式共存 | ✅ 兼容老调用，profile: core |
 | **qa-backend / qa-frontend** | pytest / lint / build / vitest / playwright | v2.4.2 加 lint+build 必跑 / v2.5 加 vitest+playwright 必跑 | ✅ Archive 必跑 |
 | **ops-toolkit** | **9 个排错脚本**（check-host / ssh-test / check-netconf / capture-config / reboot-wait / audit-switch / paramiko-batch-exec / **interface-config** / **task-monitor**） | v2.4.1 + v2.4.2.1 + v2.5.0 + **v2.6.2 文档**（S6850 SCP 限制） | ✅ 按需启动 |
-| **sdn (v3.0)** | VPC + etcd 协调 | 规划 | ⏳ v3.0 |
+| **sdn (v3.0)** | VPC 编排 + 端口随接随入 + 状态闭环（初期默认评估落在 config 容器） | 规划 | ⏳ v3.0 |
 | **monitor (未来)** | 实时指标 / 告警 / dashboard | 远期 | ⏳ v3.0+ 评估 |
 
 ## v2.6.2 增量能力
