@@ -106,6 +106,13 @@ export default {
     asset_route_refresh_failed:     '采集失败：{error}',
     asset_route_update_failed:      '资产更新失败：{error}',
     asset_route_device_not_found:   '设备 {id} 不存在',
+    // v3.0 sdn-vpc-device-templates Task 1: 设备模板 / 预检错误（与后端 i18n_keys 对齐）
+    sdn_device_model_unsupported:     '设备型号不支持: model={model}, 仅支持 {supported}',
+    sdn_preflight_failed:             '设备预检失败: {reason}',
+    sdn_vpc_already_exists:           '设备上 VPC 已存在: vsi={vsi_name}',
+    sdn_vlan_conflict:                'VLAN 与其他用途冲突: vlan_id={vlan_id}',
+    sdn_bgp_peer_not_established:     'BGP EVPN 邻居未建立: peer={peer_ip}',
+    sdn_l3vpn_not_found:              'L3VPN 实例不存在: name={vpn_name}',
   },
   // v2.6 Task 5: Dashboard 总览
   dashboard: {

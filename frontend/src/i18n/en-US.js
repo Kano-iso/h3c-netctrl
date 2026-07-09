@@ -101,6 +101,13 @@ export default {
     asset_route_refresh_failed:     'Collection failed: {error}',
     asset_route_update_failed:      'Asset update failed: {error}',
     asset_route_device_not_found:   'Device {id} not found',
+    // v3.0 sdn-vpc-device-templates Task 1: device template / preflight errors (align with backend i18n_keys)
+    sdn_device_model_unsupported:     'Device model not supported: model={model}, only {supported} supported',
+    sdn_preflight_failed:             'Device preflight failed: {reason}',
+    sdn_vpc_already_exists:           'VPC already exists on device: vsi={vsi_name}',
+    sdn_vlan_conflict:                'VLAN conflicts with other usage: vlan_id={vlan_id}',
+    sdn_bgp_peer_not_established:     'BGP EVPN peer not established: peer={peer_ip}',
+    sdn_l3vpn_not_found:              'L3VPN instance not found: name={vpn_name}',
   },
   // v2.6 Task 5: Dashboard overview
   dashboard: {

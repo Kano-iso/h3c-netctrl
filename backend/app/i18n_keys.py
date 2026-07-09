@@ -170,6 +170,13 @@ class SDN:
     INVALID_CIDR = I18nKey("sdn.invalid_cidr")                  # CIDR 格式不合法: {cidr}
     INVALID_GATEWAY_IP = I18nKey("sdn.invalid_gateway_ip")      # 网关 IP 不合法: {ip}
     ALLOCATION_FAILED = I18nKey("sdn.allocation_failed")        # 编号分配失败: {error}
+    # v3.0 sdn-vpc-device-templates Task 1: 设备模板 / 预检错误
+    DEVICE_MODEL_UNSUPPORTED = I18nKey("sdn.device_model_unsupported")  # 设备型号不支持: model={model}, 仅支持 {supported}
+    PREFLIGHT_FAILED = I18nKey("sdn.preflight_failed")                # 设备预检失败: {reason}
+    VPC_ALREADY_EXISTS = I18nKey("sdn.vpc_already_exists")            # 设备上 VPC 已存在: vsi={vsi_name}
+    VLAN_CONFLICT = I18nKey("sdn.vlan_conflict")                      # VLAN 与其他用途冲突: vlan_id={vlan_id}
+    BGP_PEER_NOT_ESTABLISHED = I18nKey("sdn.bgp_peer_not_established")  # BGP EVPN 邻居未建立: peer={peer_ip}
+    L3VPN_NOT_FOUND = I18nKey("sdn.l3vpn_not_found")                  # L3VPN 实例不存在: name={vpn_name}
 
 
 # ===== 集中导出（便于 import，支持 err.X 点访问） =====
@@ -262,6 +269,13 @@ err = SimpleNamespace(
     SDN_INVALID_CIDR=SDN.INVALID_CIDR,
     SDN_INVALID_GATEWAY_IP=SDN.INVALID_GATEWAY_IP,
     SDN_ALLOCATION_FAILED=SDN.ALLOCATION_FAILED,
+    # v3.0 sdn-vpc-device-templates Task 1
+    SDN_DEVICE_MODEL_UNSUPPORTED=SDN.DEVICE_MODEL_UNSUPPORTED,
+    SDN_PREFLIGHT_FAILED=SDN.PREFLIGHT_FAILED,
+    SDN_VPC_ALREADY_EXISTS=SDN.VPC_ALREADY_EXISTS,
+    SDN_VLAN_CONFLICT=SDN.VLAN_CONFLICT,
+    SDN_BGP_PEER_NOT_ESTABLISHED=SDN.BGP_PEER_NOT_ESTABLISHED,
+    SDN_L3VPN_NOT_FOUND=SDN.L3VPN_NOT_FOUND,
 )
 
 
@@ -367,6 +381,13 @@ FALLBACK_MESSAGES = {
     SDN.INVALID_CIDR: "CIDR 格式不合法: {cidr}",
     SDN.INVALID_GATEWAY_IP: "网关 IP 不合法: {ip}",
     SDN.ALLOCATION_FAILED: "编号分配失败: {error}",
+    # v3.0 sdn-vpc-device-templates Task 1
+    SDN.DEVICE_MODEL_UNSUPPORTED: "设备型号不支持: model={model}, 仅支持 {supported}",
+    SDN.PREFLIGHT_FAILED: "设备预检失败: {reason}",
+    SDN.VPC_ALREADY_EXISTS: "设备上 VPC 已存在: vsi={vsi_name}",
+    SDN.VLAN_CONFLICT: "VLAN 与其他用途冲突: vlan_id={vlan_id}",
+    SDN.BGP_PEER_NOT_ESTABLISHED: "BGP EVPN 邻居未建立: peer={peer_ip}",
+    SDN.L3VPN_NOT_FOUND: "L3VPN 实例不存在: name={vpn_name}",
 }
 
 
