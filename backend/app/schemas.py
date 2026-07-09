@@ -1,7 +1,10 @@
 from datetime import datetime
 from typing import Optional, List
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, IPvAnyNetwork
+
+
+_CIDR_PATTERN = r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/\d{1,2}$"
 
 
 # --- Device 请求/响应模型 ---
@@ -109,3 +112,74 @@ class AssetUpdate(BaseModel):
     location: Optional[str] = None
     tags: Optional[str] = None
     status: Optional[str] = None
+
+
+# ── v3.0 SDN/VPC Schema ──
+
+class SdnTenantCreate(BaseModel):
+    """创建租户请求。RD/RT/L3VNI 由系统自动分配。"""
+    name: str = Field(..., min_length=1, max_length=100)
+    description: Optional[str] = Field(default=None, max_length=500)
+
+
+class SdnTenantUpdate(BaseModel):
+    """更新租户请求。仅允许修改 description。"""
+    description: Optional[str] = Field(default=None, max_length=500)
+
+
+class SdnTenantResponse(BaseModel):
+    id: int
+    name: str
+    rd: str
+    import_rt: str
+    export_rt: str
+    l3_vni: int
+    auto_assigned: bool
+    description: Optional[str] = None
+    vpc_count: int = 0  # 关联 VPC 数量（列表/详情用）
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class SdnVpcCreate(BaseModel):
+    """创建 VPC 请求。VNI/Vsi-interface/VLAN 由系统自动分配。"""
+    name: str = Field(..., min_length=1, max_length=100)
+    tenant_id: int = Field(..., ge=1)
+    cidr: str = Field(..., pattern=_CIDR_PATTERN)
+    gateway_ip: Optional[str] = None  # 不传则取 CIDR 最后一个可用地址
+    gateway_mac: Optional[str] = None  # 不传则从 VNI 推导
+    description: Optional[str] = Field(default=None, max_length=500)
+
+    @field_validator("cidr")
+    @classmethod
+    def _validate_cidr_range(cls, v: str) -> str:
+        """前缀长度 /8~/30，避免无意义网段。"""
+        from app.utils.sdn_allocator import validate_cidr
+        err = validate_cidr(v)
+        if err:
+            raise ValueError(err)
+        return v
+
+
+class SdnVpcResponse(BaseModel):
+    id: int
+    name: str
+    tenant_id: int
+    tenant_name: str
+    cidr: str
+    gateway_ip: str
+    gateway_mac: Optional[str] = None
+    vni: int
+    vsi_name: str
+    vsi_interface: int
+    vlan_id: Optional[int] = None
+    auto_assigned: bool
+    status: str
+    description: Optional[str] = None
+    binding_count: int = 0
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
