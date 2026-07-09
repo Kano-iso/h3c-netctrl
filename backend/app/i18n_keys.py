@@ -159,6 +159,19 @@ class Dashboard:
     RECENT_OPS_FAILED = I18nKey("dashboard.recent_ops_failed")      # 最近操作查询失败
 
 
+# ===== SDN/VPC（v3.0）=====
+class SDN:
+    TENANT_NOT_FOUND = I18nKey("sdn.tenant_not_found")          # 租户不存在: id={id}
+    TENANT_NAME_EXISTS = I18nKey("sdn.tenant_name_exists")      # 租户名称已存在: {name}
+    TENANT_RD_EXISTS = I18nKey("sdn.tenant_rd_exists")          # RD 已存在: {rd}
+    VPC_NOT_FOUND = I18nKey("sdn.vpc_not_found")                # VPC 不存在: id={id}
+    VPC_VNI_EXISTS = I18nKey("sdn.vpc_vni_exists")              # VNI 已被占用: {vni}
+    VPC_TENANT_NOT_FOUND = I18nKey("sdn.vpc_tenant_not_found")  # 所属租户不存在: tenant_id={tenant_id}
+    INVALID_CIDR = I18nKey("sdn.invalid_cidr")                  # CIDR 格式不合法: {cidr}
+    INVALID_GATEWAY_IP = I18nKey("sdn.invalid_gateway_ip")      # 网关 IP 不合法: {ip}
+    ALLOCATION_FAILED = I18nKey("sdn.allocation_failed")        # 编号分配失败: {error}
+
+
 # ===== 集中导出（便于 import，支持 err.X 点访问） =====
 err = SimpleNamespace(
     # common
@@ -239,6 +252,16 @@ err = SimpleNamespace(
     DASHBOARD_QUERY_FAILED=Dashboard.QUERY_FAILED,
     DASHBOARD_DEVICE_QUERY_FAILED=Dashboard.DEVICE_QUERY_FAILED,
     DASHBOARD_RECENT_OPS_FAILED=Dashboard.RECENT_OPS_FAILED,
+    # sdn (v3.0)
+    SDN_TENANT_NOT_FOUND=SDN.TENANT_NOT_FOUND,
+    SDN_TENANT_NAME_EXISTS=SDN.TENANT_NAME_EXISTS,
+    SDN_TENANT_RD_EXISTS=SDN.TENANT_RD_EXISTS,
+    SDN_VPC_NOT_FOUND=SDN.VPC_NOT_FOUND,
+    SDN_VPC_VNI_EXISTS=SDN.VPC_VNI_EXISTS,
+    SDN_VPC_TENANT_NOT_FOUND=SDN.VPC_TENANT_NOT_FOUND,
+    SDN_INVALID_CIDR=SDN.INVALID_CIDR,
+    SDN_INVALID_GATEWAY_IP=SDN.INVALID_GATEWAY_IP,
+    SDN_ALLOCATION_FAILED=SDN.ALLOCATION_FAILED,
 )
 
 
@@ -334,6 +357,16 @@ FALLBACK_MESSAGES = {
     Dashboard.QUERY_FAILED: "仪表盘数据查询失败: {error}",
     Dashboard.DEVICE_QUERY_FAILED: "设备概览查询失败: {error}",
     Dashboard.RECENT_OPS_FAILED: "最近操作查询失败: {error}",
+    # sdn (v3.0)
+    SDN.TENANT_NOT_FOUND: "租户不存在: id={id}",
+    SDN.TENANT_NAME_EXISTS: "租户名称已存在: {name}",
+    SDN.TENANT_RD_EXISTS: "RD 已存在: {rd}",
+    SDN.VPC_NOT_FOUND: "VPC 不存在: id={id}",
+    SDN.VPC_VNI_EXISTS: "VNI 已被占用: {vni}",
+    SDN.VPC_TENANT_NOT_FOUND: "所属租户不存在: tenant_id={tenant_id}",
+    SDN.INVALID_CIDR: "CIDR 格式不合法: {cidr}",
+    SDN.INVALID_GATEWAY_IP: "网关 IP 不合法: {ip}",
+    SDN.ALLOCATION_FAILED: "编号分配失败: {error}",
 }
 
 
