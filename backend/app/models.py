@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Optional
 
 from sqlalchemy import Boolean, DateTime, Index, Integer, String, Text, ForeignKey, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -120,3 +121,160 @@ class Backup(Base):
         # 复合索引：按设备 + 时间排序（列表/轮转查询）
         Index("ix_backups_device_created", "device_id", "created_at"),
     )
+
+
+# ── v3.0 SDN/VPC 资源模型 ──
+
+class SdnTenant(Base):
+    """租户（v3.0 SDN/VPC）
+
+    租户是网络隔离域，对应设备上的 ip vpn-instance 与 RD/RT 语义。
+    一个租户下可有多个 VPC。
+    - rd / import_rt / export_rt / l3_vni: 系统自动分配（auto_assigned=True）
+    - 删除租户时 CASCADE 删除其下所有 VPC、绑定、部署、快照
+    """
+    __tablename__ = "sdn_tenants"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    rd: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
+    import_rt: Mapped[str] = mapped_column(String(50), nullable=False)
+    export_rt: Mapped[str] = mapped_column(String(50), nullable=False)
+    l3_vni: Mapped[int] = mapped_column(Integer, unique=True, nullable=False)
+    auto_assigned: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    # 一对多关联 VPC
+    vpcs: Mapped[list["SdnVpc"]] = relationship(
+        "SdnVpc", back_populates="tenant", cascade="all, delete-orphan"
+    )
+
+
+class SdnVpc(Base):
+    """VPC（v3.0 SDN/VPC）
+
+    项目内 VPC 等同于交换机侧一个可接入业务子网。
+    - vni: 设备侧 L2VNI，fabric 全局唯一（设备能力验证前保守策略）
+    - vsi_name / vsi_interface / vlan_id: 系统自动分配
+    - gateway_ip: 默认取 CIDR 最后一个可用地址
+    - gateway_mac: 分布式网关 MAC，默认自动生成
+    - status: pending → deploying → active → degraded → failed
+    """
+    __tablename__ = "sdn_vpcs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    tenant_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("sdn_tenants.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    cidr: Mapped[str] = mapped_column(String(50), nullable=False)
+    gateway_ip: Mapped[str] = mapped_column(String(50), nullable=False)
+    gateway_mac: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    vni: Mapped[int] = mapped_column(Integer, unique=True, nullable=False)
+    vsi_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    vsi_interface: Mapped[int] = mapped_column(Integer, nullable=False)
+    vlan_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    auto_assigned: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    # 反向关联
+    tenant: Mapped["SdnTenant"] = relationship("SdnTenant", back_populates="vpcs")
+    port_bindings: Mapped[list["SdnPortBinding"]] = relationship(
+        "SdnPortBinding", back_populates="vpc", cascade="all, delete-orphan"
+    )
+    deployments: Mapped[list["SdnDeployment"]] = relationship(
+        "SdnDeployment", back_populates="vpc", cascade="all, delete-orphan"
+    )
+
+
+class SdnPortBinding(Base):
+    """端口绑定关系（v3.0 SDN/VPC）
+
+    描述"哪个交换机端口属于哪个 VPC"。
+    本 change 仅建表，CRUD 端点留 sdn-port-binding。
+    """
+    __tablename__ = "sdn_port_bindings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    device_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    tenant_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("sdn_tenants.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    vpc_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("sdn_vpcs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    if_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    interface_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    access_vlan: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    service_instance: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="planned", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    # 关联
+    vpc: Mapped["SdnVpc"] = relationship("SdnVpc", back_populates="port_bindings")
+
+
+class SdnDeployment(Base):
+    """配置下发记录（v3.0 SDN/VPC）
+
+    记录每次 VPC 配置下发的计划、状态和错误信息。
+    - action: "create" | "delete" | "gateway_fallback" | "gateway_restore"
+    - planned_config: JSON 格式的计划配置命令序列
+    """
+    __tablename__ = "sdn_deployments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    vpc_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("sdn_vpcs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    device_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    action: Mapped[str] = mapped_column(String(50), nullable=False)
+    planned_config: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)
+    error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    # 关联
+    vpc: Mapped["SdnVpc"] = relationship("SdnVpc", back_populates="deployments")
+
+
+class SdnValidationSnapshot(Base):
+    """状态采集与校验快照（v3.0 SDN/VPC）
+
+    存储从设备 display 命令采集到的状态快照和校验结果。
+    - snapshot_data: JSON 格式的采集结果
+    - validation_result: active / degraded / failed
+    - validation_details: JSON 格式的逐项校验结果
+    """
+    __tablename__ = "sdn_validation_snapshots"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    vpc_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("sdn_vpcs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    device_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    snapshot_data: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    validation_result: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    validation_details: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
