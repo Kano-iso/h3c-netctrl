@@ -19,6 +19,7 @@ os.makedirs("./logs", exist_ok=True)
 
 from app.database import Base, engine
 from app.routers import interface, vlan, execute, batch
+from app.routers import sdn
 from app.utils.logger import setup_logging
 
 setup_logging(log_level=settings.LOG_LEVEL, log_file="./logs/config.log")
@@ -50,11 +51,23 @@ app.include_router(interface.router, prefix="/api")
 app.include_router(vlan.router, prefix="/api")
 app.include_router(execute.router, prefix="/api")
 app.include_router(batch.router, prefix="/api")
+app.include_router(sdn.router)  # sdn router 自带 prefix=/api/sdn
 
 
 @app.on_event("startup")
 def on_startup():
-    """启动时执行数据库迁移（config 容器可能无表，跳过迁移错误）"""
+    """启动时执行数据库迁移。
+
+    config 容器在 v3 split 模式下仅持有 SDN 表（v3.0+）和 tasks 表。
+    旧的 monolith 表（assets / logs）不在 config.db，alembic 跑全量升级会失败。
+    控制：
+    - 默认行为：跳过 alembic 升级（运维侧预先跑过或 db 已就绪）
+    - CONFIG_AUTO_MIGRATE=true：尝试执行 alembic upgrade head
+    """
+    import os
+    if os.getenv("CONFIG_AUTO_MIGRATE", "false").lower() != "true":
+        logging.getLogger("app").info("config 数据库迁移跳过（CONFIG_AUTO_MIGRATE != true）")
+        return
     try:
         from alembic.config import Config
         from alembic import command
