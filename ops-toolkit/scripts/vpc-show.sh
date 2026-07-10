@@ -65,7 +65,7 @@ echo ""
 DISPLAY_CMDS=(
     "display l2vpn vsi verbose"
     "display vxlan tunnel"
-    "display bgp peer evpn"
+    "display bgp peer l2vpn evpn"
 )
 
 # 通过 paramiko 顺序执行, 仅读输出
