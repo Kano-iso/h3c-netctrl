@@ -13,7 +13,7 @@
 #     3. display bgp peer evpn (BGP EVPN 邻居)
 #   - 不下发任何配置命令
 #   - 不写 SdnDeployment / SdnVpc
-#   - 允许连 .2 / .3 (只读 OK, 与 audit-switch 一致)
+#   - 允许连 .2 / .3 (只读 OK, 与 paramiko-batch-exec 一致)
 
 set -euo pipefail
 

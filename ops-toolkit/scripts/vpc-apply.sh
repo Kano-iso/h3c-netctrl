@@ -154,7 +154,7 @@ client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 client.connect(ip, username=user, password=passwd, timeout=10, look_for_keys=False, allow_agent=False)
 
 try:
-    # H3C V7 SSH 不支持 shell, 用 invoke_shell 模拟 (与 capture-config / audit-switch 一致)
+    # H3C V7 SSH 不支持 shell, 用 invoke_shell 模拟 (与 vpc-reset / vpc-show 一致)
     shell = client.invoke_shell()
     shell.settimeout(15)
     time.sleep(0.5)
