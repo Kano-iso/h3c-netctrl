@@ -180,6 +180,12 @@ class SDN:
     # v3.0 sdn-vpc-deployment-api Task 1
     DEVICE_NOT_FOUND = I18nKey("sdn.device_not_found")                # 设备不存在: id={id}
     DEPLOYMENT_NOT_FOUND = I18nKey("sdn.deployment_not_found")        # Deployment 不存在: id={id}
+    # v3.0 sdn-vpc-deployment-executor Task 4: 配置下发执行器错误
+    DEPLOYMENT_NOT_PENDING = I18nKey("sdn.deployment_not_pending")    # Deployment 状态非 pending（不允许重放）: id={id}, status={status}
+    DEPLOYMENT_ACTION_NOT_SUPPORTED = I18nKey("sdn.deployment_action_not_supported")  # Deployment action 不支持（仅 create）: action={action}
+    DEVICE_NOT_WRITABLE = I18nKey("sdn.device_not_writable")          # 设备不在可写白名单（仅 .5/.6 允许下发）: name={name}, host={host}
+    PLANNED_CONFIG_INVALID = I18nKey("sdn.planned_config_invalid")    # planned_config 格式错误: id={id}, error={error}
+    DEPLOY_EXECUTE_FAILED = I18nKey("sdn.deploy_execute_failed")      # 配置下发失败: id={id}, command_index={command_index}, error={error}
 
 
 # ===== 集中导出（便于 import，支持 err.X 点访问） =====
@@ -282,6 +288,12 @@ err = SimpleNamespace(
     # v3.0 sdn-vpc-deployment-api Task 1
     SDN_DEVICE_NOT_FOUND=SDN.DEVICE_NOT_FOUND,
     SDN_DEPLOYMENT_NOT_FOUND=SDN.DEPLOYMENT_NOT_FOUND,
+    # v3.0 sdn-vpc-deployment-executor Task 4
+    SDN_DEPLOYMENT_NOT_PENDING=SDN.DEPLOYMENT_NOT_PENDING,
+    SDN_DEPLOYMENT_ACTION_NOT_SUPPORTED=SDN.DEPLOYMENT_ACTION_NOT_SUPPORTED,
+    SDN_DEVICE_NOT_WRITABLE=SDN.DEVICE_NOT_WRITABLE,
+    SDN_PLANNED_CONFIG_INVALID=SDN.PLANNED_CONFIG_INVALID,
+    SDN_DEPLOY_EXECUTE_FAILED=SDN.DEPLOY_EXECUTE_FAILED,
 )
 
 
@@ -397,6 +409,12 @@ FALLBACK_MESSAGES = {
     # v3.0 sdn-vpc-deployment-api Task 1
     SDN.DEVICE_NOT_FOUND: "设备不存在: id={id}",
     SDN.DEPLOYMENT_NOT_FOUND: "Deployment 不存在: id={id}",
+    # v3.0 sdn-vpc-deployment-executor Task 4
+    SDN.DEPLOYMENT_NOT_PENDING: "Deployment 状态非 pending（不允许重放）: id={id}, status={status}",
+    SDN.DEPLOYMENT_ACTION_NOT_SUPPORTED: "Deployment action 不支持（仅 create）: action={action}",
+    SDN.DEVICE_NOT_WRITABLE: "设备不在可写白名单（仅 .5/.6 允许下发）: name={name}, host={host}",
+    SDN.PLANNED_CONFIG_INVALID: "planned_config 格式错误: id={id}, error={error}",
+    SDN.DEPLOY_EXECUTE_FAILED: "配置下发失败: id={id}, command_index={command_index}, error={error}",
 }
 
 
