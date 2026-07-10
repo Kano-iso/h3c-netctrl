@@ -1,26 +1,34 @@
 """SDN/VPC 路由（v3.0）
 
 端点：
-- POST   /api/sdn/tenants           创建租户
-- GET    /api/sdn/tenants           租户列表
-- GET    /api/sdn/tenants/{id}      租户详情
-- PATCH  /api/sdn/tenants/{id}      更新租户 description
-- DELETE /api/sdn/tenants/{id}      删除租户（CASCADE 清理 VPC / binding / deployment / snapshot）
-- POST   /api/sdn/vpcs              创建 VPC
-- GET    /api/sdn/vpcs              VPC 列表（可按 tenant_id 过滤）
-- GET    /api/sdn/vpcs/{id}         VPC 详情
+- POST   /api/sdn/tenants                  创建租户
+- GET    /api/sdn/tenants                  租户列表
+- GET    /api/sdn/tenants/{id}             租户详情
+- PATCH  /api/sdn/tenants/{id}             更新租户 description
+- DELETE /api/sdn/tenants/{id}             删除租户（CASCADE 清理 VPC / binding / deployment / snapshot）
+- POST   /api/sdn/vpcs                     创建 VPC
+- GET    /api/sdn/vpcs                     VPC 列表（可按 tenant_id 过滤）
+- GET    /api/sdn/vpcs/{id}                VPC 详情
+- POST   /api/sdn/deployments              创建 deployment（调 planner 生成 planned_config）
+- GET    /api/sdn/deployments              deployment 列表（按 vpc_id / device_id / action 过滤）
+- GET    /api/sdn/deployments/{id}         deployment 详情（vpc-apply 用）
+- PATCH  /api/sdn/deployments/{id}         更新 status / error（vpc-apply 下发后回写）
 """
 import logging
+from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import SdnTenant, SdnVpc
+from app.models import Device, SdnDeployment, SdnTenant, SdnVpc
 from app.schemas import (
     APIResponse,
+    SdnDeploymentCreate,
+    SdnDeploymentResponse,
+    SdnDeploymentUpdate,
     SdnTenantCreate,
     SdnTenantResponse,
     SdnTenantUpdate,
@@ -28,6 +36,8 @@ from app.schemas import (
     SdnVpcResponse,
 )
 from app.i18n_keys import err, error_response
+from app.services.sdn_device_adapter import H3cV7Adapter
+from app.services.vpc_config_planner import VPCConfigPlanner
 from app.utils.sdn_allocator import SdnAllocator
 
 logger = logging.getLogger("app")
@@ -263,3 +273,112 @@ def get_vpc(vpc_id: int, db: Session = Depends(get_db)):
         return error_response(err.SDN_VPC_NOT_FOUND, params={"id": vpc_id})
     tenant = db.query(SdnTenant).filter(SdnTenant.id == vpc.tenant_id).first()
     return APIResponse(success=True, data=_vpc_to_response(vpc, tenant).model_dump(mode="json"))
+
+
+# ── v3.0 SDN/VPC Deployment 端点（sdn-vpc-deployment-api）──
+
+def _deployment_to_response(d: SdnDeployment) -> SdnDeploymentResponse:
+    """SdnDeployment ORM → SdnDeploymentResponse。"""
+    return SdnDeploymentResponse(
+        id=d.id,
+        vpc_id=d.vpc_id,
+        device_id=d.device_id,
+        action=d.action,
+        planned_config=d.planned_config,
+        status=d.status,
+        error=d.error,
+        created_at=d.created_at,
+        updated_at=d.updated_at,
+    )
+
+
+@router.post("/deployments", response_model=APIResponse)
+def create_deployment(body: SdnDeploymentCreate, db: Session = Depends(get_db)):
+    """创建 deployment，调 VPCConfigPlanner 自动生成 planned_config。
+
+    流程：
+    1. 校验 vpc 存在
+    2. 校验 device 存在
+    3. 调 planner.plan_vpc_create(vpc, tenant) 或 plan_vpc_delete(vpc) 生成命令列表
+    4. 序列化为 JSON 字符串存入 planned_config
+    5. 创建 SdnDeployment 记录（status=pending）
+    """
+    vpc = db.query(SdnVpc).filter(SdnVpc.id == body.vpc_id).first()
+    if not vpc:
+        return error_response(err.SDN_VPC_NOT_FOUND, params={"id": body.vpc_id})
+    tenant = db.query(SdnTenant).filter(SdnTenant.id == vpc.tenant_id).first()
+    if not tenant:
+        return error_response(err.SDN_VPC_TENANT_NOT_FOUND, params={"tenant_id": vpc.tenant_id})
+    device = db.query(Device).filter(Device.id == body.device_id).first()
+    if not device:
+        return error_response(err.SDN_DEVICE_NOT_FOUND, params={"id": body.device_id})
+
+    # 调 planner 生成命令
+    planner = VPCConfigPlanner(H3cV7Adapter())
+    if body.action == "create":
+        commands = planner.plan_vpc_create(vpc, tenant, dry_run=True)
+    else:  # delete
+        commands = planner.plan_vpc_delete(vpc, dry_run=True)
+
+    # 序列化为 JSON 字符串
+    planned_json = VPCConfigPlanner.serialize(commands)
+
+    deployment = SdnDeployment(
+        vpc_id=body.vpc_id,
+        device_id=body.device_id,
+        action=body.action,
+        planned_config=planned_json,
+        status="pending",
+    )
+    db.add(deployment)
+    db.commit()
+    db.refresh(deployment)
+    return APIResponse(success=True, data=_deployment_to_response(deployment).model_dump(mode="json"))
+
+
+@router.get("/deployments", response_model=APIResponse)
+def list_deployments(
+    vpc_id: Optional[int] = Query(default=None, ge=1),
+    device_id: Optional[int] = Query(default=None, ge=1),
+    action: Optional[str] = Query(default=None, pattern="^(create|delete)$"),
+    db: Session = Depends(get_db),
+):
+    """Deployment 列表，支持按 vpc_id / device_id / action 过滤。"""
+    q = db.query(SdnDeployment)
+    if vpc_id is not None:
+        q = q.filter(SdnDeployment.vpc_id == vpc_id)
+    if device_id is not None:
+        q = q.filter(SdnDeployment.device_id == device_id)
+    if action is not None:
+        q = q.filter(SdnDeployment.action == action)
+
+    items = [_deployment_to_response(d).model_dump(mode="json") for d in q.order_by(SdnDeployment.id.desc()).all()]
+    return APIResponse(success=True, data={"total": len(items), "deployments": items})
+
+
+@router.get("/deployments/{deployment_id}", response_model=APIResponse)
+def get_deployment(deployment_id: int, db: Session = Depends(get_db)):
+    """Deployment 详情（vpc-apply 用此端点读 planned_config）。"""
+    d = db.query(SdnDeployment).filter(SdnDeployment.id == deployment_id).first()
+    if not d:
+        return error_response(err.SDN_DEPLOYMENT_NOT_FOUND, params={"id": deployment_id})
+    return APIResponse(success=True, data=_deployment_to_response(d).model_dump(mode="json"))
+
+
+@router.patch("/deployments/{deployment_id}", response_model=APIResponse)
+def update_deployment(
+    deployment_id: int,
+    body: SdnDeploymentUpdate,
+    db: Session = Depends(get_db),
+):
+    """更新 deployment 状态（vpc-apply 下发后回写 status / error）。"""
+    d = db.query(SdnDeployment).filter(SdnDeployment.id == deployment_id).first()
+    if not d:
+        return error_response(err.SDN_DEPLOYMENT_NOT_FOUND, params={"id": deployment_id})
+    if body.status is not None:
+        d.status = body.status
+    if body.error is not None:
+        d.error = body.error
+    db.commit()
+    db.refresh(d)
+    return APIResponse(success=True, data=_deployment_to_response(d).model_dump(mode="json"))
