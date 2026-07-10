@@ -440,6 +440,13 @@ def apply_deployment(deployment_id: int, db: Session = Depends(get_db)):
         logger.warning(
             f"sdn apply: deployment {deployment_id} 校验失败: {e.error_key} {e.params}"
         )
-        return error_response(getattr(err, e.error_key, err.OPERATION_FAILED), params=e.params)
+        # err_key 既可能是 Python 名 (SDN_DEVICE_NOT_WRITABLE) 也可能是 i18n key (device.not_found)
+        # SDN_ 前缀的用 getattr 查 err, 其他前缀 (device./vlan./common.) 直接当 i18n key 透传
+        if e.error_key.startswith("SDN_"):
+            err_attr = getattr(err, e.error_key, err.OPERATION_FAILED)
+        else:
+            # 透传 i18n key（构造一个伪 I18nKey-like 对象，error_response 会接受字符串）
+            err_attr = e.error_key
+        return error_response(err_attr, params=e.params)
 
     return APIResponse(success=True, data=_deployment_to_response(deployment).model_dump(mode="json"))

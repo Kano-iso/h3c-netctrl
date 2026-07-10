@@ -113,9 +113,9 @@ class SdnDeploymentExecutor:
         # 4. 查 device + 校验
         device, password, device_err = get_device_with_password(db, deployment.device_id)
         if device_err is not None:
-            # 设备不存在
+            # 透传 device_err 的 error_key（可能是 device.not_found / device.crypto_decrypt_failed 等）
             raise SdnDeploymentError(
-                "SDN_DEVICE_NOT_FOUND",
+                device_err.error_key or "SDN_DEVICE_NOT_FOUND",
                 params={"id": deployment.device_id},
                 status_code=404,
             )
