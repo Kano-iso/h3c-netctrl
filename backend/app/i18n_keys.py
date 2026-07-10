@@ -177,6 +177,9 @@ class SDN:
     VLAN_CONFLICT = I18nKey("sdn.vlan_conflict")                      # VLAN 与其他用途冲突: vlan_id={vlan_id}
     BGP_PEER_NOT_ESTABLISHED = I18nKey("sdn.bgp_peer_not_established")  # BGP EVPN 邻居未建立: peer={peer_ip}
     L3VPN_NOT_FOUND = I18nKey("sdn.l3vpn_not_found")                  # L3VPN 实例不存在: name={vpn_name}
+    # v3.0 sdn-vpc-deployment-api Task 1
+    DEVICE_NOT_FOUND = I18nKey("sdn.device_not_found")                # 设备不存在: id={id}
+    DEPLOYMENT_NOT_FOUND = I18nKey("sdn.deployment_not_found")        # Deployment 不存在: id={id}
 
 
 # ===== 集中导出（便于 import，支持 err.X 点访问） =====
@@ -276,6 +279,9 @@ err = SimpleNamespace(
     SDN_VLAN_CONFLICT=SDN.VLAN_CONFLICT,
     SDN_BGP_PEER_NOT_ESTABLISHED=SDN.BGP_PEER_NOT_ESTABLISHED,
     SDN_L3VPN_NOT_FOUND=SDN.L3VPN_NOT_FOUND,
+    # v3.0 sdn-vpc-deployment-api Task 1
+    SDN_DEVICE_NOT_FOUND=SDN.DEVICE_NOT_FOUND,
+    SDN_DEPLOYMENT_NOT_FOUND=SDN.DEPLOYMENT_NOT_FOUND,
 )
 
 
@@ -388,6 +394,9 @@ FALLBACK_MESSAGES = {
     SDN.VLAN_CONFLICT: "VLAN 与其他用途冲突: vlan_id={vlan_id}",
     SDN.BGP_PEER_NOT_ESTABLISHED: "BGP EVPN 邻居未建立: peer={peer_ip}",
     SDN.L3VPN_NOT_FOUND: "L3VPN 实例不存在: name={vpn_name}",
+    # v3.0 sdn-vpc-deployment-api Task 1
+    SDN.DEVICE_NOT_FOUND: "设备不存在: id={id}",
+    SDN.DEPLOYMENT_NOT_FOUND: "Deployment 不存在: id={id}",
 }
 
 

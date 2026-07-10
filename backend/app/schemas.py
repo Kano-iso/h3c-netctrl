@@ -183,3 +183,37 @@ class SdnVpcResponse(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+# ── v3.0 SDN/VPC Deployment Schema（sdn-vpc-deployment-api）──
+
+class SdnDeploymentCreate(BaseModel):
+    """创建 deployment 请求。
+
+    系统会调 VPCConfigPlanner 根据 vpc_id 自动生成 planned_config。
+    action: "create" | "delete"（仅这 2 个值，gateway_* 后续 change 加）
+    """
+    vpc_id: int = Field(..., ge=1)
+    device_id: int = Field(..., ge=1)
+    action: str = Field(..., pattern="^(create|delete)$")
+
+
+class SdnDeploymentResponse(BaseModel):
+    """Deployment 响应。planned_config 是 JSON 字符串（list[dict]）。"""
+    id: int
+    vpc_id: int
+    device_id: int
+    action: str
+    planned_config: Optional[str] = None  # JSON 字符串
+    status: str
+    error: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class SdnDeploymentUpdate(BaseModel):
+    """更新 deployment 状态（vpc-apply 下发后回写）。"""
+    status: Optional[str] = Field(default=None, pattern="^(pending|running|success|failed)$")
+    error: Optional[str] = None
