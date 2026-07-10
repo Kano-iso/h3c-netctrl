@@ -11,8 +11,9 @@
 - GET    /api/sdn/vpcs/{id}                VPC 详情
 - POST   /api/sdn/deployments              创建 deployment（调 planner 生成 planned_config）
 - GET    /api/sdn/deployments              deployment 列表（按 vpc_id / device_id / action 过滤）
-- GET    /api/sdn/deployments/{id}         deployment 详情（vpc-apply 用）
-- PATCH  /api/sdn/deployments/{id}         更新 status / error（vpc-apply 下发后回写）
+- GET    /api/sdn/deployments/{id}         deployment 详情（apply 前查 planned_config）
+- PATCH  /api/sdn/deployments/{id}         更新 status / error（补偿 / 排错用，业务下发走 apply）
+- POST   /api/sdn/deployments/{id}/apply   业务配置下发（NETCONF，替代 ops-toolkit vpc-apply.sh）
 """
 import logging
 from typing import List, Optional
@@ -36,6 +37,7 @@ from app.schemas import (
     SdnVpcResponse,
 )
 from app.i18n_keys import err, error_response
+from app.services.sdn_deployment_executor import SdnDeploymentError, SdnDeploymentExecutor
 from app.services.sdn_device_adapter import H3cV7Adapter
 from app.services.vpc_config_planner import VPCConfigPlanner
 from app.utils.sdn_allocator import SdnAllocator
@@ -399,7 +401,11 @@ def update_deployment(
     body: SdnDeploymentUpdate,
     db: Session = Depends(get_db),
 ):
-    """更新 deployment 状态（vpc-apply 下发后回写 status / error）。"""
+    """更新 deployment 状态（vpc-apply 下发后回写 status / error）。
+
+    v3.0 sdn-vpc-deployment-executor 起,业务下发走 POST .../apply 端点,
+    此 PATCH 端点保留供外部系统直接改状态 (如排错 / 补偿)。
+    """
     d = db.query(SdnDeployment).filter(SdnDeployment.id == deployment_id).first()
     if not d:
         return error_response(err.SDN_DEPLOYMENT_NOT_FOUND, params={"id": deployment_id})
@@ -410,3 +416,30 @@ def update_deployment(
     db.commit()
     db.refresh(d)
     return APIResponse(success=True, data=_deployment_to_response(d).model_dump(mode="json"))
+
+
+# ── v3.0 sdn-vpc-deployment-executor: 业务配置下发端点 ──
+
+@router.post("/deployments/{deployment_id}/apply", response_model=APIResponse)
+def apply_deployment(deployment_id: int, db: Session = Depends(get_db)):
+    """业务配置下发端点（替代 ops-toolkit vpc-apply.sh）
+
+    链路: frontend → config 容器 → SdnDeploymentExecutor → NetconfClient → 设备
+
+    行为:
+    1. 调 SdnDeploymentExecutor.execute()
+    2. 校验错 → 返回对应 HTTP 状态码 + error_key
+    3. NETCONF 失败 → 200 + status=failed (业务视为已尝试下发)
+    4. 成功 → 200 + status=success
+    """
+    executor = SdnDeploymentExecutor()
+    try:
+        deployment = executor.execute(db, deployment_id)
+    except SdnDeploymentError as e:
+        # 校验类错误（status_code 由 error 决定）
+        logger.warning(
+            f"sdn apply: deployment {deployment_id} 校验失败: {e.error_key} {e.params}"
+        )
+        return error_response(getattr(err, e.error_key, err.OPERATION_FAILED), params=e.params)
+
+    return APIResponse(success=True, data=_deployment_to_response(deployment).model_dump(mode="json"))
