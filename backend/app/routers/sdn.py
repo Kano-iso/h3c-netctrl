@@ -292,6 +292,34 @@ def _deployment_to_response(d: SdnDeployment) -> SdnDeploymentResponse:
     )
 
 
+def _check_device_exists(device_id: int) -> Optional[APIResponse]:
+    """校验设备是否存在。
+
+    优先本地查（monolith 模式 / 单测）；split 模式下本地无 devices 表，走 internal API 调 ctrl。
+    返回: None = 存在；APIResponse(success=False) = 不存在
+    """
+    # 1. 尝试本地查（monolith 模式）
+    try:
+        from app.database import SessionLocal
+        with SessionLocal() as db:
+            exists = db.query(Device).filter(Device.id == device_id).first()
+        if exists is not None:
+            return None
+    except Exception as e:
+        logger.warning(f"本地 Device 表不可用，走内部 API: {e}")
+
+    # 2. split 模式：走 internal API 调 ctrl 容器
+    try:
+        from app.internal_api import get_device
+        resp = get_device(device_id)
+        if resp.get("success"):
+            return None
+    except Exception as e:
+        logger.error(f"内部 API 查设备失败: {e}")
+
+    return error_response(err.SDN_DEVICE_NOT_FOUND, params={"id": device_id})
+
+
 @router.post("/deployments", response_model=APIResponse)
 def create_deployment(body: SdnDeploymentCreate, db: Session = Depends(get_db)):
     """创建 deployment，调 VPCConfigPlanner 自动生成 planned_config。
@@ -309,9 +337,9 @@ def create_deployment(body: SdnDeploymentCreate, db: Session = Depends(get_db)):
     tenant = db.query(SdnTenant).filter(SdnTenant.id == vpc.tenant_id).first()
     if not tenant:
         return error_response(err.SDN_VPC_TENANT_NOT_FOUND, params={"tenant_id": vpc.tenant_id})
-    device = db.query(Device).filter(Device.id == body.device_id).first()
-    if not device:
-        return error_response(err.SDN_DEVICE_NOT_FOUND, params={"id": body.device_id})
+    device_err = _check_device_exists(body.device_id)
+    if device_err is not None:
+        return device_err
 
     # 调 planner 生成命令
     planner = VPCConfigPlanner(H3cV7Adapter())
