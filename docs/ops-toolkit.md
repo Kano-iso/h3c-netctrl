@@ -6,7 +6,7 @@
 
 ## 📌 默认设备（v2.4.2 改）
 
-**所有 9 个脚本默认指向 Test-Switch-177 (192.168.100.177)**：
+**所有 12 个脚本默认指向 Test-Switch-177 (192.168.100.177)**：
 - 不带 `--device` = 默认 `.177`（安全默认）
 - `--device test` = 显式 test
 - `--device <生产 IP>` = 显式生产（日志 warn，但不阻止）
@@ -28,7 +28,7 @@
 
 ## 快速开始
 
-启动容器后，9 个预制脚本可直接调用（脚本名就是命令名）。
+启动容器后，12 个预制脚本可直接调用（脚本名就是命令名）。
 
 ### 凭据来源（重要）
 
@@ -319,6 +319,142 @@ task-monitor task-restore-001 --json
 - **轮询模式**：默认 2s 一次，高频场景（>1 任务/秒）应改用 WebSocket
 - **单任务**：每次监控 1 个 task_id（多任务监控是 CI/编排平台的活）
 - **无取消功能**：本脚本只能监控，不能取消（如需取消走 `taskApi.cancel`）
+
+### vpc-apply（v3.0 新增）
+
+- 用途：读 `SdnDeployment.planned_config` 并下发到设备（EVPN/VXLAN 配置）
+- 定位：v3.0 SDN/VPC 配置下发的 CLI 入口，**读后端 API → 解析命令 → paramiko 下发 → PATCH 状态**
+- 关键安全护栏：
+  - 默认指向 test 设备（.177），连 .5 需 `--device .5` 显式指定
+  - **禁止连 .2 / .3**（SDN 参考机器，仅读）：脚本内硬拦截
+  - `--dry-run` 仅打印计划 + hash，不下发
+- 用法：
+  - `vpc-apply --deployment <id> --device .5` — 真实下发
+  - `vpc-apply --deployment <id> --device .5 --dry-run` — 仅打印计划
+- 数据流：
+  1. `GET /api/sdn/deployments/{id}` → `planned_config` (JSON 字符串)
+  2. 解析 `[{mode, command}, ...]` 命令序列
+  3. paramiko SSH 到设备，按顺序下发（每条 0.3s 间隔）
+  4. `PATCH /api/sdn/deployments/{id}` → `status=success/failed`
+
+#### 用法示例
+
+```bash
+# 1. dry-run 验证计划
+vpc-apply --deployment 1 --device .5 --dry-run
+# → commands: 14 条 (sha256:a1b2c3d4e5f6)
+# → 设备: 192.168.100.5
+# → dry-run 模式, 不下发
+
+# 2. 真实下发（用户在 .5 旁边，确认无误后执行）
+vpc-apply --deployment 1 --device .5
+# → [1/14] vsi vpca...
+# → [2/14]   gateway vsi-interface 1...
+# → ...
+# → 完成: 14 成功, 0 失败 / 14 总计
+# → ✅ vpc-apply 成功: deployment 1 → success
+```
+
+#### 命令不打印明文
+
+- 输出仅显示 `cmd[:30] + '...'`，不打印完整命令
+- 计划 hash 显示 sha256 前 12 位（审计追踪用）
+- spec.md Requirement「凭据与安全」要求
+
+#### 错误检测
+
+- 设备响应含 `% Unknown` / `% Invalid` / `Error:` / `% Too many parameters` → 标记为失败
+- 不立即停（允许 undo 类操作），但 `failed > 0` 时整个 deployment 标记为 `failed`
+- 退出码：0 成功 / 1 部分失败
+
+#### pytest 覆盖
+
+- 单元测试：`backend/tests/test_vpc_config_planner.py`（Task 7 已覆盖配置计划生成 + 序列化）
+- 端到端测试：需真机 + 部署计划，**默认 skip**，需 `--integration` 显式开启
+
+### vpc-reset（v3.0 新增）
+
+- 用途：清理设备上指定 VPC 的全部配置（保留 l3vpn / vxlan 设备级共享配置）
+- 定位：v3.0 SDN/VPC 的 CLI 清理入口，**`--force` 必填**（不可逆操作）
+- 删除范围：
+  - `undo vsi {vsi_name}` — 删 VSI
+  - `undo interface Vsi-interface{n}` — 删 Vsi-interface
+- 保留范围（设备级共享，不动）：
+  - `ip vpn-instance l3vpn` — 所有 VPC 共享
+  - `vxlan tunnel mac-learning disable` — 设备级一次性配置
+- 用法：
+  - `vpc-reset --vpc <id> --device .5 --force` — 真实清理
+  - `vpc-reset --vpc <id> --device .5 --dry-run` — 仅打印计划
+
+#### 安全护栏
+
+- **`--force` 必填**（或 `--dry-run`）：无 `--force` 直接退出 1
+- **禁止连 .2 / .3**（与 vpc-apply 一致）
+- 默认 device 为 test（.177），连 .5 需显式 `--device .5`
+
+#### 用法示例
+
+```bash
+# 1. dry-run 看清计划
+vpc-reset --vpc 1 --device .5 --dry-run
+# → 计划:
+#     undo vsi vpc0001
+#     undo interface Vsi-interface1
+
+# 2. 真实清理（不可逆!）
+vpc-reset --vpc 1 --device .5 --force
+# → 完成: 2 成功, 0 失败 / 2 总计
+# → ✅ vpc-reset 成功: vpc 1 → deleted
+```
+
+#### 退出码
+
+- 0 — 全部成功（PATCH status=deleted）
+- 1 — 部分或全部失败（PATCH status=reset_failed）
+
+### vpc-show（v3.0 新增）
+
+- 用途：设备侧 VPC 状态**只读**查看（不写 DB、不下发配置）
+- 定位：v3.0 SDN 状态采集的 CLI 入口，**与 vpc-apply/vpc-reset 互补**
+- 执行 3 条 display 命令：
+  1. `display l2vpn vsi verbose` — VSI 状态
+  2. `display vxlan tunnel` — VXLAN 隧道
+  3. `display bgp peer evpn` — BGP EVPN 邻居
+- 用法：
+  - `vpc-show --device .5` — 完整看 3 条 display 输出
+  - `vpc-show --vpc 1 --device .5` — 标注 vpc_id（不参与过滤，仅显示）
+
+#### 与 vpc-apply / vpc-reset 的区别
+
+| 维度 | vpc-show | vpc-apply | vpc-reset |
+|---|---|---|---|
+| **写操作** | ❌ 否 | ✅ 是 | ✅ 是 |
+| **写 DB** | ❌ 否 | ✅ PATCH deployment | ✅ PATCH vpc |
+| **连 .2/.3** | ✅ 允许（只读）| ❌ 拒绝 | ❌ 拒绝 |
+| **需 --force** | — | — | ✅ 必填 |
+
+#### 用法示例
+
+```bash
+vpc-show --device .5
+# → ── [1/3] display l2vpn vsi verbose ──
+# → VSI Name: vpc0001
+# →   VSI Interface: 1
+# →   VXLAN ID: 20000
+# → ...
+# → ── [2/3] display vxlan tunnel ──
+# → Total number of VXLAN tunnel: 2
+# → ...
+# → ── [3/3] display bgp peer evpn ──
+# → BGP local router ID: 1.1.1.1
+# → ...
+```
+
+#### 输出处理
+
+- 过滤 ANSI 转义字符（terminal escape）
+- 去掉命令回显（第一行）和末尾 prompt
+- 仅打印真正的 display 输出
 
 ## 设备命名约定
 
