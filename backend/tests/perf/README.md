@@ -39,7 +39,7 @@ docker compose -f docker-compose.dev.yml --profile qa run --rm qa-backend \
 watch -n 1 'ss -tan | grep 192.168.100.177 | wc -l'
 
 # 设备侧 CPU（每 10s）：
-docker compose -f docker-compose.dev.yml --profile ops run --rm ops-toolkit ssh-test.sh "display cpu-usage"
+docker compose -f docker-compose.dev.yml --profile ops run --rm ops-toolkit paramiko-batch-exec.sh --device test --command "display cpu-usage"
 ```
 
 ### 3.2 50 并发备份

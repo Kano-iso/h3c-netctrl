@@ -51,12 +51,6 @@
 - 示例：`check-host --device Leaf-04` 或 `check-host 192.168.100.5 3`
 - 输出：ping 结果 + SSH 22 端口 + NETCONF 830 端口状态
 
-### ssh-test
-- 用途：SSH 交互测试（登录 + 执行命令）
-- 用法：`ssh-test --device <name|ip> [command]`
-- 默认命令：`display version`
-- 示例：`ssh-test --device Spine-01 "display interface brief"`
-
 ### check-netconf
 - 用途：NETCONF 连接测试（ncclient hello + 能力集）
 - 用法：`check-netconf --device <name|ip>`
@@ -73,11 +67,6 @@
 - 用法：`reboot-wait --device <name|ip>`
 - 注意：会触发设备重启，谨慎使用
 - 示例：`reboot-wait --device Test-Switch-177`
-
-### audit-switch
-- 用途：一键巡检交换机（display version + display device + display interface brief）
-- 用法：`audit-switch --device <name|ip>`
-- 示例：`audit-switch --device Leaf-04`
 
 ### paramiko-batch-exec
 - 用途：单设备 SSH 批命令执行（研发场景的"前置加配置 + 后置验证"开发辅助工具）

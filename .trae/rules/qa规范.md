@@ -39,7 +39,7 @@
 
 ### ops-toolkit — 设备排错唯一入口
 
-- 7 脚本：`check-host / ssh-test / check-netconf / capture-config / reboot-wait / audit-switch / paramiko-batch-exec`
+- 5 脚本：`check-host / check-netconf / capture-config / reboot-wait / paramiko-batch-exec`
 - 凭据 / 命令 / 默认 device 由工具自己处理，用户不传参
 - 每个脚本末尾自动输出文档链接（用法 + 凭据来源）
 - 脚本不够用 → 容器内临时组合，但**优先封装为新工具**并同步更新 docs/ops-toolkit.md

@@ -16,7 +16,6 @@
 ### 预制脚本
 - `check-host.sh <ip>` — ICMP + TCP 22 + TCP 830
 - `check-netconf.sh <ip>` — ncclient + schema-capabilities
-- `ssh-test.sh <ip>` — paramiko SSH + show version
 - `reboot-wait.sh <ip>` — reboot 等待（90s retry）
 - `capture-config.sh <ip>` — 拉 startup + running-config
 

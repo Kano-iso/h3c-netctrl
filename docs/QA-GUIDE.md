@@ -25,7 +25,7 @@ docker compose -f docker-compose.dev.yml --profile qa up <qa-backend|qa-frontend
 **qa 工具 / qa 测试默认指向 Test-Switch-177 (192.168.100.177, id=7)**：
 
 - 强制理由：qa 工具"反复跑"特性，误连生产可能导致配置污染
-- ops-toolkit 6 脚本（check-host / ssh-test / check-netconf / capture-config / reboot-wait / audit-switch）：
+- ops-toolkit 4 脚本（check-host / check-netconf / capture-config / reboot-wait）：
   - 不带 `--device` = 默认 `.177`（安全默认）
   - `--device test` / `Test-Switch-177` / `Test-Switch` = 显式 test
   - `--device <生产 IP>` = 显式生产（日志 warn，但不阻止）
