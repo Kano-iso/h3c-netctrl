@@ -1,6 +1,6 @@
 #!/bin/bash
 # vpc-show.sh — 设备侧 VPC 状态只读查看
-# v3.0 sdn-vpc-device-templates Task 6
+# v3.0 SDN 排错工具（仅读，不下发配置、不写 DB）
 #
 # 用法:
 #   vpc-show --vpc <id> --device <name>
@@ -10,10 +10,14 @@
 #   - 调 3 条 display 命令 (read-only):
 #     1. display l2vpn vsi verbose (VPC 状态)
 #     2. display vxlan tunnel (VXLAN 隧道)
-#     3. display bgp peer evpn (BGP EVPN 邻居)
+#     3. display bgp peer l2vpn evpn (BGP EVPN 邻居)
 #   - 不下发任何配置命令
 #   - 不写 SdnDeployment / SdnVpc
 #   - 允许连 .2 / .3 (只读 OK, 与 paramiko-batch-exec 一致)
+#
+# 注意:
+#   - 业务配置下发走 backend POST /api/sdn/deployments/{id}/apply 端点
+#   - 本脚本仅供排错使用，不要用于业务配置下发
 
 set -euo pipefail
 
