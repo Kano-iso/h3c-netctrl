@@ -25,3 +25,7 @@ node_modules/
 frontend/dist/
 frontend.bak/dist/
 frontend-poc/
+
+# 临时探针脚本（含明文凭据风险，强制不入库）
+backend/*_tmp.py
+backend/**/*_tmp.py

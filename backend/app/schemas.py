@@ -192,10 +192,20 @@ class SdnDeploymentCreate(BaseModel):
 
     系统会调 VPCConfigPlanner 根据 vpc_id 自动生成 planned_config。
     action: "create" | "delete"（仅这 2 个值，gateway_* 后续 change 加）
+    unit: 可选；v3.0 unit 拆分（"vsi-l2" | "port-bind" | "l3vpn" | "vsi-l3"
+          | "global" | "port-unbind" | "vpc-create-all"）；默认 "vpc-create-all"
+          兼容老数据（全量下发）
+    parent_deployment_id: 可选；unit 间依赖；同 vpc 同 action 下，parent 必须
+          先 success 才能 apply 当前 unit
     """
     vpc_id: int = Field(..., ge=1)
     device_id: int = Field(..., ge=1)
     action: str = Field(..., pattern="^(create|delete)$")
+    unit: Optional[str] = Field(
+        default="vpc-create-all",
+        pattern="^(vsi-l2|port-bind|l3vpn|vsi-l3|global|port-unbind|vpc-create-all)$",
+    )
+    parent_deployment_id: Optional[int] = Field(default=None, ge=1)
 
 
 class SdnDeploymentResponse(BaseModel):
@@ -204,6 +214,8 @@ class SdnDeploymentResponse(BaseModel):
     vpc_id: int
     device_id: int
     action: str
+    unit: str = "vpc-create-all"
+    parent_deployment_id: Optional[int] = None
     planned_config: Optional[str] = None  # JSON 字符串
     status: str
     error: Optional[str] = None

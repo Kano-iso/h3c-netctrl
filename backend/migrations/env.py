@@ -9,7 +9,12 @@ from app.config import settings
 from app.database import Base
 
 # 导入所有模型，确保 Base.metadata 包含所有表定义
-from app.models import Device, Log, Asset  # noqa: F401
+# v3.0 SDN/VPC: SdnDeployment 有自关联 FK (parent_deployment_id) + FK → sdn_vpcs/devices
+# batch_alter_table 在 SQLite 下需要 reflect FK 目标表，必须全量 import
+from app.models import (  # noqa: F401
+    Device, Log, Asset,
+    SdnTenant, SdnVpc, SdnPortBinding, SdnDeployment, SdnValidationSnapshot,
+)
 
 config = context.config
 

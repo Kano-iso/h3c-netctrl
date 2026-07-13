@@ -234,6 +234,11 @@ class SdnDeployment(Base):
     记录每次 VPC 配置下发的计划、状态和错误信息。
     - action: "create" | "delete" | "gateway_fallback" | "gateway_restore"
     - planned_config: JSON 格式的计划配置命令序列
+    - unit: v3.0 unit 拆分（"vsi-l2" | "port-bind" | "l3vpn" | "vsi-l3"
+            | "global" | "port-unbind" | "vpc-create-all"）
+            老数据兼容：默认 "vpc-create-all"（未拆分的全量下发）
+    - parent_deployment_id: unit 间依赖（vsi-l2 必须先于 vsi-l3）；
+            同 vpc 同 action 下，parent 先 success 才能 apply 当前 unit
     """
     __tablename__ = "sdn_deployments"
 
@@ -245,6 +250,12 @@ class SdnDeployment(Base):
         Integer, ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True
     )
     action: Mapped[str] = mapped_column(String(50), nullable=False)
+    unit: Mapped[str] = mapped_column(
+        String(30), nullable=False, server_default="vpc-create-all", index=True
+    )
+    parent_deployment_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("sdn_deployments.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     planned_config: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)
     error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -255,6 +266,10 @@ class SdnDeployment(Base):
 
     # 关联
     vpc: Mapped["SdnVpc"] = relationship("SdnVpc", back_populates="deployments")
+    # 自关联：unit 间依赖（vsi-l2 → vsi-l3 等）
+    parent: Mapped[Optional["SdnDeployment"]] = relationship(
+        "SdnDeployment", remote_side="SdnDeployment.id", foreign_keys=[parent_deployment_id]
+    )
 
 
 class SdnValidationSnapshot(Base):
