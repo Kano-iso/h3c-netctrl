@@ -93,7 +93,8 @@ def test_create_vpc_success(client, db):
     assert v["vni"] >= 20000  # L2VNI_START
     assert v["vsi_interface"] >= 1000  # VSI_IF_START
     assert v["vlan_id"] >= 2000  # VLAN_START
-    assert v["vsi_name"] == "vpc-t1-vpc-1"
+    # v3.0 ADR-103: vsi_name 改为 vpc{id:04d}，第一个 vpc id=1 → vpc0001
+    assert v["vsi_name"] == "vpc0001"
     assert v["status"] == "pending"
 
 
@@ -217,10 +218,14 @@ def test_allocator_static_methods():
     # gateway_ip 推导
     assert SdnAllocator.derive_gateway_ip("192.168.10.0/24") == "192.168.10.254"
     assert SdnAllocator.derive_gateway_ip("10.0.0.0/8") == "10.255.255.254"
-    # gateway_mac 推导
-    assert SdnAllocator.derive_gateway_mac(20000) == "00:00:5e:00:01:20"
-    # VSI 名称
-    assert SdnAllocator.build_vsi_name("tenant-a", "vpc-1") == "vpc-tenant-a-vpc-1"
+    # gateway_mac 推导 (v3.0 T6: H3C V7 mac-address H-H-H 格式 = 3 组 4 hex)
+    # vni=20000 → 0x4E20 → 001a-2b00-4e20
+    assert SdnAllocator.derive_gateway_mac(20000) == "001a-2b00-4e20"
+    # vni=20001 → 001a-2b00-4e21
+    assert SdnAllocator.derive_gateway_mac(20001) == "001a-2b00-4e21"
+    # VSI 名称 (ADR-103 vpc{id:04d})
+    assert SdnAllocator.build_vsi_name(1) == "vpc0001"
+    assert SdnAllocator.build_vsi_name(123) == "vpc0123"
     # CIDR 校验
     assert validate_cidr("192.168.10.0/24") is None
     assert validate_cidr("192.168.10.0/7") is not None

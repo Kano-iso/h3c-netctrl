@@ -44,13 +44,15 @@ def _create_tenant_vpc_device(db, device_name="Leaf-04", device_ip="192.168.100.
         gateway_ip="192.168.10.1",
         gateway_mac="00:00:00:00:00:01",
         vni=SdnAllocator.allocate_l2vni(db),
-        vsi_name=SdnAllocator.build_vsi_name(t.name, "vpc-1"),
+        vsi_name="pending",  # 占位，flush 后用 v.id 重算（ADR-103 vpc{id:04d}）
         vsi_interface=SdnAllocator.allocate_vsi_interface(db),
         vlan_id=SdnAllocator.allocate_vlan(db),
         auto_assigned=True,
         status=vpc_status_value,
     )
     db.add(v)
+    db.flush()  # 拿 v.id
+    v.vsi_name = SdnAllocator.build_vsi_name(v.id)
     db.commit()
     db.refresh(v)
 

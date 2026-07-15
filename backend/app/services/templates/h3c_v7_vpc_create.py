@@ -71,8 +71,13 @@ def _vsi_name(vpc_id: int) -> str:
 
 
 def _vpc_rd(vni: int) -> str:
-    """VPC RD: 1:{vni // 10} (spec.md 备注, .2/.3 现状回推)"""
-    return f"1:{vni // 10}"
+    """VPC RD: 1:{vni} (v3.0 T6 真机验证)
+
+    T6 真机发现 RD 必须唯一（vpc0007=1:2000 占了 1:2000 后 vpc0001=1:2000 被设备静默拒）。
+    原 `1:{vni // 10}` 仅对 vni 20000-20009 唯一，超过即冲突。
+    现改用全 vni 唯一，H3C V7 RD ASN:nn 格式 nn 字段 32-bit 无压力。
+    """
+    return f"1:{vni}"
 
 
 def _l3vpn_rd(l3_vni: int) -> str:
@@ -152,11 +157,10 @@ class H3cV7VpcCreateTemplate(VPCConfigTemplate):
     def _vsi_l2_unit(
         self, vsi_name: str, vxlan_id: int, vsi_iface_id: int, vsi_iface_name: str
     ) -> TemplateUnit:
-        """Unit 1: VSI 实例 + VXLAN 绑定 + gateway vsi-interface
+        """Unit 1: VSI 实例 + VXLAN 绑定（L2 层，不含 gateway vsi-interface）
 
         CLI (LSTN):
             vsi vpc0001
-              gateway vsi-interface 1
               vxlan 20000
 
         XML (RSTN):
@@ -173,11 +177,16 @@ class H3cV7VpcCreateTemplate(VPCConfigTemplate):
                 <ID>1</ID>
               </VsiInterface>
             </VsiInterfaces>
+
+        Note:
+            - T6 真机验证（2026-07-15）: H3C V7 S6850 vsi 视图下 `gateway vsi-interface <id>`
+              要求 Vsi-interface <id> 已存在，否则报 "% Wrong parameter"。
+            - 修正：vsi-l2 unit 只创建 VSI + 绑 VXLAN；`gateway vsi-interface` 移到
+              vsi-l3 unit 末尾（vsi-interface 创建之后再绑定）。
         """
-        # CLI (LSTN) — system-view 下的层级缩进
+        # CLI (LSTN) — system-view 下的层级缩进（不含 gateway, 移到 vsi-l3 末尾）
         cli = [
             f"vsi {vsi_name}",
-            f"  gateway vsi-interface {vsi_iface_id}",
             f"  vxlan {vxlan_id}",
         ]
 
@@ -212,7 +221,7 @@ class H3cV7VpcCreateTemplate(VPCConfigTemplate):
 
         return TemplateUnit(
             name=UNIT_VSI_L2,
-            description="VSI 实例 + VXLAN 绑定 + Vsi-interface 创建（L2 层）",
+            description="VSI 实例 + VXLAN 绑定 + Vsi-interface 资源占位（L2 层，不含 gateway）",
             cli_commands=cli,
             xml_payloads=[xml_vsi, xml_vsi_iface],
             undo_cli=undo_cli,
@@ -340,7 +349,7 @@ class H3cV7VpcCreateTemplate(VPCConfigTemplate):
         l3_vni: int,
         subnet_mask: str,
     ) -> TemplateUnit:
-        """Unit 4: Vsi-interface L3 配置（IP + MAC + l3-vni + vpn binding）
+        """Unit 4: Vsi-interface L3 配置（IP + MAC + l3-vni + vpn binding + gateway 绑定）
 
         CLI (LSTN):
             interface Vsi-interface1
@@ -348,6 +357,9 @@ class H3cV7VpcCreateTemplate(VPCConfigTemplate):
               ip address 10.0.1.1 255.255.255.0
               mac-address 00-00-00-00-4e20-01
               l3-vni 10000
+             return
+             vsi vpc0001
+              gateway vsi-interface 1
 
         XML (RSTN):
             <Interfaces>
@@ -362,13 +374,45 @@ class H3cV7VpcCreateTemplate(VPCConfigTemplate):
                 <L3VNI>10000</L3VNI>
               </Interface>
             </Interfaces>
+            <L2VPN><VSIs><VSI>...
+              <GatewayVsiInterface>1</GatewayVsiInterface>
+            </VSI></VSIs></L2VPN>
+
+        Note:
+            - T6 真机验证（2026-07-15）：H3C V7 vsi 视图 `gateway vsi-interface <id>` 要求
+              Vsi-interface <id> **已存在**——所以 gateway 绑定必须在 vsi-interface 创建后。
+            - v3.0 sdn-vpc-netconf-schema-xml 模板 v3 修正：vsi-l3 unit 末尾加
+              `vsi {name} / gateway vsi-interface {id}` 把 gateway 绑定跟 vsi-interface 放一起。
         """
+        vsi_name = _vsi_name(vpc.id)
+        vsi_iface_id = vpc.vsi_interface
+        # v3.0 T6: H3C V7 mac-address H-H-H 格式（3 组 4 hex）
+        # vpc.gateway_mac 由 SdnAllocator.derive_gateway_mac 直接生成 001a-2b00-xxxx 格式
+        # （参见 sdn_allocator.py derive_gateway_mac 实现）
+        mac_h3c = vpc.gateway_mac
+        # RSTN XML 用 IEEE 802 标准 MAC 格式（XX:XX:XX:XX:XX:XX，6 组 2 hex）
+        # DB 存 H3C V7 H-H-H 格式（001a-2b00-4e20），转换方式：
+        #   - 去 dash：001a2b004e20
+        #   - 6 组 2 hex：00, 1a, 2b, 00, 4e, 20
+        #   - join ':'  → 00:1a:2b:00:4e:20
+        # T6 实测：原 `[0:4,5:9,10:14]` 错误切了 4 hex chunks（001a:2b00:4e20），device 直接拒
+        if vpc.gateway_mac and len(vpc.gateway_mac) == 14:
+            hex_str = vpc.gateway_mac.replace("-", "")
+            mac_ieee = ":".join([hex_str[i:i+2] for i in range(0, 12, 2)])
+        else:
+            mac_ieee = vpc.gateway_mac
+
         cli = [
             f"interface {vsi_iface_name}",
             f"  ip binding vpn-instance {SDN_L3VPN_NAME}",
             f"  ip address {vpc.gateway_ip} {subnet_mask}",
-            f"  mac-address {vpc.gateway_mac}",
+            f"  mac-address {mac_h3c}",
             f"  l3-vni {l3_vni}",
+            # v3.0 T6: 用 quit（返回上级视图 = system-view），不是 return（直接回 user-view）
+            # return 跳回 user-view 后 vsi 命令是 system-view 命令会报 Unrecognized
+            "quit",
+            f"vsi {vsi_name}",
+            f"  gateway vsi-interface {vsi_iface_id}",
         ]
 
         # RSTN XML — 用 MaskLength 比 dotted mask 更稳
@@ -385,9 +429,17 @@ class H3cV7VpcCreateTemplate(VPCConfigTemplate):
                 f"<IPAddress>{vpc.gateway_ip}</IPAddress>"
                 f"<MaskLength>{mask_length}</MaskLength>"
                 f"</IPv4>"
-                f"<MACAddress>{vpc.gateway_mac}</MACAddress>"
+                # v3.0 T6: RSTN schema 用 IEEE 802 标准 MAC 格式（XX:XX:XX:XX:XX:XX）
+                f"<MACAddress>{mac_ieee}</MACAddress>"
                 f"<L3VNI>{l3_vni}</L3VNI>"
                 f"</Interface></Interfaces>"
+            ),
+            # gateway vsi-interface 绑定 (RSTN 平台 schema 化)
+            _wrap_rstn_xml(
+                f"<L2VPN><VSIs><VSI>"
+                f"<VsiName>{vsi_name}</VsiName>"
+                f"<GatewayVsiInterface>{vsi_iface_id}</GatewayVsiInterface>"
+                f"</VSI></VSIs></L2VPN>"
             ),
         ]
 
@@ -406,7 +458,7 @@ class H3cV7VpcCreateTemplate(VPCConfigTemplate):
 
         return TemplateUnit(
             name=UNIT_VSI_L3,
-            description="Vsi-interface L3 配置（IP / MAC / L3VNI / VPN binding）",
+            description="Vsi-interface L3 配置（IP / MAC / L3VNI / VPN binding）+ vsi gateway 绑定",
             cli_commands=cli,
             xml_payloads=xml,
             undo_cli=undo_cli,

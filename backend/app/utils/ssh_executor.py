@@ -194,9 +194,13 @@ class SSHExecutor:
                     output_clean = output_clean.replace('\r\n', '\n').replace('\r', '').strip()
 
                     # 错误指示符检测
+                    # v3.0 T6 真机验证: H3C V7 部分错误不带 % 前缀（如 "The RD is used by another EVPN instance."），
+                    # 必须把这类"业务级错误"也加入，否则会被误判 success → 配置缺失但 executor 报 success
                     error_indicators = ['Error:', 'Error :', 'Incomplete command', 'Unrecognized command',
                                         'Wrong parameter', 'Too many parameters', '% Unknown command',
-                                        'Invalid input detected', 'Command rejected']
+                                        'Invalid input detected', 'Command rejected',
+                                        'is used by', 'already exists', 'already configured',
+                                        'No enough resources', 'Failed to', 'Cannot find']
                     has_error = any(ind in output_clean for ind in error_indicators)
 
                     results.append({

@@ -73,7 +73,12 @@ logger = logging.getLogger("app")
 
 
 # 设备白名单：仅 Leaf-04 / Leaf-05（.5 / .6）允许下发
-WRITABLE_HOST_SUFFIXES = (".5", ".6")
+# v3.0 sdn-vpc-netconf-schema-xml T6: 跨平台对比 .26 (V9850 RSTN) 也加入白名单
+# - .5 / .6 = S6850 LSTN（生产业务下发目标）
+# - .26 = V9850 RSTN（跨平台对比验证，A 方案走 schema 化 NETCONF XML）
+# - .2 / .3 是 SDN 参考机器，仅读
+# - .177 是 test 设备，但下发目标限定 .5/.6/.26
+WRITABLE_HOST_SUFFIXES = (".5", ".6", ".26")
 
 
 class SdnDeploymentError(Exception):
@@ -197,24 +202,44 @@ class SdnDeploymentExecutor:
             )
 
         # 8. 按 device.platform 路由串行 NETCONF edit_config
+        # v3.0 sdn-vpc-netconf-schema-xml T6 A 方案: LSTN 走 SSH 22, RSTN 走 NETCONF 830
+        # - device.port 字段默认是 NETCONF 830, LSTN 走 SSH 必须强制覆盖为 22
+        # - 设备 port 字段保留 NETCONF 端口用于 L3vpn/interface 等 schema 化业务
+        if platform == PLATFORM_LSTN:
+            deploy_port = 22  # LSTN 老芯片 SSH 22 CLI 通道
+        else:  # PLATFORM_RSTN
+            deploy_port = device.port  # RSTN 用 device 配置的 NETCONF 端口（默认 830）
         try:
             self._apply_units(
                 units=units,
                 platform=platform,
                 host=device.host,
-                port=device.port,
+                port=deploy_port,
                 username=device.username,
                 password=password,
             )
-        except Exception as e:
-            # 失败：记录 error + status=failed
-            error_msg = classify_netconf_error(e) if hasattr(e, '__class__') else str(e)
+        except SdnDeploymentError as e:
+            # 业务下发通道级错误（executor 内部已封装的 SSH/NETCONF 错误）
+            # 直接把 error_key + params 拼成可读消息，不走 classify_netconf_error
+            # （classify_netconf_error 是给 ncclient 原始异常用的，不认 SdnDeploymentError）
+            stage = e.params.get("stage", "?")
+            unit = e.params.get("unit", "?")
+            detail = e.params.get("error", "?")
+            error_msg = f"{e.error_key} (unit={unit}, stage={stage}): {detail}"
             deployment.status = "failed"
             deployment.error = f"配置下发失败: {error_msg}"
             db.commit()
             db.refresh(deployment)
-            logger.error(f"sdn deploy: deployment {deployment_id} NETCONF 失败 ({platform}): {error_msg}")
-            # 业务视为已尝试下发（不是校验错），返回 200 + status=failed 由 router 处理
+            logger.error(f"sdn deploy: deployment {deployment_id} 失败 ({platform}): {error_msg}")
+            return deployment
+        except Exception as e:
+            # 其它未分类异常（paramiko / ncclient 原始异常）— 走 classify_netconf_error
+            error_msg = classify_netconf_error(e)
+            deployment.status = "failed"
+            deployment.error = f"配置下发失败: {error_msg}"
+            db.commit()
+            db.refresh(deployment)
+            logger.error(f"sdn deploy: deployment {deployment_id} 异常 ({platform}): {error_msg}")
             return deployment
 
         # 9. 成功
@@ -334,16 +359,36 @@ class SdnDeploymentExecutor:
                 )
                 continue
             commands = ["system-view"] + list(unit.cli_commands) + ["return"]
-            ssh = SSHExecutor(host, port, username, password, timeout=30)
-            results = ssh.execute_commands(commands, delay_ms=300)
-            failed = [r for r in results if not r.get("success", False)]
-            if failed:
-                failed_cmd = failed[0]
+            try:
+                ssh = SSHExecutor(host, port, username, password, timeout=30)
+                results = ssh.execute_commands(commands, delay_ms=300)
+            except Exception as ssh_conn_err:
+                # SSH 连接本身失败（认证失败 / 协议错 / timeout）
                 raise SdnDeploymentError(
                     "SDN_DEPLOYMENT_SSH_FAILED",
                     params={
                         "unit": unit.name,
                         "unit_idx": unit_idx,
+                        "stage": "ssh_connect",
+                        "error": f"SSH 连接失败: {type(ssh_conn_err).__name__}: {ssh_conn_err}"[:300],
+                    },
+                    status_code=502,
+                )
+            failed = [r for r in results if not r.get("success", False)]
+            if failed:
+                failed_cmd = failed[0]
+                logger.error(
+                    f"ssh deploy: unit[{unit_idx}/{len(units)}] {unit.name} "
+                    f"失败 cmd={failed_cmd.get('cmd', '?')!r} "
+                    f"output={failed_cmd.get('output', '')[:200]!r} "
+                    f"error={failed_cmd.get('error', '')[:200]!r}"
+                )
+                raise SdnDeploymentError(
+                    "SDN_DEPLOYMENT_SSH_FAILED",
+                    params={
+                        "unit": unit.name,
+                        "unit_idx": unit_idx,
+                        "stage": "cmd_failed",
                         "cmd": failed_cmd.get("cmd", ""),
                         "error": (failed_cmd.get("error") or failed_cmd.get("output", ""))[:200],
                     },

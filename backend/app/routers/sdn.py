@@ -217,7 +217,7 @@ def create_vpc(payload: SdnVpcCreate, db: Session = Depends(get_db)):
         gateway_ip=gateway_ip,
         gateway_mac=gateway_mac,
         vni=vni,
-        vsi_name=SdnAllocator.build_vsi_name(tenant.name, payload.name),
+        vsi_name="pending",  # 临时占位，flush 后用 vpc.id 重算（ADR-103 vpc{id:04d}）
         vsi_interface=vsi_interface,
         vlan_id=vlan_id,
         auto_assigned=True,
@@ -226,6 +226,8 @@ def create_vpc(payload: SdnVpcCreate, db: Session = Depends(get_db)):
     )
     db.add(vpc)
     try:
+        db.flush()  # 拿 vpc.id
+        vpc.vsi_name = SdnAllocator.build_vsi_name(vpc.id)
         db.commit()
     except IntegrityError as e:
         db.rollback()

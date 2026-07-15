@@ -80,21 +80,35 @@ class SdnAllocator:
 
     @staticmethod
     def derive_gateway_mac(vni: int) -> str:
-        """从 VNI 推导默认分布式网关 MAC：00:00:5e:00:01:xx。
+        """从 VNI 推导默认分布式网关 MAC：001a-2b00-xxxx（H3C V7 mac-address 命令格式）。
 
-        xx = VNI 的低 8 位 hex。
-        例：vni=20001 → 00:00:5e:00:01:01
+        H3C V7 Vsi-interface 视图下 `mac-address` 命令格式为 H-H-H（3 组 4 hex，共 12 hex）：
+        - 不是 IEEE 802 标准 MAC 6 组 2 hex 格式（XX-XX-XX-XX-XX-XX）— 设备会报 "% Wrong parameter"
+        - H3C OUI 001a2b（H3C 厂商注册）作为前缀避开 IANA reserved 范围
+        - xx = VNI 低 16 位 hex（4 hex 位）
+        - 例：vni=20000 → 0x4E20 → 001a-2b00-4e20
+
+        Note:
+            - T6 真机验证（2026-07-15）：H3C V7 S6850 Vsi-interface 视图下：
+              1. `mac-address` 要求 H-H-H 格式（3 组 4 hex），不是 6 组 2 hex
+              2. 00:00:5e 范围（VRRP reserved）报 "% Wrong parameter"
+              3. 00:1a:2b 在 6 组格式下也拒绝（设备内部可能做了格式归一化检查）
+            - 正确格式：H3C OUI + 16-bit VNI，输出 001a-2b00-xxxx
         """
-        suffix = vni & 0xFF
-        return f"00:00:5e:00:01:{suffix:02x}"
+        # VNI 高 8 位 -> 第 3 组前 2 位
+        # VNI 低 8 位 -> 第 3 组后 2 位
+        # 组合成 16-bit VNI hex = 4 hex chars（作为 H-H-H 第 3 组）
+        vni_hex = f"{vni & 0xFFFF:04x}"
+        return f"001a-2b00-{vni_hex}"
 
     @staticmethod
-    def build_vsi_name(tenant_name: str, vpc_name: str) -> str:
-        """生成 VSI 名称：vpc-{tenant_name}-{vpc_name}（仅含合法字符）。"""
-        import re
-        safe_tenant = re.sub(r"[^a-zA-Z0-9_-]", "_", tenant_name)
-        safe_vpc = re.sub(r"[^a-zA-Z0-9_-]", "_", vpc_name)
-        return f"vpc-{safe_tenant}-{safe_vpc}"
+    def build_vsi_name(vpc_id: int) -> str:
+        """生成 VSI 名称：vpc{vpc_id:04d}（4 位 0-pad，ADR-103）
+
+        与模板 _vsi_name(vpc.id) 保持一致——避免双源数据漂移。
+        历史版本曾用 vpc-{tenant_name}-{vpc_name}，但导致 vpc.vsi_name 字段与模板生成的 VSI 名字不一致。
+        """
+        return f"vpc{vpc_id:04d}"
 
 
 def validate_cidr(cidr: str) -> Optional[str]:

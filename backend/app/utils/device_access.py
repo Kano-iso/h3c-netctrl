@@ -40,6 +40,8 @@ def _wrap_device_dict(d: dict) -> SimpleNamespace:
         protected_interfaces=d.get("protected_interfaces", "[]"),
         # 内部 API 已解密的密码（部分代码可能直接访问 _password_decrypted）
         _password_decrypted=d.get("password", ""),
+        # v3.0 SDN: platform 字段（split 模式内部 API 透传）
+        platform=d.get("platform"),
     )
 
 

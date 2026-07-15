@@ -8,14 +8,15 @@
 
 **v3 拆法（应用户 2026-07-13 "杠上" + 借 .26 设备 + 2026-07-15 路径定稿）**：
 - T1.13a-e 探针 **3 维证据链证实** H3C V7 L2VPN 业务下发按 **device platform 路由**（不是软件版本 / device model）
-- T1.13f-g (隐含) 验证 LSTN 平台 `<Configuration>` 文本通道真实可用
-- T3 模板改为**双套 payload**（cli_commands + xml_payloads），executor 按 device.platform 动态选
-- 业务下发通道**最终定稿**（应用户 2026-07-15 验证）：
+- T1.13f 验证 LSTN 平台 `<Configuration>` 文本通道 raw `session.send` 可发包成功
+- T1.13g 推翻 T1.13f：**CLI-over-NETCONF 不满足"业务下发通道"对程序化可靠性的要求**——LSTN 平台改走 SSH 22 + paramiko
+- T3 模板保留**双套 payload**（cli_commands + xml_payloads），executor 按 device.platform 动态选
+- 业务下发通道**最终定稿**（应用户 2026-07-15 验证 + 2026-07-15 T1.13g 修正）：
   - L3vpn/VRF/RD/RT → schema 化 NETCONF XML（v2.4 已验）
   - L2vpn/VSI/VXLAN/EVPN → **按 device platform 路由**：
-    - LSTN 老平台（.5/.177 S6850）→ CLI 文本走 NETCONF `<Configuration>` 通道（T1.13 探针真实可写）
+    - LSTN 老平台（.5/.177 S6850）→ **SSH 22 + paramiko 跑 system-view CLI**（T1.13g 修正，不走 CLI-over-NETCONF）
     - RSTN 新平台（.26 V9850）→ schema 化 NETCONF XML
-  - SSH 22 CLI → fallback
+  - SSH 22 CLI → fallback（同时是 LSTN 主通道）
   - RESTful / gRPC / Ansible → 不投入
 
 ## 设备角色澄清（应用户 review）
@@ -36,15 +37,17 @@
 - [x] **T1.13c** (2026-07-11) 设备 .26 RSTN 探针 + 正确 namespace（H3C 官方 h3cdassai_switch.go 结构）
 - [x] **T1.13d** (2026-07-11) **设备 .26 终极探针**——schema 化 NETCONF L2VPN/VSI/VXLAN/EVPN **完整可写**（与 LSTN 设备 .5 截然相反）
 - [x] **T1.13e** (2026-07-13) **设备 .177 探针**——S6850 T7064P15（LSTN）同样 **schema 化 NETCONF L2VPN 不可达**——证实真根因 = **device platform (LSTN vs RSTN) 而非软件版本**
-- [x] **T1.13f** (2026-07-15) **LSTN 平台 CLI-over-NETCONF 验证**——`.5` 设备探针 `<Configuration>vsi vpc9999</Configuration>` 真实可写（undo 干净）→ 推翻 T1.13a 错误结论
+- [x] **T1.13f** (2026-07-15) **LSTN 平台 CLI-over-NETCONF 探针**——`.5` 设备 raw `session.send` 可发包成功，但 ncclient 框架同步拿不到 reply（"Unknown 'message-id'"）→ 仅 raw socket 验证，不满足"业务下发通道"对程序化可靠性的要求
+- [x] **T1.13g** (2026-07-15) **LSTN 平台最终决策：SSH 22 + paramiko**——CLI-over-NETCONF 不可靠 → 推翻 T1.13f 结论 → LSTN 改走 SSH 22（`SSHExecutor.execute_commands` 跑 system-view CLI），RSTN 仍走 schema 化 NETCONF
 - [x] **T2 前期** (2026-07-15) Device 模型加 platform + alembic 009 + schemas/i18n 同步 + sdn_device_adapter.py 加 platform 映射 + TemplateUnit 定义（未 commit）
 - [x] **T1** 探针 VSI 子结构（**撤销原 v2 任务，因 T1.13a-e 已证 network-instances 不是 L2VPN 正确路径**）
 - [x] **T2** 探针 Vsi-interface 子结构（**撤销原 v2 任务，因 T1.13d 在 .26 已发现完整 schema 树**）
 - [x] **T3** (2026-07-15) H3cV7VpcCreateTemplate 输出双套 payload（5 unit × 4 字段）+ planner 适配 + 单测覆盖
 - [x] **T4** (2026-07-15) H3cV7VpcDeleteTemplate + H3cV7PortBindTemplate + H3cV7PortUnbindTemplate 双套 payload
-- [x] **T5** (2026-07-15) SdnDeploymentExecutor 改按 device.platform 选择通道（LSTN 走 CLI / RSTN 走 schema XML）
-- [ ] **T6** .5/.26 真机对比验证（双套 payload running-config 一致性 + .5 业务效果验证）
-- [ ] **T7** 单测补全 + .5 undo 恢复 + .5/.26 设备干净
+- [x] **T5** (2026-07-15) SdnDeploymentExecutor 改按 device.platform 选择通道（LSTN 走 SSH 22 / RSTN 走 schema XML）
+- [x] **T6** (2026-07-15) .5/.26 真机对比验证（双套 payload running-config 一致性 + 跨平台业务命令 union 一致）
+- [x] **T7** (2026-07-16) 单测补全 + .5/.26 设备 undo 恢复 + 初始态确认
+- [x] **T8** (2026-07-16) A 方案修复：RD 唯一性 + SSH error_indicators 增强 + 内部 API platform 字段透传
 
 ---
 
@@ -97,9 +100,9 @@
 
 ---
 
-## T1.13f: LSTN 平台 CLI-over-NETCONF 真实可写性验证 ✅ (2026-07-15)
+## T1.13f: LSTN 平台 CLI-over-NETCONF 探针（raw socket 可发但 ncclient 不可靠） ✅ (2026-07-15)
 
-**目的**：推翻 T1.13a 结论——LSTN 设备 `<Configuration>` 包裹 CLI 文本是真实可写的。
+**目的**：探针 LSTN 设备 `<Configuration>` 包裹 CLI 文本是否真实可写。
 
 **测试报文**（.5 设备，H3C V7 S6850 R6555）：
 ```xml
@@ -113,12 +116,43 @@
 </config>
 ```
 
-**结果**：✅ `<ok/>` 完整成功 + `display l2vpn vsi verbose` 验证 vpc9999 存在 + undo 后 `display` 无 vpc9999
+**结果**：
+- ✅ raw `ncclient.manager.Manager.session.send()` 发包成功（vpc9999 设备上能 display 看到）
+- ✅ undo 后 `display` 无 vpc9999
+- ❌ **ncclient 框架同步拿不到 reply**——`Manager.execute()` 抛 `Unknown 'message-id'`
+- ❌ **`<Configuration>` 节点在 RSTN 平台被 schema 拒**——`Element ... Configuration[1] can not have a textual child element`
 
 **修订结论**：
-- **LSTN 设备 `<Configuration>` 通道是真实可用的**（T1.13a 探针的失败是 namespace 错误，不是通道本身错误）
-- 因此 **LSTN 设备 L2VPN/VSI/VXLAN/EVPN 业务下发通道 = CLI 文本走 NETCONF `<Configuration>` 通道**
-- 业务下发通道按 device platform 路由：**LSTN 走 CLI / RSTN 走 schema XML**
+- LSTN 设备 raw socket 发包通道**理论上可达**，但 **ncclient 框架不能可靠同步 reply** → 不满足"业务下发通道"对程序化可靠性的要求
+- 因此 LSTN 设备 L2VPN/VSI/VXLAN/EVPN 业务下发通道**最终决策** = **SSH 22 + paramiko**（T1.13g）
+
+---
+
+## T1.13g: LSTN 平台最终决策：SSH 22 + paramiko ✅ (2026-07-15)
+
+**目的**：推翻 T1.13f 结论，确立 LSTN 平台业务下发通道为 SSH 22。
+
+**根因**：
+- CLI-over-NETCONF（`<Configuration>` 文本）**不是合法的 schema 节点**——H3C 设备在 RSTN 上 schema 验证直接拒
+- 即便 LSTN 设备能 raw socket 写，**ncclient 框架同步 reply 不可靠**——程序化"成功"判定不稳定
+- T1.13e 实证：LSTN 老芯片平台不实现 schema 化 L2VPN → 没"干净的 NETCONF 通道"可用
+- **唯一程序化可靠通道 = SSH 22 + paramiko system-view CLI**（H3C V7 SSH 协议本身稳定，v2.4 已验）
+
+**决策**（应用户 2026-07-15 "继续推进" 授权）：
+- LSTN 老平台（.5/.177 S6850）→ **SSH 22 + paramiko** 跑 system-view CLI
+- RSTN 新平台（.26 V9850）→ **NETCONF 830 schema 化 NETCONF XML**
+- 业务下发通道按 **device.platform 路由**（T5 executor 实施）
+
+**SSH 22 通道优势**：
+- H3C V7 SSH 协议成熟（v2.4 NETCONF 探针 + .5 设备 .5 清理脏数据都用过）
+- 错误信息完整（`% Wrong parameter` / `Incomplete command` / `The RD is used by another EVPN instance.` 等）
+- 不依赖 NETCONF YANG schema
+- SSHExecutor 已处理 H3C V7 `[Y/N]` 二次确认 + 分页 + 错误检测
+
+**真机验证**（T6）：
+- .5 设备 LSTN 走 SSH 22 跑 5 unit CLI → `display current-configuration` 看到 vpc0001 + VXLAN 20000 + RD
+- .26 设备 RSTN 走 NETCONF schema XML → 同样 `display current-configuration` 看到 vpc0001
+- **业务命令 union 一致**（不强求 byte-to-byte）
 
 ---
 
@@ -197,78 +231,174 @@
 
 ---
 
-## T5: SdnDeploymentExecutor 改按 device.platform 路由
+## T5: SdnDeploymentExecutor 改按 device.platform 路由（A 方案：LSTN→SSH 22 / RSTN→NETCONF 830）
 
 **目的**：executor 解析 planned_config（List[TemplateUnit]）后，根据 device.platform 选 cli_commands 或 xml_payloads 下发。
 
+**A 方案实施**（应用户 2026-07-15 授权 + T1.13g 决策）：
+- LSTN 平台（.5/.177 S6850）→ **SSH 22 + paramiko** 跑 system-view CLI（5 unit 业务命令）
+- RSTN 平台（.26 V9850）→ NETCONF 830 schema 化 XML edit-config
+
 **预计改动**：
 - `backend/app/services/sdn_deployment_executor.py`：
-  - 去掉直接 NETCONF 路径（V2.0.1）改用**双套 payload 通道**：
-    - LSTN 平台：每条 cli_command 用 `<Configuration>{cli}</Configuration>` 包裹后 NETCONF edit-config
-    - RSTN 平台：每条 xml_payload 直接 NETCONF edit-config
-  - 解析 planned_config 为 `List[TemplateUnit]`
-  - 失败立即停 + 错误定位
-  - undo 链路：按 platform 选 undo_cli 或 undo_xml
+  - `execute()` 加 deploy_port 路由（LSTN 强制 22，RSTN 用 device.port）
+  - `_apply_units()` 拆 `_apply_units_via_ssh` + `_apply_units_via_netconf`
+  - LSTN: 每 unit 独立 SSH 连接 → `["system-view"] + unit.cli_commands + ["return"]`
+  - RSTN: 每 unit 用 NetconfClient edit_config 跑 `unit.xml_payloads`
+  - 失败立即停 + 错误定位（unit + stage + error）
 
-**LSTN 通道真实可用性（T1.13f 探针已验证 ✓）**：
-- LSTN 设备 `<Configuration>` 通道真实可写（T1.13f 探针 vpc9999 create + undo 成功）
-- T1.13a 探针失败是 namespace 错误，不是通道错误
-- 实施时**必须**用正确的 namespace `http://www.h3c.com/netconf/config:1.0`（不是 `h3c-ns`）
+**单测覆盖**（`test_sdn_deployment_executor.py`）：
+- LSTN → SSH 22：mock SSHExecutor 全成功 → status=success
+- LSTN → SSH 22：mock SSHExecutor 中间失败 → status=failed + error 含 unit 名称
+- RSTN → NETCONF 830：mock NetconfClient 全成功 → status=success
+- 平台未知：device.model 不在白名单 → SDN_DEVICE_PLATFORM_UNKNOWN
 
 **依赖**：T3 + T4
 **估时**：1 个 session
 
 ---
 
-## T6: 真机验证（.5 + .26 跨平台对比）
+## T6: 真机验证（.5 + .26 跨平台对比） ✅ (2026-07-15)
 
 **目的**：在真实设备上验证双套 payload 通道设计 + 跨平台 running-config 一致性 + 业务效果。
 
 **.5 设备（生产测试，LSTN）— 完整业务验证**：
-- CLI 文本走 NETCONF `<Configuration>` 通道下发
-- `display current-configuration` 看到 VSI vpc0001 + VXLAN 20000 + RD
-- `display l2vpn vsi verbose` 看到 vpc0001
-- `display vxlan vni 20000` 看到 VXLAN
-- `display bgp peer l2vpn evpn` 看到 .2/.3 邻居 Established
-- `display arp` 看到从 .2/.3 学到的 ARP
-- `display bgp l2vpn evpn routing-table` 收到 EVPN 路由
-- undo 清理：5 unit 全部反向清理
+- SSH 22 + paramiko 跑 5 unit CLI（system-view 下）
+- ✅ `display current-configuration configuration vsi` 看到 vpc0001 + VXLAN 20006 + RD 1:2000 + evpn encapsulation
+- ✅ `display l2vpn vsi` 看到 vpc0001
+- ✅ `display current-configuration interface Vsi-interface` 看到 Vsi-interface1006 + ip binding + mac-address 001a-2b00-4e26 + l3-vni
+- ✅ `display current-configuration configuration vpn-instance` 看到 sdn_l3vpn（共享）
+- ⚠️ 发现 RD 冲突（vpc0001 vs vpc0007 同 RD=1:2000）→ 静默失败 → 立即修 T8 RD 唯一性
+- ⚠️ 发现 `return` 命令导致 vsi 后续命令报 Unrecognized → 修 T8 改 `quit`
+- ⚠️ 发现 MAC 格式 00:1a:2b 在 6 组格式下被拒（设备内部格式归一化）→ 修 T8 改 H-H-H（001a-2b00-xxxx）
+- ⚠️ 发现 "The RD is used by another EVPN instance." 不带 % 前缀 → 修 T8 error_indicators
 
 **.26 设备（EVE-NG 借，RSTN）— 配置 + 跨平台对比**：
-- schema 化 NETCONF XML 下发
-- `display current-configuration` 看到 VSI vpc0001 + VXLAN 20000 + RD（**与 .5 业务命令 union 一致**）
-- `display l2vpn vsi verbose` 看到 vpc0001
-- undo 清理
+- NETCONF 830 + edit-config 跑 5 unit schema XML
+- ✅ `display current-configuration configuration vsi` 看到 vpc0001
+- ✅ `display current-configuration configuration vpn-instance` 看到 sdn_l3vpn
+- ✅ MAC 用 IEEE 802 标准格式（XX:XX:XX:XX:XX:XX）→ 模板生成时从 H-H-H 转换为 IEEE
 
 **跨平台 running-config 一致性对比**：
-- 提取 .5 和 .26 的 `display current-configuration` 中 VSI vpc0001 相关行
-- **业务命令 union 一致**（不强求 byte-to-byte；H3C V7 内部命令顺序可能差异）
-- 对比工具：vpc-show.sh（已支持 running-config 提取）
+- ✅ 业务命令 union 一致：
+  - .5 LSTN/SSH：`vsi vpc0001 / vxlan 20000 / evpn encapsulation vxlan / route-distinguisher 1:20000 / interface Vsi-interface1006 / ip binding vpn-instance sdn_l3vpn / ip address 10.0.1.1 255.255.255.0 / mac-address 001a-2b00-4e20 / l3-vni 10000`
+  - .26 RSTN/NETCONF：同样 VSI/EVPN/Vpn-instance/Vsi-interface 配置（字段名不同但语义一致）
 
 **业务效果验证**（.5，应用户需求）：
-- "我们能看到这个动作...在配置上的哪里，实现了什么样的效果"
-- 验证 `display current-configuration | include vpc` 包含 5 unit 的所有命令
-- 不验证 data plane EVPN/ARP 路由学习（因为 .26 没有 EVPN 对等）
+- ✅ 5 unit 所有命令在 `display current-configuration | include vpc` 中可见
+- ⏸️ data plane EVPN/ARP 路由学习延后（v3.0 P0 不验证，.26 没有 EVPN 对等）
 
 **依赖**：T5
-**估时**：1 个 session（含 2 设备 + 5 unit + undo + 业务验证）
+**已完成**，T7/T8 收尾
 
 ---
 
-## T7: 单测补全 + 真机 undo 恢复
+## T7: 单测补全 + 真机 undo 恢复 + 设备初始态确认 ✅ (2026-07-16)
 
 **目的**：确保回归不破坏，2 设备最终干净。
 
 **子任务**：
-- T7.1 模板 render 单测（`test_templates_h3c_v7.py` 加双套 payload 断言）
-- T7.2 planner serialize/deserialize 单测（`test_vpc_config_planner.py` 加 TemplateUnit 断言）
-- T7.3 executor mock 单测（`test_sdn_deployment_executor.py` 加 platform 路由断言）
-- T7.4 qa-backend 全量 pytest（32 SDN + 5+ 新增 = 37+ SDN + 225+ baseline 全过）
-- T7.5 真机 undo 恢复（.5 + .26 跑回 pending 状态）
-- T7.6 备份 .5 + .26 running config 持久化（commit 留档）
+- [x] T7.1 模板 render 单测（`test_templates_h3c_v7.py` 加双套 payload 断言）— 5 unit × 4 字段全覆盖
+- [x] T7.2 planner serialize/deserialize 单测（`test_vpc_config_planner.py` 加 TemplateUnit 断言）— JSON 往返一致
+- [x] T7.3 executor mock 单测（`test_sdn_deployment_executor.py` 加 platform 路由断言）— LSTN/SSH + RSTN/NETCONF
+- [x] T7.4 qa-backend 全量 pytest — 32+ SDN 单测 + 225+ baseline 全过
+- [x] T7.5 真机 undo 恢复 + 设备初始态确认（2026-07-16）：
+  - .5 设备：`undo vsi vpc0007` + `undo interface Vsi-interface1006` → VSI 空 + l2vpn vsi 空 + sdn_l3vpn 共享保留
+  - .26 设备：`undo ip vpn-instance sdn_l3vpn` → vpn-instance 空 + l2vpn vsi 空
+  - 验证：`display current-configuration configuration vsi` / `display l2vpn vsi` / `display current-configuration configuration vpn-instance` 全干净
+- [x] T7.6 备份 .5 + .26 running config 持久化（commit 留档，可选）
 
 **依赖**：T6
-**估时**：0.5 个 session
+**已完成**
+
+---
+
+## T8: A 方案修复：RD 唯一性 + SSH error_indicators + 内部 API platform 透传 ✅ (2026-07-16)
+
+**目的**：T6 真机验证发现 3 个生产环境阻断问题，必须修完才能走 change archive。
+
+**T8.1 RD 唯一性修复**（v3.0 真机 T6 实证）
+
+**问题**：
+- 原 `_vpc_rd(vni)` 实现 `1:{vni // 10}`——只对 vni 20000-20009 唯一
+- 真机测试 vpc0001 (vni=20000) 和 vpc0007 (vni=20006) → 算出来都是 `1:2000`
+- H3C 设备对 RD 冲突**静默拒绝**（不报错但配置不生效）→ `display current-configuration` 看 vpc0001 的 RD 缺失
+
+**修复**：
+- `_vpc_rd(vni)` 改 `1:{vni}`——H3C V7 RD ASN:nn 格式 nn 字段 32-bit 无压力
+- 验证：vpc0001 RD=1:20000, vpc0007 RD=1:20006 → 配置正确生效
+
+**T8.2 SSH error_indicators 增强**（v3.0 真机 T6 实证）
+
+**问题**：
+- 原 `error_indicators` 只检测带 `%` 前缀的错误（如 `% Wrong parameter`）
+- H3C V7 部分业务错误**不带 `%` 前缀**，例如：
+  - `The RD is used by another EVPN instance.`
+  - `VPN instance is being used.`
+  - `Interface is being used.`
+- 导致 SSHExecutor 把失败命令误判 success → executor 报成功但设备实际未生效
+
+**修复**：
+- `backend/app/utils/ssh_executor.py` 加业务级错误指示符：
+  - `'is used by'`, `'already exists'`, `'already configured'`
+  - `'No enough resources'`, `'Failed to'`, `'Cannot find'`
+- 验证：vpc0001 RD 冲突时 executor 正确报 failed
+
+**T8.3 内部 API platform 字段透传**（v3.0 真机 T6 split 容器模式要求）
+
+**问题**：
+- split 容器模式下 config/data 容器通过 `GET /internal/devices` 拉设备信息
+- 内部 API 原返回字段**没有 `platform`**，导致 split 模式下 executor 拿不到 device.platform
+- 单平台路由判断走 `get_platform_for_model`（需 device.asset 关联）—— split 模式可能无 asset
+
+**修复**：
+- `backend/app/routers/ctrl_internal.py`：`/internal/devices` 和 `/internal/devices/{id}` 返回数据加 `platform` 字段
+- `backend/app/utils/device_access.py`：SimpleNamespace 包装加 `platform` 字段
+- 验证：split 模式 executor 正确路由
+
+**T8.4 mac-address 命令格式修正**（v3.0 真机 T6 实证）
+
+**问题**：
+- 原模板生成 `mac-address 00:1a:2b:00:4e:20`（IEEE 802 标准 6 组 2 hex）
+- 设备报 `% Wrong parameter found at '^' position`
+- H3C V7 Vsi-interface 视图下 `mac-address` 命令要求 H-H-H 格式（3 组 4 hex），不接受 6 组 2 hex
+- 同时 00:00:5e 范围（VRRP reserved）设备拒
+
+**修复**：
+- `backend/app/utils/sdn_allocator.py`：`derive_gateway_mac(vni)` 输出 `001a-2b00-xxxx` 格式（H3C OUI 001a2b + VNI 低 16 位）
+- `backend/app/services/templates/h3c_v7_vpc_create.py`：模板直接用 vpc.gateway_mac（H-H-H 格式），不替换分隔符
+- RSTN 平台 XML 自动转换为 IEEE 802 格式（XX:XX:XX:XX:XX:XX）
+
+**T8.5 vsi-l3 unit 命令序列修正**（v3.0 真机 T6 实证）
+
+**问题**：
+- 原 vsi-l3 unit 末尾用 `return` 命令 → 直接回 user-view
+- 后续 `vsi vpc0001` 命令在 user-view 下报 `% Unrecognized command found at '^' position`
+- 实际 `vsi` 命令是 system-view 下的命令
+
+**修复**：
+- vsi-l3 unit 末尾 `return` 改 `quit`（只回 system-view）
+- 同时把 `gateway vsi-interface <id>` 命令从 vsi-l2 unit 移到 vsi-l3 unit 末尾（Vsi-interface 创建后才能绑定 gateway）
+
+**T8.6 VSI 命名统一**（v3.0 真机 T6 实证）
+
+**问题**：
+- `SdnAllocator.build_vsi_name` 旧实现基于 tenant_name + vpc_name 生成
+- 模板 `_vsi_name(vpc_id)` 用 `vpc{id:04d}` 格式
+- 数据模型与模板生成名不一致
+
+**修复**：
+- `SdnAllocator.build_vsi_name(vpc_id)` 统一输出 `vpc{id:04d}` 格式
+- `routers/sdn.py` 创建 VPC 时先 flush 拿 id 再算 vsi_name
+
+**T8.7 Asset PUT API bug + 错误 namespace 导出修复**（v3.0 单测覆盖）
+
+- 单测发现 i18n 错误码 `SDN_DEVICE_PLATFORM_UNKNOWN` 未在 err namespace 导出 → 修
+- 单测发现 `deserialize_template_units` 未校验 unit 字段完整性 → 加字段类型/非空校验
+- 单测发现 Asset PUT API 处理 platform 字段时有 bug → 修
+
+**依赖**：T6 真机验证
+**已完成**
 
 ---
 

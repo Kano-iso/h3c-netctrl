@@ -43,6 +43,7 @@ def internal_list_devices(db: Session = Depends(get_db)):
             "username": d.username,
             "password": decrypt_password(d.password_encrypted),
             "protected_interfaces": d.protected_interfaces,
+            "platform": d.platform,  # v3.0 SDN: LSTN/RSTN 路由字段
         })
     return {"success": True, "data": data}
 
@@ -63,6 +64,7 @@ def internal_get_device(device_id: int, db: Session = Depends(get_db)):
             "username": d.username,
             "password": decrypt_password(d.password_encrypted),
             "protected_interfaces": d.protected_interfaces,
+            "platform": d.platform,  # v3.0 SDN: LSTN/RSTN 路由字段
         },
     }
 

@@ -68,7 +68,8 @@ def vpc():
         vni=20000,
         cidr="10.0.1.0/24",
         gateway_ip="10.0.1.1",
-        gateway_mac="00-00-00-00-4e20-01",
+        # v3.0 T6: H3C V7 mac-address H-H-H 格式（3 组 4 hex）
+        gateway_mac="001a-2b00-4e20",
         vsi_interface=1,
     )
 
@@ -156,23 +157,28 @@ class TestVpcCreateTemplate:
                     pytest.fail(f"unit {u.name} XML not well-formed: {e}\n{xml}")
 
     def test_vsi_l2_unit_contains_vsi_and_vxlan(self, vpc, tenant):
-        """VSI-L2 unit CLI 含 vsi + vxlan 命令"""
+        """VSI-L2 unit CLI 含 vsi + vxlan 命令（不含 gateway，v3.0 T6 移到 vsi-l3）"""
         tpl = H3cV7VpcCreateTemplate()
         units = tpl.render({"vpc": vpc, "tenant": tenant})
         vsi_l2 = units[0]
         text = "\n".join(vsi_l2.cli_commands)
         assert "vsi vpc0001" in text
         assert "vxlan 20000" in text
-        assert "gateway vsi-interface 1" in text
+        # v3.0 T6: gateway vsi-interface 命令移到 vsi-l3 unit 末尾（vsi-interface 创建后再绑定）
+        assert "gateway vsi-interface" not in text
 
     def test_evpn_unit_contains_route_distinguisher(self, vpc, tenant):
-        """EVPN unit CLI 含 evpn encapsulation + route-distinguisher"""
+        """EVPN unit CLI 含 evpn encapsulation + route-distinguisher
+
+        v3.0 T6 真机验证: RD 必须唯一，改用 `1:{vni}` (vni=20000 → 1:20000)
+        原 `1:{vni // 10}` 在 vpc0007=1:2000 时与 vpc0001=1:2000 冲突，被设备静默拒。
+        """
         tpl = H3cV7VpcCreateTemplate()
         units = tpl.render({"vpc": vpc, "tenant": tenant})
         evpn = units[1]
         text = "\n".join(evpn.cli_commands)
         assert "evpn encapsulation vxlan" in text
-        assert "route-distinguisher 1:2000" in text  # 20000 // 10 = 2000
+        assert "route-distinguisher 1:20000" in text  # v3.0 T6: 改用全 vni 唯一
 
     def test_l3vpn_unit_contains_vpn_instance(self, vpc, tenant):
         """L3VPN unit CLI 含 ip vpn-instance sdn_l3vpn（v3.0 T6 真机验证：避开 .2/.3 underlay 的 l3vpn 冲突）"""
@@ -185,7 +191,7 @@ class TestVpcCreateTemplate:
         assert "route-distinguisher 1:10000" in text
 
     def test_vsi_l3_unit_contains_ip_and_mac(self, vpc, tenant):
-        """VSI-L3 unit CLI 含 ip address + mac-address + l3-vni + sdn_l3vpn binding"""
+        """VSI-L3 unit CLI 含 ip address + mac-address + l3-vni + sdn_l3vpn binding + gateway vsi-interface"""
         tpl = H3cV7VpcCreateTemplate()
         units = tpl.render({"vpc": vpc, "tenant": tenant})
         vsi_l3 = units[3]
@@ -193,8 +199,13 @@ class TestVpcCreateTemplate:
         assert "interface Vsi-interface1" in text
         assert "ip binding vpn-instance sdn_l3vpn" in text
         assert "ip address 10.0.1.1 255.255.255.0" in text
-        assert "mac-address 00-00-00-00-4e20-01" in text
+        # v3.0 T6: H3C V7 mac-address H-H-H 格式（vni=20000 → 001a-2b00-4e20）
+        assert "mac-address 001a-2b00-4e20" in text
         assert "l3-vni 10000" in text
+        # v3.0 T6: gateway vsi-interface 命令从 vsi-l2 移到 vsi-l3 末尾
+        assert "gateway vsi-interface 1" in text
+        # v3.0 T6 修订: 用 quit（不是 return）保持 system-view，否则 vsi 命令报 Unrecognized
+        assert "quit" in text
 
     def test_global_unit_contains_mac_learning_disable(self, vpc, tenant):
         """Global unit CLI 含 vxlan tunnel mac-learning disable"""
