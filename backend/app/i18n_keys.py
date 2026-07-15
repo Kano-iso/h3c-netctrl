@@ -296,6 +296,12 @@ err = SimpleNamespace(
     SDN_DEVICE_NOT_WRITABLE=SDN.DEVICE_NOT_WRITABLE,
     SDN_PLANNED_CONFIG_INVALID=SDN.PLANNED_CONFIG_INVALID,
     SDN_DEPLOY_EXECUTE_FAILED=SDN.DEPLOY_EXECUTE_FAILED,
+    # v3.0 sdn-vpc-netconf-schema-xml T6: device.platform 路由
+    SDN_DEVICE_PLATFORM_UNKNOWN=SDN.DEVICE_PLATFORM_UNKNOWN,
+    # v3.0 sdn-vpc-netconf-schema-xml T6 A 方案: LSTN→SSH 22 通道失败
+    SDN_DEPLOYMENT_SSH_FAILED=I18nKey("sdn.deployment_ssh_failed"),
+    # v3.0 sdn-vpc-netconf-schema-xml T6 A 方案: RSTN→NETCONF schema XML 通道失败
+    SDN_DEPLOYMENT_NETCONF_FAILED=I18nKey("sdn.deployment_netconf_failed"),
 )
 
 
@@ -417,6 +423,10 @@ FALLBACK_MESSAGES = {
     SDN.DEVICE_NOT_WRITABLE: "设备不在可写白名单（仅 .5/.6 允许下发）: name={name}, host={host}",
     SDN.PLANNED_CONFIG_INVALID: "planned_config 格式错误: id={id}, error={error}",
     SDN.DEPLOY_EXECUTE_FAILED: "配置下发失败: id={id}, command_index={command_index}, error={error}",
+    # v3.0 sdn-vpc-netconf-schema-xml T6: 设备 platform 路由相关
+    SDN.DEVICE_PLATFORM_UNKNOWN: "设备 platform 未知: platform={platform}, 既不在 LSTN 也不在 RSTN 白名单",
+    I18nKey("sdn.deployment_ssh_failed"): "SSH 22 业务下发失败: unit={unit}, cmd={cmd}, error={error}",
+    I18nKey("sdn.deployment_netconf_failed"): "NETCONF schema XML 业务下发失败: unit={unit}, payload_idx={payload_idx}, error={error}",
 }
 
 

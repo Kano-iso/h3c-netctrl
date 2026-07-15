@@ -222,7 +222,9 @@ class NetconfClient:
         return result.xml
 
     def edit_config(self, config_xml: str) -> str:
-        """执行 edit-config 操作"""
+        """执行 edit-config 操作（schema 化 NETCONF XML）
+        适用: L3vpn/VRF 等 schema 化业务（RSTN 平台所有业务 + LSTN 平台的 L3vpn）
+        """
         if not self._manager:
             raise RuntimeError("NETCONF未连接")
         logger.debug(f"edit-config 请求 XML:\n{config_xml}")

@@ -1,26 +1,36 @@
-"""SdnDeploymentExecutor — 业务配置下发的 NETCONF 执行器（v3.0 T3 双套 payload 路由版）
+"""SdnDeploymentExecutor — 业务配置下发执行器（v3.0 T6 A 方案：LSTN→SSH 22 / RSTN→NETCONF）
 
 ## 职责
 
-读 SdnDeployment.planned_config → 解析为 List[TemplateUnit] → 按 device.platform 选
-cli_commands 或 xml_payloads → NETCONF edit-config → 写回 status
+读 SdnDeployment.planned_config → 解析为 List[TemplateUnit] → 按 device.platform 路由
+- LSTN 老芯片平台：SSH 22 + paramiko 跑 system-view CLI（5 unit 业务命令）
+- RSTN 新芯片平台：NETCONF 830 edit-config schema 化 XML
 
 ## 架构定位
 
-- 业务下发**只走 backend**：frontend → config 容器 → SdnDeploymentExecutor → NetconfClient → 设备
+- 业务下发**只走 backend**：frontend → config 容器 → SdnDeploymentExecutor → NetconfClient / SSHExecutor → 设备
 - ops-toolkit 容器**不参与**业务下发（仅供排错）
 - 单 deployment 串行下发（H3C V7 SSH max-session 限制）
 
-## 业务下发通道（按 device.platform 路由，ADR-109）
+## 业务下发通道（按 device.platform 路由，ADR-109 / T6 修订）
 
 | Platform | 通道 | 适用设备 |
 |---|---|---|
-| LSTN（老芯片）| CLI 文本走 `<Configuration>` 包裹 | S6850 / S6805 / S6825 / S5560X / S6520X |
-| RSTN（新芯片）| schema 化 NETCONF XML 直接下发 | V9850 / S9820 / S12500R / S6890 |
+| LSTN（老芯片）| SSH 22 + paramiko system-view CLI | S6850 / S6805 / S6825 / S5560X / S6520X |
+| RSTN（新芯片）| NETCONF 830 schema 化 XML edit-config | V9850 / S9820 / S12500R / S6890 |
 
-**真根因**（design.md T1.13d + T1.13e 3 维证据链）：
-H3C Comware V7 L2VPN/EVPN/VXLAN 业务 NETCONF 实现走**芯片驱动**，
-LSTN 老芯片不实现 schema 化 L2VPN（任何软件版本都不实现）。
+**A 方案根因**（design.md T1.13d + T1.13e + T6 修订）：
+- LSTN 老芯片不实现 schema 化 L2VPN（任何软件版本都不实现）—— 真实
+- T1.13f "H3C 私有 `<CLI><Configuration>` RPC 可写" 探针**错认成功**：
+  - raw `session.send` 包能发（vpc_t113f_v4 display 看到）但 ncclient 框架同步拿不到 reply
+  - "Unknown 'message-id'" 抛错 → 业务能否真落设备只能 display 二次人工确认
+  - **不满足"业务下发通道"对程序化可靠性的要求**（A 方案决策）
+- T6 实测证伪：edit-config 包裹 `<top><Configuration>` 设备直接拒
+  - "Element ... Configuration[1] can not have a textual child element"
+
+**A 方案结论**：
+- LSTN 走 SSH 22（`backend/app/utils/ssh_executor.SSHExecutor.execute_commands`）
+- RSTN 走 NETCONF schema XML（`NetconfClient.edit_config`）
 
 ## 设备白名单
 
@@ -261,84 +271,132 @@ class SdnDeploymentExecutor:
         username: str,
         password: str,
     ) -> None:
-        """按 device.platform 路由串行 NETCONF edit_config（v3.0 T3）
+        """按 device.platform 路由业务下发（v3.0 T6 A 方案）
 
         Args:
             units: List[TemplateUnit]（从 planned_config 解析）
             platform: "LSTN" | "RSTN"
             host: 设备 host
-            port: NETCONF 端口
+            port: LSTN=22 (SSH); RSTN=830 (NETCONF)
             username: 设备用户名
             password: 设备密码
 
         Note:
-            - LSTN: 每个 unit.cli_commands 逐条走 <Configuration>{cli}</Configuration>
-            - RSTN: 每个 unit.xml_payloads 逐条直接 edit_config（已是完整 <config> XML）
+            - LSTN 走 SSH 22 + SSHExecutor 跑 system-view CLI（T6 A 方案）
+            - RSTN 走 NETCONF 830 + NetconfClient edit-config schema XML
             - 任一 unit 失败立即停 + 抛出
-            - payload 索引从 1 开始记入日志
+        """
+        if platform == PLATFORM_LSTN:
+            # LSTN 老芯片 → SSH 22 + paramiko（不依赖 NETCONF L2VPN 通道）
+            SdnDeploymentExecutor._apply_units_via_ssh(
+                units, host, port, username, password
+            )
+        elif platform == PLATFORM_RSTN:
+            # RSTN 新芯片 → NETCONF 830 schema XML
+            SdnDeploymentExecutor._apply_units_via_netconf(
+                units, host, port, username, password
+            )
+        else:
+            raise SdnDeploymentError(
+                "SDN_DEVICE_PLATFORM_UNKNOWN",
+                params={"platform": platform},
+                status_code=422,
+            )
+
+    @staticmethod
+    def _apply_units_via_ssh(
+        units: List[TemplateUnit],
+        host: str,
+        port: int,
+        username: str,
+        password: str,
+    ) -> None:
+        """LSTN 老芯片走 SSH 22 跑 system-view CLI（v3.0 T6 A 方案）
+
+        每个 unit 独立一次 SSH 连接：
+        - 进入 system-view
+        - 跑该 unit 的 cli_commands
+        - return 退到 user-view
+        失败立即抛 SdnDeploymentError（unit 级错误定位）
+
+        SSH 22 验证基础：
+        - T1.13 早期 .5/.177 SSH CLI 跑命令成功
+        - 清理 .5 脏数据用 SSHExecutor 成功（vpna/vpnb/vpc_t113f_v2-4/v9999 全部 undo）
+        - SSHExecutor.execute_commands 处理 H3C V7 [Y/N] 二次确认 + 分页 + 错误检测
+        """
+        from app.utils.ssh_executor import SSHExecutor
+        for unit_idx, unit in enumerate(units, 1):
+            if not unit.cli_commands:
+                # LSTN 走空 cli_commands 不合理，但 global unit 这种情况少
+                logger.warning(
+                    f"ssh deploy: unit[{unit_idx}/{len(units)}] {unit.name} "
+                    f"unit.cli_commands 为空，跳过"
+                )
+                continue
+            commands = ["system-view"] + list(unit.cli_commands) + ["return"]
+            ssh = SSHExecutor(host, port, username, password, timeout=30)
+            results = ssh.execute_commands(commands, delay_ms=300)
+            failed = [r for r in results if not r.get("success", False)]
+            if failed:
+                failed_cmd = failed[0]
+                raise SdnDeploymentError(
+                    "SDN_DEPLOYMENT_SSH_FAILED",
+                    params={
+                        "unit": unit.name,
+                        "unit_idx": unit_idx,
+                        "cmd": failed_cmd.get("cmd", ""),
+                        "error": (failed_cmd.get("error") or failed_cmd.get("output", ""))[:200],
+                    },
+                    status_code=502,
+                )
+            logger.info(
+                f"ssh deploy: unit[{unit_idx}/{len(units)}] {unit.name} "
+                f"{len(results)} 条命令全过"
+            )
+
+    @staticmethod
+    def _apply_units_via_netconf(
+        units: List[TemplateUnit],
+        host: str,
+        port: int,
+        username: str,
+        password: str,
+    ) -> None:
+        """RSTN 新芯片走 NETCONF 830 schema 化 XML edit-config（v3.0 T6 A 方案）
+
+        每个 unit 的 xml_payloads 逐条 edit_config（payload 已含完整 <config> XML）
+        RSTN 平台上 unit.xml_payloads 为空（如 global unit）→ fallback 走 unit.cli_commands
+        但 RSTN 不走 SSH——这种情况下应改用 NETCONF 包 CLI 文本
+        目前 v3.0 P0：global unit cli 走 NETCONF <CLI> RPC（ncclient 后续兼容方案预留）
         """
         with NetconfClient(host, port, username, password) as client:
-            unit_idx = 0
-            for unit in units:
-                unit_idx += 1
-                # 按 platform 选 payload
-                if platform == PLATFORM_LSTN:
-                    payloads = unit.cli_commands
-                    payload_kind = "cli"
-                elif platform == PLATFORM_RSTN:
-                    payloads = unit.xml_payloads
-                    payload_kind = "xml"
-                else:
-                    # 防御性检查（_resolve_platform 已过滤，此处兜底）
-                    raise SdnDeploymentError(
-                        "SDN_DEVICE_PLATFORM_UNKNOWN",
-                        params={"platform": platform},
-                        status_code=422,
+            for unit_idx, unit in enumerate(units, 1):
+                if not unit.xml_payloads:
+                    logger.warning(
+                        f"netconf deploy: unit[{unit_idx}/{len(units)}] {unit.name} "
+                        f"unit.xml_payloads 为空，跳过"
                     )
-
-                # 跳过空 payload（LSTN 设备走空 cli_commands 不合理；
-                # RSTN 设备 unit.xml_payloads 为空时 fallback 到 cli_commands 兜底）
-                if not payloads:
-                    if platform == PLATFORM_RSTN and unit.cli_commands:
-                        # RSTN 平台上 unit.xml_payloads 为空（如 global unit）
-                        # fallback 走 unit.cli_commands（CLI 文本也走 LSTN 通道，因为 RSTN 兼容 <Configuration>）
-                        logger.info(
-                            f"sdn deploy: [{unit_idx}/{len(units)}] {unit.name} "
-                            f"RSTN 平台无 schema XML，fallback 走 CLI 通道"
-                        )
-                        payloads = unit.cli_commands
-                        payload_kind = "cli-fallback"
-                    else:
-                        logger.warning(
-                            f"sdn deploy: [{unit_idx}/{len(units)}] {unit.name} "
-                            f"unit.{payload_kind} 为空，跳过"
-                        )
-                        continue
-
-                # 逐条 payload 下发
-                for payload_idx, payload in enumerate(payloads, 1):
-                    if platform == PLATFORM_LSTN or payload_kind == "cli-fallback":
-                        # LSTN 设备 / RSTN 平台 CLI fallback：CLI 文本走 <Configuration> 包裹
-                        config_xml = (
-                            f'<config xmlns:xc="{H3C_V7_XC_NS}">'
-                            f'<top xmlns="{H3C_V7_CONFIG_NS}" xc:operation="merge">'
-                            f"<Configuration>{payload}</Configuration>"
-                            f"</top></config>"
-                        )
-                    else:
-                        # RSTN 设备：payload 已是完整 schema 化 NETCONF XML，直接下发
-                        config_xml = payload
-
+                    continue
+                for payload_idx, payload in enumerate(unit.xml_payloads, 1):
                     logger.debug(
-                        f"sdn deploy: unit[{unit_idx}/{len(units)}] "
-                        f"{unit.name} payload[{payload_idx}/{len(payloads)}] "
-                        f"kind={payload_kind} len={len(payload)}"
+                        f"netconf deploy: unit[{unit_idx}/{len(units)}] "
+                        f"{unit.name} payload[{payload_idx}/{len(unit.xml_payloads)}] "
+                        f"len={len(payload)}"
                     )
                     try:
-                        client.edit_config(config_xml)
+                        client.edit_config(payload)
                     except Exception as e:
                         logger.error(
-                            f"sdn deploy: unit[{unit_idx}] {unit.name} "
+                            f"netconf deploy: unit[{unit_idx}] {unit.name} "
                             f"payload[{payload_idx}] 失败: {e}"
                         )
-                        raise
+                        raise SdnDeploymentError(
+                            "SDN_DEPLOYMENT_NETCONF_FAILED",
+                            params={
+                                "unit": unit.name,
+                                "unit_idx": unit_idx,
+                                "payload_idx": payload_idx,
+                                "error": str(e)[:200],
+                            },
+                            status_code=502,
+                        )

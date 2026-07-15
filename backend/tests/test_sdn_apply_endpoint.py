@@ -61,8 +61,9 @@ def _create_tenant_vpc_device(db, device_name="Leaf-04", device_ip="192.168.100.
         username="test",
         password_encrypted=encrypt_password("test_password_xyz"),
         protected_interfaces="[]",
-        # v3.0 sdn-vpc-netconf-schema-xml T3: 测试设备显式指定 platform，绕开 get_platform_for_model 的 model 查找
-        platform="LSTN",
+        # v3.0 sdn-vpc-netconf-schema-xml T6 A 方案: 默认走 RSTN 平台（schema 化 NETCONF mock）
+        # LSTN 平台走 SSH 22, 在 test_apply_lstn_ssh_success / test_apply_lstn_ssh_failure 单独覆盖
+        platform="RSTN",
     )
     db.add(dev)
     db.commit()
@@ -226,3 +227,68 @@ def test_apply_does_not_use_ops_toolkit(client, db, monkeypatch):
 
     assert resp.status_code == 200
     assert called["ops_toolkit"] is False  # ops-toolkit 完全没被调用
+
+
+# ======================== LSTN 平台 → SSH 22 通道（A 方案 T6） ========================
+
+def _patch_ssh_success():
+    """构造 mock SSHExecutor，execute_commands 全部成功"""
+    mock_ssh = MagicMock()
+    mock_ssh.execute_commands.return_value = [
+        {"success": True, "cmd": c, "output": "", "error": None} for c in [
+            "system-view", "vsi vpc0001", "return"
+        ]
+    ]
+    return patch("app.utils.ssh_executor.SSHExecutor", return_value=mock_ssh)
+
+
+def _patch_ssh_failure_at(cmd_index):
+    """构造 mock SSHExecutor, 第 cmd_index 条命令返回 success=False"""
+    mock_ssh = MagicMock()
+    def fake_execute(commands, delay_ms=300):
+        results = []
+        for i, cmd in enumerate(commands):
+            if i >= cmd_index:
+                results.append({"success": False, "cmd": cmd, "output": "模拟失败", "error": "模拟失败"})
+            else:
+                results.append({"success": True, "cmd": cmd, "output": "", "error": None})
+        return results
+    mock_ssh.execute_commands.side_effect = fake_execute
+    return patch("app.utils.ssh_executor.SSHExecutor", return_value=mock_ssh)
+
+
+def test_apply_lstn_ssh_success(client, db):
+    """LSTN 平台 → SSH 22 通道: 200 + status=success（A 方案 T6）"""
+    d, _, _, _ = _create_tenant_vpc_device(db, device_name="Leaf-04-LSTN", device_ip="192.168.100.5")
+    # 改 device.platform = LSTN
+    from app.models import Device
+    dev = db.query(Device).filter(Device.id == d.device_id).first()
+    dev.platform = "LSTN"
+    db.commit()
+
+    with _patch_ssh_success():
+        resp = client.post(f"/api/sdn/deployments/{d.id}/apply")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["success"] is True
+    assert data["data"]["status"] == "success"
+
+
+def test_apply_lstn_ssh_failure_returns_failed_status(client, db):
+    """LSTN 平台 → SSH 22 通道: 命令失败 → 200 + status=failed（A 方案 T6）"""
+    d, _, _, _ = _create_tenant_vpc_device(db, device_name="Leaf-04-LSTN2", device_ip="192.168.100.6")
+    from app.models import Device
+    dev = db.query(Device).filter(Device.id == d.device_id).first()
+    dev.platform = "LSTN"
+    db.commit()
+
+    # 第 2 条命令失败 (system-view + cli_command)
+    with _patch_ssh_failure_at(cmd_index=2):
+        resp = client.post(f"/api/sdn/deployments/{d.id}/apply")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["success"] is True
+    assert data["data"]["status"] == "failed"
+    assert "配置下发失败" in data["data"]["error"]

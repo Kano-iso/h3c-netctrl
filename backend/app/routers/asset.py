@@ -58,7 +58,11 @@ def get_asset(device_id: int, db: Session = Depends(get_db)):
 
 @router.put("/assets/device/{device_id}", response_model=APIResponse)
 def update_asset(device_id: int, body: dict, db: Session = Depends(get_db)):
-    """更新设备资产信息（手动编辑位置/标签/状态）"""
+    """更新设备资产信息（手动编辑位置/标签/状态/型号/SN/固件）
+
+    v3.0 sdn-vpc-netconf-schema-xml T6 修订：补全 model/serial_number/firmware_version
+    字段更新（之前 PUT 不更新这些字段，导致 SDN executor 推算 device.platform 失败）
+    """
     device, error = _get_device_or_error(db, device_id)
     if error:
         return error
@@ -76,6 +80,13 @@ def update_asset(device_id: int, body: dict, db: Session = Depends(get_db)):
                 params={"param": f"status (可选: {', '.join(valid_statuses)})"},
             )
         asset.status = body["status"]
+    # v3.0 T6: 补全 model/serial_number/firmware_version 字段
+    if "model" in body and body["model"] is not None:
+        asset.model = body["model"]
+    if "serial_number" in body and body["serial_number"] is not None:
+        asset.serial_number = body["serial_number"]
+    if "firmware_version" in body and body["firmware_version"] is not None:
+        asset.firmware_version = body["firmware_version"]
 
     db.commit()
     db.refresh(asset)
