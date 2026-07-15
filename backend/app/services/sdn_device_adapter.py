@@ -129,6 +129,14 @@ UNIT_PORT_UNBIND = "port-unbind"
 UNIT_VPC_CREATE_ALL = "vpc-create-all"  # 老数据兼容（全量下发）
 
 
+# v3.0 T6 真机验证（2026-07-15）发现的 l3vpn 冲突解决方案：
+# - .5 设备 underlay 已有 l3vpn（RD=1:400），与 v3.0 SDN 的 l3vpn（RD=1:10000）冲突
+# - 改为 `sdn_l3vpn` 命名空间，完全独立、undo 干净、不污染 underlay
+# - .2/.3 underlay 的 l3vpn 实例保持不变（不被 SDN 触碰）
+# - 多 VPC 共享同一个 sdn_l3vpn 实例（首个 VPC 创建、末 VPC 删除）
+SDN_L3VPN_NAME = "sdn_l3vpn"
+
+
 # ─────────── TemplateUnit 序列化 helper（v3.0 T3） ───────────
 
 def template_units_to_dicts(units: List["TemplateUnit"]) -> List[dict]:

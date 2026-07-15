@@ -175,23 +175,23 @@ class TestVpcCreateTemplate:
         assert "route-distinguisher 1:2000" in text  # 20000 // 10 = 2000
 
     def test_l3vpn_unit_contains_vpn_instance(self, vpc, tenant):
-        """L3VPN unit CLI 含 ip vpn-instance l3vpn"""
+        """L3VPN unit CLI 含 ip vpn-instance sdn_l3vpn（v3.0 T6 真机验证：避开 .2/.3 underlay 的 l3vpn 冲突）"""
         tpl = H3cV7VpcCreateTemplate()
         units = tpl.render({"vpc": vpc, "tenant": tenant})
         l3vpn = units[2]
         text = "\n".join(l3vpn.cli_commands)
-        assert "ip vpn-instance l3vpn" in text
+        assert "ip vpn-instance sdn_l3vpn" in text
         assert "address-family evpn" in text
         assert "route-distinguisher 1:10000" in text
 
     def test_vsi_l3_unit_contains_ip_and_mac(self, vpc, tenant):
-        """VSI-L3 unit CLI 含 ip address + mac-address + l3-vni"""
+        """VSI-L3 unit CLI 含 ip address + mac-address + l3-vni + sdn_l3vpn binding"""
         tpl = H3cV7VpcCreateTemplate()
         units = tpl.render({"vpc": vpc, "tenant": tenant})
         vsi_l3 = units[3]
         text = "\n".join(vsi_l3.cli_commands)
         assert "interface Vsi-interface1" in text
-        assert "ip binding vpn-instance l3vpn" in text
+        assert "ip binding vpn-instance sdn_l3vpn" in text
         assert "ip address 10.0.1.1 255.255.255.0" in text
         assert "mac-address 00-00-00-00-4e20-01" in text
         assert "l3-vni 10000" in text

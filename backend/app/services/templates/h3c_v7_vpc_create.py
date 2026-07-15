@@ -54,6 +54,7 @@ from app.services.sdn_device_adapter import (
     H3C_V7_OP_CREATE,
     H3C_V7_OP_DELETE,
     H3C_V7_XC_NS,
+    SDN_L3VPN_NAME,
     TemplateUnit,
     UNIT_EVPN,
     UNIT_GLOBAL,
@@ -287,13 +288,13 @@ class H3cV7VpcCreateTemplate(VPCConfigTemplate):
         """Unit 3: 共享 L3VPN 实例 + RD + address-family evpn
 
         CLI (LSTN):
-            ip vpn-instance l3vpn
+            ip vpn-instance sdn_l3vpn
               route-distinguisher 1:10000
               address-family evpn
 
         XML (RSTN):
             <L3VPN><Instances><Instance>
-              <Name>l3vpn</Name>
+              <Name>sdn_l3vpn</Name>
               <RouteDistinguisher>1:10000</RouteDistinguisher>
               <AddressFamilies>
                 <AddressFamily>evpn</AddressFamily>
@@ -301,11 +302,12 @@ class H3cV7VpcCreateTemplate(VPCConfigTemplate):
             </Instance></Instances></L3VPN>
 
         Note:
-            此 unit undo 为空（l3vpn 是设备级共享实例，删 vpc 时不删）
-            但 unit.cli_commands 和 xml_payloads 仍非空（创建时需要保证存在）
+            - v3.0 T6 真机验证：使用 sdn_l3vpn 而非 l3vpn（避开 .2/.3 underlay 冲突）
+            - 此 unit undo 为空（sdn_l3vpn 是设备级共享实例，删 vpc 时不删）
+            - 但 unit.cli_commands 和 xml_payloads 仍非空（创建时需要保证存在）
         """
         cli = [
-            "ip vpn-instance l3vpn",
+            f"ip vpn-instance {SDN_L3VPN_NAME}",
             f"  route-distinguisher {l3vpn_rd}",
             "  address-family evpn",
         ]
@@ -313,7 +315,7 @@ class H3cV7VpcCreateTemplate(VPCConfigTemplate):
         xml = [
             _wrap_rstn_xml(
                 f"<L3VPN><Instances><Instance>"
-                f"<Name>l3vpn</Name>"
+                f"<Name>{SDN_L3VPN_NAME}</Name>"
                 f"<RouteDistinguisher>{l3vpn_rd}</RouteDistinguisher>"
                 f"<AddressFamilies><AddressFamily>evpn</AddressFamily></AddressFamilies>"
                 f"</Instance></Instances></L3VPN>"
@@ -322,7 +324,7 @@ class H3cV7VpcCreateTemplate(VPCConfigTemplate):
 
         return TemplateUnit(
             name=UNIT_L3VPN,
-            description="共享 L3VPN 实例（l3vpn）+ RD + EVPN 地址族（设备级，共享）",
+            description=f"共享 L3VPN 实例（{SDN_L3VPN_NAME}）+ RD + EVPN 地址族（设备级，共享）",
             cli_commands=cli,
             xml_payloads=xml,
             undo_cli=[],  # 共享，不删
@@ -342,7 +344,7 @@ class H3cV7VpcCreateTemplate(VPCConfigTemplate):
 
         CLI (LSTN):
             interface Vsi-interface1
-              ip binding vpn-instance l3vpn
+              ip binding vpn-instance sdn_l3vpn
               ip address 10.0.1.1 255.255.255.0
               mac-address 00-00-00-00-4e20-01
               l3-vni 10000
@@ -351,7 +353,7 @@ class H3cV7VpcCreateTemplate(VPCConfigTemplate):
             <Interfaces>
               <Interface>
                 <Name>Vsi-interface1</Name>
-                <L3VPNInstanceName>l3vpn</L3VPNInstanceName>
+                <L3VPNInstanceName>sdn_l3vpn</L3VPNInstanceName>
                 <IPv4>
                   <IPAddress>10.0.1.1</IPAddress>
                   <MaskLength>24</MaskLength>
@@ -363,7 +365,7 @@ class H3cV7VpcCreateTemplate(VPCConfigTemplate):
         """
         cli = [
             f"interface {vsi_iface_name}",
-            "  ip binding vpn-instance l3vpn",
+            f"  ip binding vpn-instance {SDN_L3VPN_NAME}",
             f"  ip address {vpc.gateway_ip} {subnet_mask}",
             f"  mac-address {vpc.gateway_mac}",
             f"  l3-vni {l3_vni}",
@@ -378,7 +380,7 @@ class H3cV7VpcCreateTemplate(VPCConfigTemplate):
             _wrap_rstn_xml(
                 f"<Interfaces><Interface>"
                 f"<Name>{vsi_iface_name}</Name>"
-                f"<L3VPNInstanceName>l3vpn</L3VPNInstanceName>"
+                f"<L3VPNInstanceName>{SDN_L3VPN_NAME}</L3VPNInstanceName>"
                 f"<IPv4>"
                 f"<IPAddress>{vpc.gateway_ip}</IPAddress>"
                 f"<MaskLength>{mask_length}</MaskLength>"

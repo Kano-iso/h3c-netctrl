@@ -110,7 +110,7 @@ def test_plan_vpc_create_contains_keywords(planner, vpc, tenant):
     assert "vsi vpc0001" in text
     assert "vxlan 20000" in text
     assert "evpn encapsulation vxlan" in text
-    assert "ip vpn-instance l3vpn" in text
+    assert "ip vpn-instance sdn_l3vpn" in text
     assert "interface Vsi-interface1" in text
     assert "vxlan tunnel mac-learning disable" in text
 
