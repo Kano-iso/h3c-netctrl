@@ -61,13 +61,20 @@ def _create_tenant_vpc_device(db, device_name="Leaf-04", device_ip="192.168.100.
         username="test",
         password_encrypted=encrypt_password("test_password_xyz"),
         protected_interfaces="[]",
+        # v3.0 sdn-vpc-netconf-schema-xml T3: 测试设备显式指定 platform，绕开 get_platform_for_model 的 model 查找
+        platform="LSTN",
     )
     db.add(dev)
     db.commit()
     db.refresh(dev)
 
     if plan is None:
-        plan = json.dumps([{"mode": "merge", "command": f"cmd {i}"} for i in range(3)])
+        # v3.0 sdn-vpc-netconf-schema-xml T3: planned_config 是 List[TemplateUnit]（双套 payload）
+        # 默认构造 3 个 unit，每个 unit 含 cli_commands + xml_payloads（v1 走 CLI，v2 走 schema XML）
+        plan = json.dumps([
+            {"name": "vsi-l2", "description": "VSI L2 test", "cli_commands": [f"cmd {i}"], "xml_payloads": [f"<config><cmd>{i}</cmd></config>"]}
+            for i in range(3)
+        ])
     d = SdnDeployment(
         vpc_id=v.id, device_id=dev.id,
         action=action, planned_config=plan, status="pending",

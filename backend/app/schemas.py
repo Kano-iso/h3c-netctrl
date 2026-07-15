@@ -41,6 +41,11 @@ class DeviceResponse(BaseModel):
     # None = 未知（未探测过 / 探测失败），前端按"未知"处理
     # False = 支持
     restore_unsupported: Optional[bool] = None
+    # v3.0 sdn-vpc-netconf-schema-xml T3: 设备 platform（LSTN / RSTN / None）
+    # - LSTN: H3C V7 LSTN 老芯片平台 → L2VPN 业务走 CLI-over-NETCONF
+    # - RSTN: H3C V7 RSTN 新芯片平台 → L2VPN 业务走 schema 化 NETCONF
+    # - None: 未识别（executor 运行时调 get_platform_for_model() 推算）
+    platform: Optional[str] = None
 
     @field_validator("protected_interfaces", mode="before")
     @classmethod

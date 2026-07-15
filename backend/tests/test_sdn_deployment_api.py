@@ -41,7 +41,7 @@ def _create_device(db, name="Leaf-04", ip="192.168.100.5"):
 # ======================== POST /api/sdn/deployments ========================
 
 def test_create_deployment_success(client, db):
-    """POST 创建 deployment，自动调 planner 生成 planned_config（14 条命令）。"""
+    """POST 创建 deployment，自动调 planner 生成 planned_config（5 unit × 双套 payload）。"""
     tenant = _create_tenant(client)
     vpc = _create_vpc(client, tenant["id"])
     dev = _create_device(db)
@@ -61,11 +61,12 @@ def test_create_deployment_success(client, db):
     assert d["status"] == "pending"
     assert d["planned_config"] is not None
 
-    # 验证 planned_config 是 14 条命令的 JSON 字符串
-    cmds = json.loads(d["planned_config"])
-    assert isinstance(cmds, list)
-    assert len(cmds) == 14
-    assert all("command" in c for c in cmds)
+    # v3.0 sdn-vpc-netconf-schema-xml T3: planned_config 是 List[TemplateUnit]（双套 payload）
+    # 5 unit × 4 字段（cli_commands / xml_payloads / undo_cli / undo_xml）
+    units = json.loads(d["planned_config"])
+    assert isinstance(units, list)
+    assert len(units) == 5
+    assert all("name" in u and "cli_commands" in u and "xml_payloads" in u for u in units)
 
 
 def test_create_deployment_delete_action(client, db):

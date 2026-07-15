@@ -205,12 +205,25 @@ def test_parse_planned_config_missing_command_field(db):
 # ======================== 下发路径 ========================
 
 def test_execute_success(db):
-    """mock NetconfClient 全成功 → status=success, 14 条全下发"""
+    """mock NetconfClient 全成功 → status=success, 14 条 cli_commands 全下发（1 unit × 14 cli）"""
     tenant = _create_tenant(db)
     vpc = _create_vpc(db, tenant)
     dev = _create_device(db)
-    cmds = [{"mode": "merge", "command": f"cmd {i}"} for i in range(14)]
-    d = _create_deployment(db, vpc, dev, planned=json.dumps(cmds))
+    # v3.0 T3: planned_config 是 List[TemplateUnit] JSON（每个 unit 含 cli_commands）
+    # 1 unit × 14 cli = 14 次 NETCONF edit_config（LSTN 设备走 cli_commands）
+    cmds = [f"cmd {i}" for i in range(14)]
+    planned = json.dumps([{
+        "name": "test-unit",
+        "description": "test",
+        "cli_commands": cmds,
+        "xml_payloads": [f"<config><cmd>{c}</cmd></config>" for c in cmds],
+        "undo_cli": [],
+        "undo_xml": [],
+    }])
+    d = _create_deployment(db, vpc, dev, planned=planned)
+    # 设置 device.platform = LSTN（LSTN 走 cli_commands 通道）
+    dev.platform = "LSTN"
+    db.commit()
 
     mock_client = MagicMock()
     mock_client.__enter__ = MagicMock(return_value=mock_client)
@@ -231,8 +244,22 @@ def test_execute_netconf_failure_marks_failed(db):
     tenant = _create_tenant(db)
     vpc = _create_vpc(db, tenant)
     dev = _create_device(db)
-    cmds = [{"mode": "merge", "command": f"cmd {i}"} for i in range(14)]
-    d = _create_deployment(db, vpc, dev, planned=json.dumps(cmds))
+    # v3.0 T3: 1 unit × 14 cli，device 默认 model=None → 推算 UNKNOWN → 拒绝
+    # 这里 _create_device 没有 platform，host 走 _is_writable_host（.5/.6），但 platform 是 UNKNOWN
+    # 因此需要给 device 加 platform = LSTN
+    cmds = [f"cmd {i}" for i in range(14)]
+    planned = json.dumps([{
+        "name": "test-unit",
+        "description": "test",
+        "cli_commands": cmds,
+        "xml_payloads": [f"<config><cmd>{c}</cmd></config>" for c in cmds],
+        "undo_cli": [],
+        "undo_xml": [],
+    }])
+    d = _create_deployment(db, vpc, dev, planned=planned)
+    # 设置 device.platform = LSTN（LSTN 走 cli_commands 通道）
+    dev.platform = "LSTN"
+    db.commit()
 
     mock_client = MagicMock()
     mock_client.__enter__ = MagicMock(return_value=mock_client)

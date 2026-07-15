@@ -48,6 +48,12 @@ class Device(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
     )
+    # v3.0 sdn-vpc-netconf-schema-xml T3: 设备 platform 缓存
+    # - LSTN: H3C V7 LSTN 老芯片平台（S6850 / S6805 / S6825）→ L2VPN 业务走 CLI-over-NETCONF
+    # - RSTN: H3C V7 RSTN 新芯片平台（V9850 / S9820 / S12500R）→ L2VPN 业务走 schema 化 NETCONF
+    # - None: 老数据 / 未识别 → 运行时调 get_platform_for_model() 推算
+    # 详见 design.md T1.13d + T1.13e 探针结论
+    platform: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, index=True)
 
     # 一对一关联资产信息
     asset: Mapped["Asset"] = relationship("Asset", back_populates="device", uselist=False, cascade="all, delete-orphan")

@@ -186,6 +186,8 @@ class SDN:
     DEVICE_NOT_WRITABLE = I18nKey("sdn.device_not_writable")          # 设备不在可写白名单（仅 .5/.6 允许下发）: name={name}, host={host}
     PLANNED_CONFIG_INVALID = I18nKey("sdn.planned_config_invalid")    # planned_config 格式错误: id={id}, error={error}
     DEPLOY_EXECUTE_FAILED = I18nKey("sdn.deploy_execute_failed")      # 配置下发失败: id={id}, command_index={command_index}, error={error}
+    # v3.0 sdn-vpc-netconf-schema-xml T3: 设备 platform 路由
+    DEVICE_PLATFORM_UNKNOWN = I18nKey("sdn.device_platform_unknown")  # 设备 platform 未知: model={model}, 既不在 LSTN 也不在 RSTN 白名单
 
 
 # ===== 集中导出（便于 import，支持 err.X 点访问） =====

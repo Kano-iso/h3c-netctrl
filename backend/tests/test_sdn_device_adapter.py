@@ -72,20 +72,20 @@ def test_get_template_unknown_action_raises_value_error():
     assert "unknown_action" in str(exc_info.value)
 
 
-def test_get_template_vpc_create_template_not_implemented():
-    """合法 action 但 Task 3 模板未实现时报 NotImplementedError
+def test_get_template_vpc_create_returns_template_instance():
+    """合法 action vpc_create → 返回 H3cV7VpcCreateTemplate 实例（v3.0 T3 已实现）
 
-    注: Task 3 已实现, 此测试验证回退路径 (如果 Task 3 文件被删)
+    v3.0 T3 重写 H3cV7VpcCreateTemplate 输出双套 payload，get_template 应正常返回实例
     """
     a = H3cV7Adapter()
-    # Task 3 已实现 → 应能正常返回模板实例
-    # 但我们仍验证它确实是 VPCConfigTemplate 子类
-    try:
-        tpl = a.get_template("vpc_create")
-        assert isinstance(tpl, VPCConfigTemplate)
-    except NotImplementedError:
-        # Task 3 模板未实现 (允许) — 不算测试失败
-        pytest.skip("Task 3 模板未实现, 跳过")
+    tpl = a.get_template("vpc_create")
+    assert isinstance(tpl, VPCConfigTemplate)
+    # v3.0 T3 适配：render 返 List[TemplateUnit]
+    from types import SimpleNamespace
+    vpc = SimpleNamespace(id=1, vni=20000, cidr="10.0.1.0/24", gateway_ip="10.0.1.1", gateway_mac="00-00-00-00-4e20-01", vsi_interface=1)
+    tenant = SimpleNamespace(rd="1:1", l3_vni=10000)
+    units = tpl.render({"vpc": vpc, "tenant": tenant})
+    assert len(units) == 5
 
 
 # ======================== get_adapter_for_model 工厂 ========================
