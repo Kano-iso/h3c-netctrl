@@ -27,7 +27,7 @@
 | **v2.6.0 i18n 中英双语** | ✅ 2026-07-06 (tag: v2.6.0) | vue-i18n v9 + 顶导「中 \| EN」切换 + localStorage 持久化 + **400+ 翻译 key（zh-CN + en-US）** + 后端 `APIResponse.error_key` schema 扩展（**BREAKING**） + 9 router 改造 + 26 后端单测 + 25 前端测试 | [archive/2026-07-06-v26-i18n](openspec/changes/archive/2026-07-06-v26-i18n/) + [RELEASE-NOTES-v2.6.0.md](RELEASE-NOTES-v2.6.0.md) + [docs/i18n-guide.md](docs/i18n-guide.md) |
 | **v2.6.1 bug 修复轮次** | ✅ 2026-07-07 (tag: v2.6.1) | 6 个子 change：资产陈旧自动降级 / 采集失败可读化 / split 密码解密修 / vite proxy 精确分发 / **备份数据完整性**（下载 404 + 启动自检 + commit refresh + expire_on_commit + dump_db 工具） / **资产备份状态同步**（offline 设备按钮 disabled + force 逃生 + `backups.forced` 审计字段） / 备份回滚 SFTP 根因定位 + 1 个 review 反思 | [RELEASE-NOTES-v2.6.1.md](RELEASE-NOTES-v2.6.1.md) + [REVIEW-v261-bugfix-round.md](docs/REVIEW-v261-bugfix-round.md) |
 | **v2.6.2 回滚预检 + 失败 UX** | ⏳ 2026-07-08 (待 tag v2.6.2) | 1 个 change：H3C V7 S6850 回滚无反应修复（probe + 端点 422 + paramiko 详细日志 + 前端 toast + 面板失败高亮 + `device.status.restore_unsupported` 字段）+ 1 review 反思 | [RELEASE-NOTES-v2.6.2.md](RELEASE-NOTES-v2.6.2.md) + [REVIEW-v262-bugfix-round-real-device-validation.md](docs/REVIEW-v262-bugfix-round-real-device-validation.md) |
-| **v3.0 VPC** | ⏳ PRD 初稿 | VPC + 端口随接随入 + 分布式网关状态闭环（SDN 起步） | [PRD-V3.0.md](PRD-V3.0.md)，v2.6.2 闭环后起 spec |
+| **v3.0 VPC** | 🚧 2026-07-16（sdn-vpc-netconf-schema-xml change 闭环） | SDN 业务下发通道（按 device.platform 路由）+ 端口随接随入 + 分布式网关状态闭环 | [PRD-V3.0.md](PRD-V3.0.md) + [archive/2026-07-16-sdn-vpc-netconf-schema-xml](openspec/changes/archive/2026-07-16-sdn-vpc-netconf-schema-xml/) |
 | **monitor** | ⏳ 远期 | 监控 / 告警 / dashboard 独立化 | 暂未起 spec |
 
 ---
@@ -170,7 +170,7 @@
 
 ---
 
-### v3.0 VPC（⏳ PRD 初稿）
+### v3.0 VPC（🚧 2026-07-16 sdn-vpc-netconf-schema-xml change 闭环）
 
 **目标**：SDN 起步，引入 VPC 能力、端口随接随入、分布式网关配置自动化与状态校验闭环。
 
@@ -180,13 +180,61 @@
 - v2.4.1 完成 3 容器拆分（ctrl + config + data，数据层独立）✅ 已发版
 - 容器解耦蓝图落地（已在 v2.1.x patch 预留，v2.4.1 实施）✅
 
-**预计 change**：
-- `sdn-vpc-prd-and-model` — VPC / 租户 / 端口绑定资源模型与 PRD/Spec 定稿
-- `sdn-vpc-foundation` — VPC 基础能力（创建 / 删除 / 绑定到交换机）
-- `sdn-vpc-device-templates` — H3C IP VPN / VSI / Vsi-interface / service-instance 模板
-- `sdn-l3vni-validation` — L3VNI、RD/RT、EVPN route、ARP/MAC 状态采集与校验
-- `sdn-port-binding` — 端口随接随入与端口状态可视化
-- `sdn-etcd-coordination` — 可选单节点 etcd / 轻量协调方案评估（不作为 P0 前置依赖）
+**已闭环 change**：
+
+| change-id | 状态 | 主题 | 关键产出 |
+|---|---|---|---|
+| `sdn-vpc-netconf-schema-xml` | ✅ 2026-07-16（42 commits push） | 业务下发通道选型 + 双套 payload 模板 + .5/.26 跨平台真机验证 | [archive](openspec/changes/archive/2026-07-16-sdn-vpc-netconf-schema-xml/) |
+
+**已闭环 change 详情（sdn-vpc-netconf-schema-xml）**：
+
+**业务下发通道最终定稿**（T1.13a-g 多轮探针，3 维证据链证实）：
+- **L3vpn/VRF/RD/RT** → schema 化 NETCONF XML（所有 H3C V7 设备）
+- **L2vpn/VSI/VXLAN/EVPN** → **按 device.platform 路由**：
+  - LSTN 老平台（.5/.177 S6850）→ **SSH 22 + paramiko 跑 system-view CLI**（T1.13g 推翻 CLI-over-NETCONF，因 ncclient 同步 reply 不可靠）
+  - RSTN 新平台（.26 V9850）→ schema 化 NETCONF XML
+- **SSH 22 CLI** → fallback（同时是 LSTN 主通道）
+- **RESTful / gRPC / Ansible** → 不投入（.5 设备业务 API 缺失 / gRPC 平台无 enable）
+
+**双套 payload 模板架构**（5 unit × 4 字段）：
+- `cli_commands`（LSTN 通道） + `xml_payloads`（RSTN 通道） + `undo_cli` + `undo_xml`
+- `vpc_create` 5 unit: VSI-L2 / EVPN / L3VPN / VSI-L3 / Global
+- `port_bind` 1 unit: service-instance + xconnect vsi（含 `encapsulation default` 跨平台兼容，T9 真机验证）
+
+**A 方案修复**（T8, 2026-07-16）：
+- RD 唯一性：1:{vni} 避免 VPC 间 RD 冲突
+- `vsi-l3` unit 用 `quit` 不用 `return`（避免退出 system-view 后续命令 Unrecognized）
+- MAC 地址用 H-H-H 格式（设备内部归一化）
+- SSH error_indicators 增强：识别 "The RD is used by another EVPN instance."（不带 `%` 前缀的业务级错误）
+- 内部 API platform 字段透传
+- Asset PUT/i18n error code 修复
+
+**跨平台真机验证**（.5 LSTN/SSH + .26 RSTN/NETCONF, 2026-07-16）：
+- vpc0001 业务命令 union 一致（vsi / vxlan 20000 / evpn encapsulation vxlan / RD 1:20000）
+- port_bind service-instance 1001 业务命令 union 一致（GE1/0/4 + HGE1/0/8）
+- **配置面 100% 一致**（数据面 .26 受限暂不验证，符合 user 指示"只管配置面"）
+
+**数据模型扩展**：
+- `Device.platform: Optional[str]` 字段（alembic 009 迁移幂等）
+- `SdnDeployment.unit: str` + `parent_deployment_id: Optional[int]` 字段（alembic 008 迁移幂等）
+
+**回归**：
+- 73 SDN 单测全过
+- 全量 432 PASS / 3 pre-existing FAIL（async_backup + split_integration, 与本 change 无关）
+- 42 commits push to origin/main（e5b2e61..5690d60）
+
+**待推进 change**：
+
+| change-id | 主题 | 状态 |
+|---|---|---|
+| `sdn-vpc-prd-and-model` | 数据模型、术语、PRD/Spec 定稿 | ⏳ 后续 |
+| `sdn-vpc-foundation` | 租户/VPC CRUD、Alembic、配置计划生成 | ⏳ 后续 |
+| `sdn-l3vni-validation` | L3VNI、RD/RT、EVPN route、ARP/MAC 状态采集与校验 | ⏳ 后续 |
+| `sdn-port-binding` | 端口随接随入与端口状态可视化 | ⏳ 后续 |
+| `sdn-gateway-fallback` | 单设备单 VPC 集中式网关降级/恢复与排障校验 | ⏳ 后续 |
+| `sdn-visual-overview` | 前端大屏、端口矩阵、VPC 详情 | ⏳ 后续 |
+| `sdn-ops-toolkit-probes` | ops-toolkit 增加 VPC/EVPN 专用探测 | ⏳ 后续 |
+| `sdn-etcd-coordination` | 可选单节点 etcd / 轻量协调方案评估（不作为 P0 前置依赖） | ⏳ 远期 |
 
 ---
 

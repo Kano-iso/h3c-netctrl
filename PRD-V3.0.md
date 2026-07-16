@@ -371,17 +371,17 @@ V3.0 不建议一个巨型 change 完成，建议拆为：
 
 ### 8.1 建议推进顺序
 
-| 顺序 | change-id | 为什么先做 |
-|---|---|---|
-| 1 | `sdn-vpc-prd-and-model` | 统一术语、模型、编号策略和待验证问题，避免后续多人并行时各自理解不同 |
-| 2 | `sdn-vpc-foundation` | 建立后端资源、配置计划与最小 API，给后续模板和前端提供稳定入口 |
-| 3 | `sdn-vpc-device-templates` | 固化 H3C 配置模板与 dry-run / planned_config 机制 |
-| 4 | `sdn-l3vni-validation` | 先把分布式网关最容易错的 RD/RT/L3VNI 校验跑通 |
-| 5 | `sdn-port-binding` | 落地随接随入的端口绑定主流程 |
-| 6 | `sdn-gateway-fallback` | 补排障降级能力，便于后续真实设备定位问题 |
-| 7 | `sdn-visual-overview` | 在后端闭环稳定后做前端大屏和详情页 |
-| 8 | `sdn-ops-toolkit-probes` | 按真实调试痛点补工具，不提前发散 |
-| 9 | `sdn-etcd-coordination` | 等 P0 流程跑通后再判断是否需要独立协调层 |
+| 顺序 | change-id | 为什么先做 | 状态 |
+|---|---|---|---|
+| 1 | `sdn-vpc-prd-and-model` | 统一术语、模型、编号策略和待验证问题，避免后续多人并行时各自理解不同 | ⏳ 后续 |
+| 2 | `sdn-vpc-foundation` | 建立后端资源、配置计划与最小 API，给后续模板和前端提供稳定入口 | ⏳ 后续 |
+| 3 | `sdn-vpc-device-templates` | 固化 H3C 配置模板与 dry-run / planned_config 机制 | 🚧 **部分闭环**（`sdn-vpc-netconf-schema-xml` change 已完成：业务下发通道选型 + 双套 payload 模板 + .5/.26 跨平台真机验证，42 commits push 2026-07-16） |
+| 4 | `sdn-l3vni-validation` | 先把分布式网关最容易错的 RD/RT/L3VNI 校验跑通 | ⏳ 后续 |
+| 5 | `sdn-port-binding` | 落地随接随入的端口绑定主流程 | ⏳ 后续 |
+| 6 | `sdn-gateway-fallback` | 补排障降级能力，便于后续真实设备定位问题 | ⏳ 后续 |
+| 7 | `sdn-visual-overview` | 在后端闭环稳定后做前端大屏和详情页 | ⏳ 后续 |
+| 8 | `sdn-ops-toolkit-probes` | 按真实调试痛点补工具，不提前发散 | ⏳ 后续 |
+| 9 | `sdn-etcd-coordination` | 等 P0 流程跑通后再判断是否需要独立协调层 | ⏳ 远期 |
 
 ### 8.2 每个 OpenSpec change 必须说明
 
