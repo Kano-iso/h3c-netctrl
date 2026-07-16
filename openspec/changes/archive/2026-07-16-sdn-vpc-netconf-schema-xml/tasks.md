@@ -48,6 +48,7 @@
 - [x] **T6** (2026-07-15) .5/.26 真机对比验证（双套 payload running-config 一致性 + 跨平台业务命令 union 一致）
 - [x] **T7** (2026-07-16) 单测补全 + .5/.26 设备 undo 恢复 + 初始态确认
 - [x] **T8** (2026-07-16) A 方案修复：RD 唯一性 + SSH error_indicators 增强 + 内部 API platform 字段透传
+- [x] **T9** (2026-07-16) 跨平台 port_bind 真机验证 + encapsulation default 修正
 
 ---
 
@@ -398,6 +399,137 @@
 - 单测发现 Asset PUT API 处理 platform 字段时有 bug → 修
 
 **依赖**：T6 真机验证
+**已完成**
+
+---
+
+## T9: 跨平台 port_bind 真机验证 + encapsulation default 修正 ✅ (2026-07-16)
+
+**目的**：在 .5 (LSTN) 和 .26 (RSTN) 双平台真机下发 port_bind，验证：
+- 双平台 service-instance + xconnect vsi 命令序列一致
+- 发现并修正模板中缺失的 `encapsulation default` 命令
+- 修正错误的 `xconnect vsi <name> access` 关键字（H3C V7 实际是默认 access-mode `<cr>`，不是 `access`）
+
+**前置修复（T6 漏掉的）**：
+- T6 验证 vpc_create 时未做 port_bind 真机测试，模板里的 `xconnect vsi <name> access` 在 .5 设备实测报错：
+  ```
+  xconnect vsi vpc0001 access
+                  ^
+   % Unrecognized command found at '^' position.
+  ```
+- .5 `xconnect vsi vpc0001 ?` 探针显示实际选项：`access-mode` / `track` / `<cr>`
+- `<cr>` 即默认 access-mode（`xconnect vsi vpc0001` 不写 access-mode 关键字即可）
+- .5 设备进一步报 `Please configure the encapsulation first.` → 必须先 `encapsulation` 才能 `xconnect`
+
+**T9.1 encapsulation 探针**（v3.0 真机 T9 实证）
+
+**.5 (S6850, LSTN) encapsulation 选项**：
+```
+encapsulation ?
+  default   Match the packets that unmatch with any other criteria
+  s-vid     Match service VLAN tags
+  tagged    Match tagged packets
+  untagged  Match untagged packets
+```
+
+**.26 (V9850, RSTN) encapsulation 选项**：
+```
+encapsulation ?
+  c-vid     Match customer VLAN tags
+  default   Match the packets that unmatch with any other criteria
+  s-vid     Match service VLAN tags
+  tagged    Match tagged packets
+  untagged  Match untagged packets
+```
+
+- 跨平台共有 `default / s-vid / tagged / untagged`
+- `.26` 多一个 `c-vid`（RSTN 新芯片支持的 customer VLAN ID 匹配，service-instance 模式可选）
+- 统一用 `encapsulation default`（最宽松匹配，符合 EVPN service-instance 语义）
+
+**T9.2 模板修正**
+
+修改 `backend/app/services/templates/h3c_v7_port_bind.py`：
+- `cli_commands`：在 `service-instance` 和 `xconnect vsi` 之间插入 `encapsulation default`
+- `xml_payloads`：在 `<ServiceInstance>` 子元素中加 `<Encapsulation>default</Encapsulation>`
+- 删除错误的 `access` 关键字 → `xconnect vsi {vsi_name}`（默认 access-mode）
+- 删除 `<XConnectVsi>` 内的 `<AccessMode>access</AccessMode>`（schema 不接受此字段在 V9850 上）
+
+修改 `backend/tests/test_templates_h3c_v7.py` 和 `backend/tests/test_vpc_config_planner.py`：
+- `test_render_with_service_instance` / `test_plan_port_bind_with_service_instance` 改为断言 `encapsulation default` + `xconnect vsi vpc0001`（无 `access`）
+
+**T9.3 真机验证（应用户 2026-07-16 确认 .26 网络恢复后执行）**
+
+**.5 (LSTN, S6850 R6555) GE1/0/4 port_bind**：
+- 清理：先前残留的 `service-instance 1001`（无 xconnect）先 undo
+- 下发 CLI 序列：`system-view` → `interface GE1/0/4` → `service-instance 1001` → `encapsulation default` → `xconnect vsi vpc0001` → `return`
+- 验证：`display current-configuration interface GE1/0/4` 看到完整 4 行配置
+
+**.26 (RSTN, V9850 R7643P02) HGE1/0/8 port_bind**：
+- 避开 120101（HGE1/0/1, 管理 IP 接口）→ 用 HGE1/0/8（DOWN 状态，符合 SdnPreflight 要求）
+- 前置 enable：`l2vpn enable`（RSTN 必须先 enable，.5 不需要）
+- 前提：vpc0001 已存在 → 走最小可工作 vpc_create：`vsi vpc0001 / vxlan 20000 / evpn encapsulation vxlan / route-distinguisher 1:20000`
+- 下发 CLI 序列：`system-view` → `interface HGE1/0/8` → `port link-mode bridge`（[Y/N] 二次确认） → `service-instance 1001` → `encapsulation default` → `xconnect vsi vpc0001` → `return`
+- 验证：`display current-configuration interface HGE1/0/8` 看到完整配置
+
+**T9.4 跨平台 running-config 对比（业务命令 union 一致）**
+
+**.5 vpc0001 配置**：
+```
+vsi vpc0001
+ gateway vsi-interface 1000
+ vxlan 20000
+ evpn encapsulation vxlan
+  route-distinguisher 1:20000
+```
+
+**.26 vpc0001 配置**：
+```
+vsi vpc0001
+ vxlan 20000
+ evpn encapsulation vxlan
+  route-distinguisher 1:20000
+```
+
+- ✅ 业务命令 union 一致：`vsi / vxlan / evpn encapsulation vxlan / route-distinguisher`
+- ⚠️ .5 多 `gateway vsi-interface 1000`（因 .5 有 Vsi-interface1000 完整 L3 配置，.26 仅做配置面验证未建 Vsi-interface）—— **不影响跨平台语义一致性**，符合用户"只管配置面"诉求
+
+**.5 GE1/0/4 port_bind 配置**：
+```
+interface GigabitEthernet1/0/4
+ port link-mode bridge
+ combo enable fiber
+ service-instance 1001
+  encapsulation default
+  xconnect vsi vpc0001
+```
+
+**.26 HGE1/0/8 port_bind 配置**：
+```
+interface HundredGigE1/0/8
+ port link-mode bridge
+ service-instance 1001
+  encapsulation default
+  xconnect vsi vpc0001
+```
+
+- ✅ 业务命令 union 完全一致：`port link-mode bridge / service-instance / encapsulation default / xconnect vsi vpc0001`
+- ⚠️ .5 多 `combo enable fiber`（接口硬件特定，光纤口开关）—— 不影响 SDN 绑定语义
+
+**T9.5 单测回归**
+
+- `tests/test_templates_h3c_v7.py` 27 tests PASS
+- `tests/test_vpc_config_planner.py` 16 tests PASS
+- `tests/` 全量：432 PASS / 3 FAIL（3 个失败 = async_backup + split_integration，与本 change 无关，pre-existing 失败）
+- SDN 相关 73 单测全过（无回归）
+
+**T9.6 结论**
+
+- 模板 v3 (encapsulation default + 默认 access-mode) 真机验证通过
+- 跨平台业务命令 union 完全一致（vpc_create + port_bind）
+- 数据面 EVPN/ARP 路由学习按用户要求**不在 v3.0 范围**（.26 无 EVPN 对等 + 设备已配置 l2vpn enable 但未做 BGP peer）
+- T9 完成，change 可继续走 archive 闭环
+
+**依赖**：T8 修复
 **已完成**
 
 ---

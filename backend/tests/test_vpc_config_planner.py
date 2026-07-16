@@ -149,7 +149,11 @@ def test_plan_vpc_delete_no_l3vpn_no_global(planner, vpc):
 # ======================== plan_port_bind ========================
 
 def test_plan_port_bind_with_service_instance(planner, vpc):
-    """service_instance 非空 → Mode 1（1 unit, 含 xconnect vsi access）"""
+    """service_instance 非空 → Mode 1（1 unit, 含 xconnect vsi）
+
+    v3.0 T9 真机验证: H3C V7 必须先 `encapsulation default` 再 `xconnect vsi <name>`,
+    且 xconnect 默认 access-mode（不写 `access` 关键字）
+    """
     binding = SimpleNamespace(
         interface_name="GigabitEthernet1/0/14",
         service_instance=1001,
@@ -159,7 +163,8 @@ def test_plan_port_bind_with_service_instance(planner, vpc):
     assert len(units) == 1
     text = _cli_text(units)
     assert "service-instance 1001" in text
-    assert "xconnect vsi vpc0001 access" in text
+    assert "encapsulation default" in text  # v3.0 T9: 必须先 encapsulation
+    assert "xconnect vsi vpc0001" in text  # 默认 access-mode（不写 `access`）
     assert "port access vlan" not in text  # 不走 fallback
 
 

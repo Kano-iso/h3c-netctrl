@@ -191,10 +191,12 @@ class H3cV7VpcCreateTemplate(VPCConfigTemplate):
         ]
 
         # XML (RSTN) — 2 条 payload: VSI + VsiInterface（不同子树，分开下发更稳）
+        # v3.0 T9 真机验证: <VxlanID> 必须嵌套在 <VXLAN> 下, 不能作为 <VSI> 直接子元素
+        # (设备 .26 schema 直接拒: Unexpected element '...':'VxlanID' under '.../VSI')
         xml_vsi = _wrap_rstn_xml(
             f"<L2VPN><VSIs><VSI>"
             f"<VsiName>{vsi_name}</VsiName>"
-            f"<VxlanID>{vxlan_id}</VxlanID>"
+            f"<VXLAN><VxlanID>{vxlan_id}</VxlanID></VXLAN>"
             f"</VSI></VSIs></L2VPN>"
         )
         xml_vsi_iface = _wrap_rstn_xml(
@@ -213,7 +215,7 @@ class H3cV7VpcCreateTemplate(VPCConfigTemplate):
             _wrap_rstn_xml(
                 f"<L2VPN><VSIs><VSI>"
                 f"<VsiName>{vsi_name}</VsiName>"
-                f"<VxlanID>{vxlan_id}</VxlanID>"
+                f"<VXLAN><VxlanID>{vxlan_id}</VxlanID></VXLAN>"
                 f"</VSI></VSIs></L2VPN>",
                 operation=H3C_V7_OP_DELETE,
             ),

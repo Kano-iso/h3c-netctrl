@@ -262,7 +262,11 @@ class TestVpcDeleteTemplate:
 
 class TestPortBindTemplate:
     def test_render_with_service_instance(self, vpc):
-        """service_instance 非空 → Mode 1（1 unit, 含 xconnect vsi）"""
+        """service_instance 非空 → Mode 1（1 unit, 含 xconnect vsi）
+
+        v3.0 T9 真机验证: H3C V7 必须先 `encapsulation default` 再 `xconnect vsi <name>`,
+        且 xconnect 默认 access-mode（不写 `access` 关键字）
+        """
         binding = SimpleNamespace(
             interface_name="GigabitEthernet1/0/14",
             service_instance=1001,
@@ -274,7 +278,8 @@ class TestPortBindTemplate:
         assert units[0].name == UNIT_PORT_BIND
         text = "\n".join(units[0].cli_commands)
         assert "service-instance 1001" in text
-        assert "xconnect vsi vpc0001 access" in text
+        assert "encapsulation default" in text  # v3.0 T9: 必须先 encapsulation
+        assert "xconnect vsi vpc0001" in text  # 默认 access-mode（不写 `access`）
         assert "port access vlan" not in text  # 不走 fallback
 
     def test_render_with_access_vlan_fallback(self, vpc):

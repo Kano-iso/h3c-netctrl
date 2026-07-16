@@ -67,7 +67,7 @@ class H3cV7PortBindTemplate(VPCConfigTemplate):
 
     Output:
       1 个 TemplateUnit（port-bind）：
-      - Mode 1 (service_instance): service-instance + xconnect vsi access
+      - Mode 1 (service_instance): service-instance + encapsulation default + xconnect vsi {vsi_name}（默认 access-mode）
       - Mode 2 (access_vlan):       port access vlan {vlan_id}
     """
 
@@ -101,11 +101,12 @@ class H3cV7PortBindTemplate(VPCConfigTemplate):
     ) -> TemplateUnit:
         """Mode 1: service-instance + xconnect vsi（EVPN 标准）
 
-        CLI (LSTN):
+        CLI (LSTN/RSTN):
             interface GigabitEthernet1/0/14
               port link-mode bridge
               service-instance 1001
-                xconnect vsi vpc0001 access
+                encapsulation default
+                xconnect vsi vpc0001
 
         XML (RSTN):
             <Interfaces><Interface>
@@ -114,19 +115,29 @@ class H3cV7PortBindTemplate(VPCConfigTemplate):
               <ServiceInstances>
                 <ServiceInstance>
                   <ID>1001</ID>
+                  <Encapsulation>default</Encapsulation>
                   <XConnectVsi>
                     <VsiName>vpc0001</VsiName>
-                    <AccessMode>access</AccessMode>
                   </XConnectVsi>
                 </ServiceInstance>
               </ServiceInstances>
             </Interface></Interfaces>
+
+        Note:
+            - v3.0 T9 真机验证（2026-07-16 .5 LSTN + .26 RSTN）:
+              - xconnect vsi <name> 后跟 `access-mode` 关键字（不是 `access`）
+              - 默认模式 <cr> 即为 access（H3C V7 默认 access-mode）
+              - 必须先 `encapsulation` 才能 `xconnect`（"Please configure the encapsulation first."）
+              - S6850 (.5) encapsulation 选项: default / s-vid / tagged / untagged
+              - V9850 (.26) encapsulation 选项: c-vid / default / s-vid / tagged / untagged
+              - 跨平台统一用 `encapsulation default`（最宽松的匹配，符合 EVPN service-instance 语义）
         """
         cli = [
             f"interface {iface}",
             "  port link-mode bridge",
             f"  service-instance {service_instance}",
-            f"    xconnect vsi {vsi_name} access",
+            "    encapsulation default",
+            f"    xconnect vsi {vsi_name}",
         ]
 
         xml = [
@@ -137,9 +148,9 @@ class H3cV7PortBindTemplate(VPCConfigTemplate):
                 f"<ServiceInstances>"
                 f"<ServiceInstance>"
                 f"<ID>{service_instance}</ID>"
+                f"<Encapsulation>default</Encapsulation>"
                 f"<XConnectVsi>"
                 f"<VsiName>{vsi_name}</VsiName>"
-                f"<AccessMode>access</AccessMode>"
                 f"</XConnectVsi>"
                 f"</ServiceInstance>"
                 f"</ServiceInstances>"
