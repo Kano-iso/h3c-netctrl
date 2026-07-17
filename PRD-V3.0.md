@@ -3,6 +3,34 @@
 | 版本 | 日期 | 作者 | 说明 |
 |---|---|---|---|
 | V3.0 Draft | 2026-07-08 | Codex + 用户共创 | V3.0 PRD 初稿，定义 VPC/SDN 起步能力、端口随接随入、分布式网关配置自动化、状态校验闭环与前端可视化方向 |
+| V3.0 补充 | 2026-07-18 | 用户拍板 | **v3.0 仅交付骨架**（业务下发通道 + 双套 payload 模板 + 跨平台真机验证，已 tag v3.0.0），原 §8 列的 7 个子能力按新规划拆到 v3.1.1 / v3.2 / v3.3 / v3.4 大版本。详见 [VERSION-ROADMAP.md](VERSION-ROADMAP.md) §1 全景表 + §3 详细版本史 |
+
+---
+
+## 0. v3.0 实际交付范围 + 后续拆分（2026-07-18 补充）
+
+**v3.0.0 实际交付**（已 tag v3.0.0）：
+
+- ✅ 业务下发通道（按 device.platform 路由 LSTN→SSH 22 / RSTN→schema 化 NETCONF）
+- ✅ 双套 payload 模板（5 unit × 4 字段：cli_commands + xml_payloads + undo_cli + undo_xml）
+- ✅ 跨平台真机验证（.5 LSTN/SSH + .26 RSTN/NETCONF 配置面 100% 一致）
+- ✅ 73 SDN 单测全过 + 全量 432 PASS / 3 pre-existing FAIL
+- ✅ 42 commits push to origin/main
+
+**v3.0 PRD 7 个子能力按新规划拆到**（详见 §8 + [VERSION-ROADMAP.md §1](VERSION-ROADMAP.md)）：
+
+| 原 change | 归属大版本 |
+|---|---|
+| `sdn-vpc-prd-and-model` | **v3.2**（VPC 全能力验证时一起做）|
+| `sdn-vpc-foundation` | **v3.2**（VPC 全能力验证时做）|
+| `sdn-port-binding` | **v3.2**（VPC 全能力验证时做）|
+| `sdn-l3vni-validation` | **v3.2**（VPC 全能力验证时做）|
+| `sdn-gateway-fallback` | **v3.3**（剩余 VPC 能力）|
+| `sdn-visual-overview` | **v3.4**（前端集中做）|
+| `sdn-ops-toolkit-probes` | **v3.4**（工具随前端）|
+| `sdn-etcd-coordination` | **v3.5 远期** |
+
+每个大版本的具体蓝图见 [PRD-V3.1.md](PRD-V3.1.md) / [PRD-V3.2.md](PRD-V3.2.md) / [PRD-V3.3.md](PRD-V3.3.md) / [PRD-V3.4.md](PRD-V3.4.md)。
 
 ---
 
