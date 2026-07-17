@@ -28,6 +28,7 @@
 | **v2.6.1 bug 修复轮次** | ✅ 2026-07-07 (tag: v2.6.1) | 6 个子 change：资产陈旧自动降级 / 采集失败可读化 / split 密码解密修 / vite proxy 精确分发 / **备份数据完整性**（下载 404 + 启动自检 + commit refresh + expire_on_commit + dump_db 工具） / **资产备份状态同步**（offline 设备按钮 disabled + force 逃生 + `backups.forced` 审计字段） / 备份回滚 SFTP 根因定位 + 1 个 review 反思 | [RELEASE-NOTES-v2.6.1.md](RELEASE-NOTES-v2.6.1.md) + [REVIEW-v261-bugfix-round.md](docs/REVIEW-v261-bugfix-round.md) |
 | **v2.6.2 回滚预检 + 失败 UX** | ⏳ 2026-07-08 (待 tag v2.6.2) | 1 个 change：H3C V7 S6850 回滚无反应修复（probe + 端点 422 + paramiko 详细日志 + 前端 toast + 面板失败高亮 + `device.status.restore_unsupported` 字段）+ 1 review 反思 | [RELEASE-NOTES-v2.6.2.md](RELEASE-NOTES-v2.6.2.md) + [REVIEW-v262-bugfix-round-real-device-validation.md](docs/REVIEW-v262-bugfix-round-real-device-validation.md) |
 | **v3.0 VPC** | 🚧 2026-07-16（sdn-vpc-netconf-schema-xml change 闭环） | SDN 业务下发通道（按 device.platform 路由）+ 端口随接随入 + 分布式网关状态闭环 | [PRD-V3.0.md](PRD-V3.0.md) + [archive/2026-07-16-sdn-vpc-netconf-schema-xml](openspec/changes/archive/2026-07-16-sdn-vpc-netconf-schema-xml/) |
+| **v3.1 ZTP 调研** | 🚧 2026-07-18（v31-ztp-research change 闭环，**决策 B 精简 ZTP**，无新功能落地） | H3C V7 ZTP 可行性调研 + 独立 ztp-server 容器（alpine + dnsmasq 二合一） + autocfg.cfg 模板（T7064P15 验证通过）+ 后续 v3.1.1/v3.1.2/v3.1.3 计划 | [RELEASE-NOTES-v3.1.0.md](RELEASE-NOTES-v3.1.0.md) + [archive/2026-07-18-v31-ztp-research](openspec/changes/archive/2026-07-18-v31-ztp-research/) |
 | **monitor** | ⏳ 远期 | 监控 / 告警 / dashboard 独立化 | 暂未起 spec |
 
 ---
@@ -247,6 +248,73 @@
 - 监控需求明确（目前用户未提出）
 
 **注意**：目前监控诉求弱（用户原话："监控将来一定是个大东西"），暂不主动起 change。
+
+---
+
+### v3.1 ZTP 调研（✅ 2026-07-18 tag: v3.1.0）
+
+**主题**：H3C V7 设备 ZTP（Zero Touch Provisioning）调研 + 基建容器。本 change **无新功能落地**，仅完成可行性评估 + 决策 + 基建。
+
+**调研结论**：
+
+| 阶段 | 状态 | 结论 |
+|---|---|---|
+| T1 文档调研 | ✅ | H3C 官方 VCF ZTP 仅 S6805/S6825/S6850/V9850/S9820 + R6607+ 支持；本项目 3 设备多数不满足 |
+| T2 真机探针 | ✅ | 3 设备 `ztp enable` / `display ztp status` / `display ztp history` 全部 Unrecognized |
+| T1 后期新发现 | ✅ | H3C V7 还有"自动配置"功能（autocfg.cfg），不依赖 VCF ZTP 命令，理论上所有 V7 支持 |
+| T3 基建 | ✅ | 独立 `ztp-server` 容器（alpine + dnsmasq 二合一，`network_mode: host`）|
+| T4 真机验证 | ✅ | .177 T7064P15 attempt 2 完整链路通：DHCP → TFTP → 执行 → "successfully completed" |
+| T5 决策 | ✅ | **决策 B（精简 ZTP）**：保留 ztp-server 容器 + autocfg.cfg 模板精简 |
+
+**autocfg.cfg 模板精简**（T7064P15 验证通过）：
+
+```h3c
+sysname ztp-device
+ssh server enable
+local-user admin class manage
+ password simple admin
+ service-type ssh terminal
+ authorization-attribute user-role network-admin
+ authorization-attribute user-role level-15
+quit
+user-interface vty 0 15
+ authentication-mode scheme
+ protocol inbound ssh
+quit
+netconf ssh server enable
+password-control login-password-change disable
+save force
+```
+
+**T4 实证关键发现**：
+- ✅ autocfg 机制**完全工作**：attempt 2 链路通（DHCP → TFTP → 执行 → "successfully completed"）
+- ✅ autocfg.cfg 模板**大部分生效**：sysname / local-user / ssh / netconf / save force
+- ⚠️ **唯一不生效**：Vlan1 IP 配置行（`ip gateway` T7064P15 Unrecognized + Vlan1 因无物理接口 up 而 down）
+- ⚠️ **副作用**：H3C V7 默认首次 SSH 登录强制改密（autocfg.cfg 模板加 `password-control login-password-change disable` 关改密）
+- ✅ **autocfg 机制自动处理 OOB 口 + DHCP client**：attempt 2 自动 enable M-GE 0/0/0 + DHCP 拿 IP
+
+**变更清单**：
+- `docker/ztp-stack/`：新独立容器（alpine + dnsmasq 二合一）
+- `docker/ztp-stack/tftp/autocfg.cfg.template`：精简版（删 IP 配置 + 加关改密）
+- `docker/ztp-stack/entrypoint.sh`：模板渲染（env vars → dnsmasq.conf + autocfg.cfg）
+- `docker-compose.dev.yml`：新增 ztp-server 服务（`profiles: ["ops"]` + `network_mode: host`）
+- `.env.example`：ZTP_* 变量定义
+- `docs/ztp-stack.md`：容器使用文档 + 真机验证 SOP
+
+**后续 change 计划**（**未启动，等 user 决策**）：
+
+| Change | 范围 | 状态 |
+|---|---|---|
+| v3.1.1 ztp-landing | autocfg.cfg 模板适配多平台（.5 R6555 / .26 R7643P02 / .177 T7064P15）+ 容器稳定性测试 | ⏳ 待 user 启动 |
+| v3.1.2 ztp-auto-onboard | controller 监听 DHCP lease → 主动 SSH 纳管 + 推业务 IP + 同步资产 | ⏳ 待 user 启动 |
+| v3.1.3 ztp-asset-sync | 资产自动可见（前端可查，无需手动 `POST /api/devices`）| ⏳ 待 user 启动 |
+
+**用户愿景**（2026-07-17 02:13 + 2026-07-18）：
+> "ZTP 阶段只做基础配置（SSH 22 + 带外 IP + NETCONF 830 + 凭据），不做业务配置（VPC / 端口绑定 / 路由协议 / 业务 VLAN），不做配置联动（ZTP 完成后由 controller 推业务配置）"
+>
+> "白屏用户能不用做任何的操作，就能看他上线（自动上线）" —— v3.1.2/v3.1.3 实现
+
+**回退**：v3.1.1 真机验证失败（多平台不兼容）→ 决策 C 重新评估。
 
 ---
 
