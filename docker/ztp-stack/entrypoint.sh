@@ -12,10 +12,8 @@ TFTP_DIR="/var/tftp"
 DNSMASQ_CONF="/etc/dnsmasq.conf"
 
 # 默认值（可被 env vars 覆盖）
+# autocfg.cfg 模板只用 sysname + 凭据（IP 由自动配置机制 OOB DHCP 临时处理, 不持久）
 ZTP_SYSNAME="${ZTP_SYSNAME:-ztp-device}"
-ZTP_MGMT_IP="${ZTP_MGMT_IP:-192.168.100.10}"
-ZTP_MGMT_MASK="${ZTP_MGMT_MASK:-255.255.255.0}"
-ZTP_MGMT_GATEWAY="${ZTP_MGMT_GATEWAY:-192.168.100.1}"
 ZTP_ADMIN_USER="${ZTP_ADMIN_USER:-admin}"
 ZTP_ADMIN_PASS="${ZTP_ADMIN_PASS:-admin}"
 ZTP_HOST_IP="${ZTP_HOST_IP:-127.0.0.1}"
@@ -36,9 +34,6 @@ sed \
 echo "=== 渲染 autocfg.cfg ==="
 sed \
     -e "s|\${ZTP_SYSNAME}|${ZTP_SYSNAME}|g" \
-    -e "s|\${ZTP_MGMT_IP}|${ZTP_MGMT_IP}|g" \
-    -e "s|\${ZTP_MGMT_MASK}|${ZTP_MGMT_MASK}|g" \
-    -e "s|\${ZTP_MGMT_GATEWAY}|${ZTP_MGMT_GATEWAY}|g" \
     -e "s|\${ZTP_ADMIN_USER}|${ZTP_ADMIN_USER}|g" \
     -e "s|\${ZTP_ADMIN_PASS}|${ZTP_ADMIN_PASS}|g" \
     /var/tftp/autocfg.cfg.template > "$TFTP_DIR/autocfg.cfg"

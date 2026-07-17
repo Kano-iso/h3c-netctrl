@@ -385,6 +385,33 @@ T5 任务完成后，本节填入：
 > **决策重置**（2026-07-17）：原"决策 C"基于"3 设备 VCF ZTP 命令 Unrecognized"得出，但 H3C V7 还有更基础的"自动配置"功能（autocfg.cfg）—— **不依赖 VCF ZTP 命令**，空配置启动自动触发。决策 C 不再适用，重做 T3-T5。
 >
 > 用户 2026-07-17 03:50 指示："开新容器做 ZTP server" → 解决 Controller 侧基建缺失。
+>
+> **决策重置**（2026-07-18，T4 实证后）：autocfg.cfg 模板**几乎全工作**（sysname / local-user / netconf / ssh / save force 都生效），仅 Vlan1 IP 那行 Unrecognized。决策从 C 调整为 **B（精简 ZTP）**：保留 ztp-server 容器 + autocfg.cfg 模板精简（删 IP 配置 + 加 `password-control login-password-change disable`）。
+
+### 3.4 最终决策（2026-07-18）
+
+- **选项**：**B**（精简 ZTP）
+- **理由**：
+  1. ✅ **autocfg 机制完全工作**：T4 实证 attempt 2 完整链路通（DHCP → TFTP → 执行 → "successfully completed"）
+  2. ✅ **autocfg.cfg 模板大部分生效**：sysname / local-user / ssh / netconf / save force 全工作（详见 [notes.md §5.2](../v31-ztp-research/notes.md)）
+  3. ⚠️ **唯一不生效**：Vlan1 IP 配置行（`ip gateway` 在 T7064P15 平台不支持，Vlan1 也因无物理接口 up 而 down）
+  4. ⚠️ **副作用**：H3C V7 默认首次 SSH 登录强制改密，ZTP 配的密码不能直接纳管
+  5. ✅ **autocfg 机制自动处理 OOB 口 + DHCP client**：attempt 2 自动 enable M-GE 0/0/0 + DHCP 拿 IP，**autocfg.cfg 模板不需要管 IP**
+- **决策 B 含义**：
+  - ✅ 保留 `ztp-server` 容器（DHCP + TFTP 基建完整）
+  - ✅ 简化 `autocfg.cfg` 模板：删 IP 配置 + 加 `password-control login-password-change disable` + 加 sysname / SSH / NETCONF / save
+  - ✅ 设备 IP 由 autocfg 机制 OOB DHCP 自动拿（pool .200-.250, lease 12h）
+  - ⏳ 远期 v3.1.1 才考虑适配多平台（.5 / .26 / .177 各一份模板）+ 适配商用 R6607+ 设备（届时可配静态 IP）
+  - ⏳ 远期 v3.1.2 才做"controller 主动 SSH 纳管 + 推业务 IP"
+  - ⏳ 远期 v3.1.3 才做"资产自动可见"
+- **下一步**：
+  1. ✅ Commit 3：T4 真机验证成功 + autocfg.cfg 模板修订（精简版 + 关改密）
+  2. ⏳ Commit 4：T5 决策 B + archive + 同步 3 处 A 类文档
+  3. ⏳ 等 user 启动后续 v3.1.1 change（ztp 落地 + 多平台适配）
+- **回退条件**：
+  - v3.1.1 真机验证失败（多平台不兼容）→ 决策 C 重新评估
+  - v3.1.1 投入产出比不划算（autocfg.cfg 模板适配成本高）→ 决策 C
+  - user 主动选择 C → 直接 archive 后续 change 计划
 
 ## 4. 风险与边界
 

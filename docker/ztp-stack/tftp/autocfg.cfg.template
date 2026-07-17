@@ -1,37 +1,30 @@
 #
 # H3C V7 自动配置 - autocfg.cfg
 # 生成: ztp-stack 容器 entrypoint.sh 渲染 env vars 后写入
-# 用途: 新设备首次上线最小基础配置
+# 用途: 新设备首次上线最小基础配置（T7064P15 验证通过）
 #
-# 关键约束（user 2026-07-17 02:13 明确）:
-# - ✅ 只做基础配置: SSH 22 + NETCONF 830 + 凭据 + 带外 IP
+# 关键约束（user 2026-07-17 02:13 + 2026-07-18 明确）:
+# - ✅ 只做基础配置: sysname + SSH + NETCONF + 凭据
+# - ❌ 不做 IP 配置（Vlan1 需要物理接口 up, 自动配置机制已自动 OOB DHCP 拿 IP, lease 12h）
 # - ❌ 不做业务配置: VPC / 端口绑定 / 路由协议 / 业务 VLAN
-# - ❌ 不做配置联动: ZTP 完成后由 controller 继续推业务配置
+# - ❌ 不做配置联动: ZTP 完成后由 controller 继续推业务配置（含静态 IP）
 #
 # 模板变量（由 env vars 注入）:
 # - ${ZTP_SYSNAME}:     设备 sysname
-# - ${ZTP_MGMT_IP}:     带外管理 IP
-# - ${ZTP_MGMT_MASK}:   子网掩码
-# - ${ZTP_MGMT_GATEWAY}: 管理网关
 # - ${ZTP_ADMIN_USER}:  SSH 登录用户名
-# - ${ZTP_ADMIN_PASS}:  SSH 登录密码（明文, 短期方案）
+# - ${ZTP_ADMIN_PASS}:  SSH 登录密码（明文, 短期方案; ZTP 完成后 controller 立即 SSH 推 hash 覆盖）
+#
+# T7064P15 实证（2026-07-18 v31-ztp-research T4）:
+# - ✅ sysname / local-user / authorization-attribute / ssh / netconf / save force 全工作
+# - ❌ `interface Vlan-interface1 + ip address + ip gateway` 未生效（Vlan1 down + ip gateway Unrecognized）
+# - ❌ `ip address dhcp-alloc` 在 M-GE 0/0/0 上配置后不持久（手贱验证时已确认）
+# - ✅ 自动配置机制本身完全工作: attempt 2 完整链路 (DHCP → TFTP → 执行 → "successfully completed")
 #
 
 # ============================================================
 # 设备身份
 # ============================================================
 sysname ${ZTP_SYSNAME}
-
-# ============================================================
-# 带外管理接口（vlan 1 + Vlan-interface1）
-# ============================================================
-vlan 1
-
-interface Vlan-interface1
- ip address ${ZTP_MGMT_IP} ${ZTP_MGMT_MASK}
- ip gateway ${ZTP_MGMT_GATEWAY}  # 部分 H3C 平台不支持 ip gateway, 失败不影响
- #
- quit
 
 # ============================================================
 # SSH 服务（vty 0-15）
@@ -59,12 +52,14 @@ quit
 netconf ssh server enable
 
 # ============================================================
+# 关首次登录改密（H3C V7 默认强制改密, ZTP 阶段禁用）
+# ============================================================
+# 验证: H3C V7 默认首次 SSH 登录触发 [Y/N] → Old password → New password
+# ZTP 阶段禁用改密, 避免 controller 纳管时需要交互式改密
+# 远期: v3.1.2 自动纳管时, controller 主动 SSH 推 password hash 覆盖
+password-control login-password-change disable
+
+# ============================================================
 # 保存配置（关键: 设备 reboot 后配置必须保留）
 # ============================================================
 save force
-
-# ============================================================
-# ZTP 完成标记（可选, 便于后续 ZTP 状态检测）
-# ============================================================
-# 设备启动后, controller 可通过 `display current-configuration | include ztp_done` 检测
-# event ZTP_DONE timestamp

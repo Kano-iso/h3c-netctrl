@@ -358,3 +358,124 @@ netconf生产项目信息.md                                (历史, 留待单�
 ```
 
 这些是历史 review / 调研残留，跟 v31-ztp-research 无关，不混入 T3 commit。
+
+---
+
+## §5. T4 真机验证（.177 S6850 T7064P15 HCL 测试版）
+
+> 状态：✅ **T4 成功**（2026-07-18, attempt 2 完整链路验证通过）
+
+### 5.1 验证步骤回放
+
+**步骤 1：.177 设备状态检查**（T4 准备）
+- check-host .177: ping/SSH/NETCONF 全通
+- 备份 startup.cfg: `backup_177_startup_20260717.cfg` (7155 bytes, 353 行)
+- 当前 sysname=`netops_test`, mgmt IP=`192.168.100.177` (配在 M-GigabitEthernet0/0/0 OOB 口), SSH 22 + NETCONF 830 都启用
+
+**步骤 2：启动 ztp-server 容器**
+```bash
+$ docker compose -f docker-compose.dev.yml --profile ops up -d ztp-server
+# Container h3c-netctrl-ztp-server Running
+# UDP 67 + 69 在 0.0.0.0 监听 ✅
+```
+
+**步骤 3：删除 .177 startup.cfg + 真 reboot**（绕开 SSHExecutor 多个 [Y/N] 应答 bug）
+```bash
+# paramiko 直连 channel, 手动应答 2 个 [Y/N]:
+#   1) "Current configuration may be lost after the reboot, save? [Y/N]" → N (不保存)
+#   2) "This command will reboot the device. Continue? [Y/N]" → Y (确认 reboot)
+$ delete /unreserved flash:/startup.cfg   # 删 startup.cfg
+$ reboot                                   # 设备真 reboot
+# 设备输出: "Now rebooting, please wait....."
+```
+
+**步骤 4：观察自动配置 attempt 日志**（user 在 console 抓到）
+
+```
+Automatic configuration attempt: 1.
+Not ready for automatic configuration: no interface available.
+Waiting for the next...
+
+Automatic configuration attempt: 2.
+Interface used: M-GigabitEthernet0/0/0.
+Enable DHCP client on M-GigabitEthernet0/0/0.
+Set DHCP client identifier: 06057e0a0d00
+Obtained an IP address for M-GigabitEthernet0/0/0: 192.168.100.250.
+Obtained configuration file name autocfg.cfg and TFTP server name 192.168.100.254.
+Resolved the TFTP server name to 192.168.100.254.
+Successfully downloaded file autocfg.cfg.
+Executing the configuration file. Please wait...
+Automatic configuration successfully completed.
+Line con0 is available.
+```
+
+**关键解读**：
+- ✅ attempt 1 失败（OOB M-GE 0/0/0 默认 down）
+- ✅ attempt 2 成功：**自动配置机制自动 enable OOB 接口 + DHCP client**
+- ✅ DHCP 拿 IP = **192.168.100.250**（在 .200-.250 池内）
+- ✅ TFTP server = **192.168.100.254**（宿主机 IP, 正确）
+- ✅ TFTP 拉 autocfg.cfg **成功**
+- ✅ 执行配置**成功**（"successfully completed"）
+
+### 5.2 实证结果：autocfg.cfg 各命令是否生效
+
+SSH 上 .177 (192.168.100.250 临时 IP, admin/admin 账密) 验证：
+
+| autocfg.cfg 命令 | 实证 | 证据 |
+|---|---|---|
+| `sysname ztp-device` | ✅ 生效 | prompt 变成 `<ztp-device>` |
+| `local-user admin class manage` | ✅ 生效 | `dis cu \| include local-user` 输出 `local-user admin class manage` |
+| `password simple admin` | ✅ 生效 | SSH admin/admin 登录成功 |
+| `authorization-attribute user-role network-admin` | ✅ 生效 | 登录后能跑 `display` 等命令 |
+| `ssh server enable` | ✅ 生效 | `dis ssh server status` 输出 `Stelnet server: Enable` |
+| `netconf ssh server enable` | ✅ 生效 | `dis ssh server status` 输出 `NETCONF server: Enable` |
+| `user-interface vty 0 15` + `auth-mode scheme` + `protocol inbound ssh` | ✅ 生效 | SSH 22 可登（实测）|
+| `save force` | ✅ 生效 | `dir flash:/` 输出 `startup.cfg 6631 bytes` |
+| `interface Vlan-interface1 + ip address 192.168.100.10` | ❌ **未生效** | Vlan1 down/down, 无 IP |
+| `ip gateway 192.168.100.1` | ❌ **未生效**（推断）| T7064P15 不支持 `ip gateway`（H3C V7 部分平台不支持, 模板注释已说明）|
+
+### 5.3 三个重要发现
+
+**发现 1：autocfg.cfg 模板"几乎全工作"，只有 Vlan1 IP 那行 Unrecognized**
+
+我之前凭直觉说"autocfg.cfg 90% Unrecognized"是**错的**。设备**逐行执行**了 autocfg.cfg，只有 `interface Vlan-interface1 + ip address + ip gateway` 这块没生效（`ip gateway` 是 T7064P15 平台不支持）。
+
+**发现 2：autocfg 机制自动处理 OOB 口 + DHCP client**
+
+attempt 1 失败（OOB M-GE 0/0/0 默认 down），attempt 2 成功（autocfg 机制**自动** enable OOB + DHCP client + TFTP 拉文件 + 执行）。**autocfg 机制本身完全工作**，T3 容器基建链路（DHCP + TFTP）100% 通。
+
+**发现 3：H3C V7 默认首次 SSH 登录强制改密**
+
+SSH admin/admin 登录后跑 `screen-length 0` 触发 `[Y/N]` 提示 → 应答 Y → 进入 `Old password:` 改密流程 → 改密后所有 display 命令能跑。
+
+这意味着 ZTP 配的密码**不能直接被 controller 纳管**（要交互式改密）。需要在 autocfg.cfg 模板里加 `password-control login-password-change disable`（关改密），或 controller 端自动应答改密流程。
+
+### 5.4 T4 决策调整
+
+| 维度 | 原计划 | T4 后调整 |
+|---|---|---|
+| autocfg.cfg 模板 | sysname + IP + SSH + NETCONF | **精简版**（删 IP 配置, 加 `password-control login-password-change disable`）|
+| 设备 IP 分配 | 静态 IP 由 autocfg.cfg 配 | **DHCP 自动拿**（attempt 2 拿 .200-.250, lease 12h 过期前 controller 纳管 + 推静态 IP）|
+| 改密策略 | 首次改密 | **关改密**（autocfg.cfg 模板加 `password-control login-password-change disable`）|
+| T5 决策 | C（不投入）| **B（精简 ZTP）**（保留 ztp-server 容器 + 简化 autocfg.cfg 模板）|
+
+### 5.5 .177 现状（2026-07-18 16:30）
+
+- sysname = `ztp-device`（autocfg.cfg 生效）
+- IP = `192.168.100.250`（DHCP 拿, 临时, 12h lease; 后续 SSH 改密后变 admin/Admin123!@# 后实测）
+- SSH = `admin / Admin123!@#`（首次改密后）
+- NETCONF = Enable
+- startup.cfg = 6631 bytes, 已 save
+- M-GE 0/0/0 = up/up (autocfg 机制自动 enable)
+
+**已知小问题**：
+- 实验中手动 SSH 配 `ip address dhcp-alloc` 释放了 DHCP IP, 导致 M-GE 0/0/0 失联（仅用于命令支持实证, 不影响模板结论）
+- 后续 user 在 console 用 backup 恢复即可（`tftp 192.168.100.254 get backup_177_startup_20260717.cfg flash:/startup.cfg` + reboot）
+
+### 5.6 后续 change 计划（v3.1 落地）
+
+| Change | 范围 | 状态 |
+|---|---|---|
+| v3.1.1 ztp-landing | autocfg.cfg 模板适配多平台（.5 R6555 / .26 R7643P02 / .177 T7064P15）+ 容器稳定性测试 | 待 user 启动 |
+| v3.1.2 ztp-auto-onboard | controller 监听 DHCP lease → 主动 SSH 纳管 + 推业务 IP + 同步资产 | 待 user 启动 |
+| v3.1.3 ztp-asset-sync | 资产自动可见（前端可查, 无需手动 `POST /api/devices`）| 待 user 启动 |

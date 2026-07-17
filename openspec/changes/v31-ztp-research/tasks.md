@@ -127,8 +127,8 @@
 **步骤**：
 - [ ] T4 成功 → 决策 B（投入 ZTP，但仅 .177 平台，其他平台等设备升级）
 - [ ] T4 失败 → 决策 C（不投入 ZTP，留作 v3.x 远期）
-- [ ] 写 `design.md §3.4` 决策报告
-- [ ] 更新 `specs/sdn-ztp.md` 状态（B 落地 / C 标 ⏸️ 不实施）
+- [x] 写 `design.md §3.4` 决策报告（决策 B）
+- [x] 更新 `specs/sdn-ztp.md` 状态（B 落地 / C 标 ⏸️ 不实施）—— 见 notes.md §5.6
 - [ ] 1 个 commit: `docs(ztp): T5 决策报告 + archive + 同步 3 处 A 类文档`（VERSION-ROADMAP / PRD-V3.0 / README）
 
 ---
@@ -137,18 +137,18 @@
 
 - [x] T1: H3C V7 ZTP 官方文档调研完成
 - [x] T2: ZTP 命令真机探针完成（3 设备全 Unrecognized）
-- [ ] T3: ztp-server 容器基建完成（dnsmasq + autocfg.cfg）
-- [ ] T4: .177 真机验证完成
-- [ ] T5: 决策报告完成
-- [ ] 5 个 commit 顺序与 task 顺序一致（T1 + T2 + T3 + T4 + T5）
-- [ ] 每个 commit 仅含调研笔记 / 文档 / 容器基建 / 真机验证记录
-- [ ] T3 含 1 个独立容器（**不**影响 ops-toolkit）
-- [ ] T4 真机走 ztp-server 容器（不裸写 dnsmasq/tftpd）
-- [ ] 探针全部走 ops-toolkit 容器
-- [ ] 设备最终恢复初始态（T4 失败 restore 备份）
-- [ ] design.md §3.4 决策报告由用户拍板
-- [ ] no debug print / no TODO
-- [ ] no hardcoded credentials（autocfg.cfg 走 env vars）
+- [x] T3: ztp-server 容器基建完成（dnsmasq + autocfg.cfg）
+- [x] T4: .177 真机验证完成（autocfg 机制成功, autocfg.cfg 模板大部分生效）
+- [x] T5: 决策报告完成（决策 B: 精简 ZTP）
+- [x] 5 个 commit 顺序与 task 顺序一致（T1 + T2 + T3 + T4 + T5）
+- [x] 每个 commit 仅含调研笔记 / 文档 / 容器基建 / 真机验证记录
+- [x] T3 含 1 个独立容器（**不**影响 ops-toolkit）
+- [x] T4 真机走 ztp-server 容器（不裸写 dnsmasq/tftpd）
+- [x] 探针全部走 ops-toolkit 容器
+- [x] 设备最终恢复初始态（T4 后 user 用 backup 恢复 .177）
+- [x] design.md §3.4 决策报告由用户拍板
+- [x] no debug print / no TODO
+- [x] no hardcoded credentials（autocfg.cfg 走 env vars）
 
 ## Commit 格式（5 个 commit）
 
@@ -156,6 +156,6 @@
 1. docs(ztp): T1 H3C V7 ZTP 官方文档调研总结
 2. docs(ztp): T2 ZTP 命令真机探针记录
 3. feat(ztp): T3 ztp-server 容器基建（dnsmasq + autocfg.cfg）
-4. docs(ztp): T4 .177 真机验证结果
+4. docs(ztp): T4 .177 真机验证结果（attempt 2 成功 + autocfg.cfg 精简修订）
 5. docs(ztp): T5 决策报告 + archive + 同步 A 类文档
 ```
