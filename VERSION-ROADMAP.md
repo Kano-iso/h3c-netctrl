@@ -28,7 +28,14 @@
 | **v2.6.1 bug 修复轮次** | ✅ 2026-07-07 (tag: v2.6.1) | 6 个子 change：资产陈旧自动降级 / 采集失败可读化 / split 密码解密修 / vite proxy 精确分发 / **备份数据完整性**（下载 404 + 启动自检 + commit refresh + expire_on_commit + dump_db 工具） / **资产备份状态同步**（offline 设备按钮 disabled + force 逃生 + `backups.forced` 审计字段） / 备份回滚 SFTP 根因定位 + 1 个 review 反思 | [RELEASE-NOTES-v2.6.1.md](RELEASE-NOTES-v2.6.1.md) + [REVIEW-v261-bugfix-round.md](docs/REVIEW-v261-bugfix-round.md) |
 | **v2.6.2 回滚预检 + 失败 UX** | ⏳ 2026-07-08 (待 tag v2.6.2) | 1 个 change：H3C V7 S6850 回滚无反应修复（probe + 端点 422 + paramiko 详细日志 + 前端 toast + 面板失败高亮 + `device.status.restore_unsupported` 字段）+ 1 review 反思 | [RELEASE-NOTES-v2.6.2.md](RELEASE-NOTES-v2.6.2.md) + [REVIEW-v262-bugfix-round-real-device-validation.md](docs/REVIEW-v262-bugfix-round-real-device-validation.md) |
 | **v3.0 VPC 骨架** | ✅ 2026-07-18 (tag: v3.0.0) | SDN 业务下发通道（按 device.platform 路由 LSTN→SSH / RSTN→NETCONF）+ 双套 payload 模板（5 unit × 4 字段）+ 跨平台 .5/.26 真机验证。**v3.0 PRD 7 个子能力按新规划拆到 v3.1.1 / v3.2 / v3.3 / v3.4**（详见 [PRD-V3.0.md](PRD-V3.0.md) 补充说明）| [PRD-V3.0.md](PRD-V3.0.md) + [RELEASE-NOTES-v3.0.0.md](RELEASE-NOTES-v3.0.0.md) + [archive/2026-07-16-sdn-vpc-netconf-schema-xml](openspec/changes/archive/2026-07-16-sdn-vpc-netconf-schema-xml/) |
-| **v3.1 ZTP 调研** | ✅ 2026-07-18 (tag: v3.1.0) | H3C V7 ZTP 可行性调研 + 决策 B（精简 ZTP）+ 独立 ztp-server 容器（alpine + dnsmasq 二合一）+ autocfg.cfg 模板（T7064P15 验证通过）+ 后续 v3.1.1/v3.1.2/v3.1.3 计划 | [RELEASE-NOTES-v3.1.0.md](RELEASE-NOTES-v3.1.0.md) + [archive/2026-07-18-v31-ztp-research](openspec/changes/archive/2026-07-18-v31-ztp-research/) |
+| **v3.1.0 ZTP 调研** | ✅ 2026-07-18 (tag: v3.1.0) | H3C V7 ZTP 可行性调研 + 决策 B（精简 ZTP）+ 独立 ztp-server 容器（alpine + dnsmasq 二合一）+ autocfg.cfg 模板（T7064P15 验证通过）| [RELEASE-NOTES-v3.1.0.md](RELEASE-NOTES-v3.1.0.md) + [archive/2026-07-18-v31-ztp-research](openspec/changes/archive/2026-07-18-v31-ztp-research/) |
+| **v3.1.1 ZTP 落地** | ⏳ 2026-07-18 (待启动) | autocfg.cfg 多平台适配（.5 R6555 / .26 R7643P02 / .177 T7064P15 各一份模板）+ 1:1 静态 IP 池子方案（DHCP 拿 IP 即绑定静态 IP）| [PRD-V3.1.md](PRD-V3.1.md) §3 |
+| **v3.1.2 自动纳管** | ⏳ 2026-07-18 (待启动) | controller 监听 DHCP lease → 主动 SSH 纳管 → 推业务 IP → 同步资产 | [PRD-V3.1.md](PRD-V3.1.md) §4 |
+| **v3.1.3 资产可见** | ⏳ 2026-07-18 (待启动) | 前端实时刷新（Devices.vue / CMDB.vue / Dashboard）+ 新设备上线通知 | [PRD-V3.1.md](PRD-V3.1.md) §5 |
+| **v3.2 加固切换 + 大迁移** | ⏳ 2026-07-18 (待启动) | ① 架构切 EVENG 平台（独立容器 + 2-3 H3C V7 镜像）② 全 QA 覆盖 SDN 后端已有能力（≥ 200 unit + 集成 + e2e + 压测）③ VPC 全能力验证（prd-and-model / foundation / port-binding / l3vni-validation 4 个子能力）| [PRD-V3.2.md](PRD-V3.2.md) |
+| **v3.3 剩余 VPC 能力** | ⏳ 2026-07-18 (待启动) | 集中式网关降级/恢复（sdn-gateway-fallback）：主动切换 + 被动切换 + 配置生成 + 状态采集 + ops-toolkit 工具 | [PRD-V3.3.md](PRD-V3.3.md) |
+| **v3.4 前端大屏 + UX** | ⏳ 2026-07-18 (待启动) | VPC 详情页 + 端口矩阵 + 网络拓扑 + UX 打磨（5 步 VPC 向导 / 批量操作 / 错误处理）+ ops-toolkit-probes（3 个脚本）| [PRD-V3.4.md](PRD-V3.4.md) |
+| **v3.5 etcd 协调** | ⏳ 远期 | 可选单节点 etcd / 轻量协调方案评估 | 暂未起 spec |
 | **monitor** | ⏳ 远期 | 监控 / 告警 / dashboard 独立化 | 暂未起 spec |
 
 ---
@@ -331,6 +338,135 @@ save force
 > "白屏用户能不用做任何的操作，就能看他上线（自动上线）" —— v3.1.2/v3.1.3 实现
 
 **回退**：v3.1.1 真机验证失败（多平台不兼容）→ 决策 C 重新评估。
+
+---
+
+### v3.1.1 ZTP 落地（⏳ 2026-07-18 待启动）
+
+**目标**：解决 v3.1.0 留下的 2 个未解决问题：① IP 不持久（DHCP lease 12h 后过期）② 多平台模板未适配。
+
+**PRD**：[PRD-V3.1.md §3](PRD-V3.1.md)
+
+**范围**：
+- **1:1 静态 IP 池子方案**：DHCP 池（`.200-.250`）+ 静态 IP 池（**1:1 映射**）。设备首次 DHCP 拿 .250 → controller 立即 SSH 推 .250 静态 IP 配置 + 持久化
+- **autocfg.cfg 多平台适配**：.5 R6555 / .26 R7643P02 / .177 T7064P15 各一份模板（按 sysname 路由）
+- **关闭首次登录改密**：autocfg.cfg 模板加 `password-control login-password-change disable`（v3.1.0 已加）
+
+**依赖**：v3.1.0 基建（ztp-server 容器 + autocfg.cfg 模板）
+
+**回退**：v3.1.1 真机验证失败（多平台不兼容）→ 决策 C 重新评估
+
+---
+
+### v3.1.2 自动纳管（⏳ 2026-07-18 待启动）
+
+**目标**：设备 ZTP 完成后，**controller 主动发现并纳管**，白屏用户无需 `POST /api/devices`。
+
+**PRD**：[PRD-V3.1.md §4](PRD-V3.1.md)
+
+**范围**：
+- **DHCP lease 监听**：复用 ztp-server 容器 dnsmasq + 解析 lease log
+- **主动 SSH 纳管**：controller 定期 poll + 主动 SSH 验证凭据 + 自动 `POST /api/devices`
+- **推业务 IP**：纳管成功后 SSH 推业务 IP（VLAN interface / Loopback）
+
+**依赖**：v3.1.1（静态 IP 持久化）
+
+---
+
+### v3.1.3 资产可见（⏳ 2026-07-18 待启动）
+
+**目标**：前端设备列表 / CMDB / Dashboard 自动显示新设备，**无需手动刷新**。
+
+**PRD**：[PRD-V3.1.md §5](PRD-V3.1.md)
+
+**范围**：
+- **前端实时刷新**：Devices.vue / CMDB.vue 表格自动 poll（5s interval）
+- **Dashboard 统计**：设备总数 / 在线 / 离线 实时更新
+- **告警（可选）**：新设备上线通知（WebSocket / SSE 推送）
+
+**依赖**：v3.1.2（自动纳管）
+
+---
+
+### v3.2 加固切换 + 大迁移（⏳ 2026-07-18 待启动）
+
+**目标**：v3.2 三件大事：① 架构切到 EVENG 平台 ② 全 QA 覆盖 SDN 后端已有能力 ③ VPC 全能力验证。
+
+**PRD**：[PRD-V3.2.md](PRD-V3.2.md)
+
+**范围**：
+- **架构切 EVENG 平台**：独立容器 + 2-3 H3C V7 镜像（qemu 仿真）+ L2/L3 拓扑
+- **全 QA 覆盖 SDN 后端**：≥ 200 unit + 集成测试 + e2e + 性能压测
+- **VPC 全能力验证**：v3.0 PRD 4 个子能力在 EVENG 验证（prd-and-model / foundation / port-binding / l3vni-validation）
+
+**走法**（4 阶段）：
+1. EVENG 平台搭建（独立容器 + H3C V7 镜像）
+2. SDN 后端 QA 扩张（≥ 200 unit）
+3. VPC 全能力 EVENG 验证（4 个子能力）
+4. v3.2.0 整体发版（tag + RELEASE-NOTES + push）
+
+**依赖**：v3.0 骨架 + v3.1 ZTP 全部完成
+
+**用户原话**：
+> "v3.2 加固切换，配合 ztp 的能力，做架构切换，切换到 eveng 平台"
+> "v3.2 把所有的 qa 做了，就是包括 sdn 的后端现在已有能力"
+
+---
+
+### v3.3 剩余 VPC 能力（⏳ 2026-07-18 待启动）
+
+**目标**：完成 v3.0 PRD 剩余的 1 个子能力：**集中式网关降级/恢复**（sdn-gateway-fallback）。
+
+**PRD**：[PRD-V3.3.md](PRD-V3.3.md)
+
+**范围**：
+- **网关角色定义**：分布式网关（默认）vs 集中式网关（1 active + N transit）
+- **网关切换**：主动切换（admin 操作） + 被动切换（故障触发）
+- **配置生成**：active 保留 Vsi-interface + IP，transit 删除 Vsi-interface + IP
+- **状态采集**：实时检测 active 网关状态 + 切换 audit log
+- **排障工具**：ops-toolkit `sdn-gateway-status` 脚本
+
+**走法**（3 阶段）：
+1. 数据模型 + CRUD（VPC 网关角色字段 + API）
+2. 网关切换逻辑（主动/被动切换实现）
+3. ops-toolkit 工具 + 验证（`sdn-gateway-status` + 真机/EVENG 验证）
+
+**依赖**：v3.2 数据模型 + 业务下发通道 + 状态采集
+
+---
+
+### v3.4 前端大屏 + UX（⏳ 2026-07-18 待启动）
+
+**目标**：VPC 详情页 + 端口矩阵 + 网络拓扑 + UX 打磨 + ops-toolkit-probes。
+
+**PRD**：[PRD-V3.4.md](PRD-V3.4.md)
+
+**范围**：
+- **VPC 详情页**：单一 VPC 全景视图（VPC / 端口 / 网关 / 路由 / 状态）
+- **端口矩阵**：所有设备 × 所有端口 × VPC 归属色 + 状态指示
+- **网络拓扑**：underlay + overlay 拓扑图（d3.js / vis.js / echarts 选型）
+- **UX 打磨**：5 步 VPC 创建向导 + dry-run 预览 + 批量操作 + 错误处理
+- **ops-toolkit-probes**：3 个脚本（`sdn-vpc-status` / `sdn-evpn-routes` / `sdn-vxlan-tunnels`）
+
+**走法**（4 阶段）：
+1. VPC 详情页（依赖 v3.2/v3.3 后端）
+2. 端口矩阵 + 网络拓扑
+3. UX 打磨
+4. ops-toolkit-probes（3 个脚本）
+
+**依赖**：v3.2 / v3.3 后端 + v2.6.0 i18n
+
+**用户原话**：
+> "3.4 做前端其实我觉得这个前端的逻辑也很重要啊... 考虑到用户体验"
+> "当然你也不可能往十全十美，这个在后面再考虑吧"
+
+---
+
+### v3.5 etcd 协调（⏳ 远期）
+
+**目标**：可选单节点 etcd / 轻量协调方案评估。
+
+**状态**：⏳ 远期，暂未起 spec
 
 ---
 
