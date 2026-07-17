@@ -188,6 +188,27 @@ services:
     stdin_open: true
     tty: true
 
+  # v3.1 ZTP 调研 T3 基建: ztp-server (DHCP + TFTP 二合一)
+  # 独立容器, 不动 ops-toolkit (按 user 2026-07-17 03:50 指示)
+  # network_mode: host 共享宿主机网络栈, 接收 H3C V7 物理设备 L2 DHCP 广播
+  ztp-server:
+    profiles: ["ops"]
+    build:
+      context: .
+      dockerfile: docker/ztp-stack/Dockerfile
+    container_name: h3c-netctrl-ztp-server
+    # host network: 容器共享宿主机网络栈, 监听 192.168.100.x 网段的 DHCP/TFTP
+    network_mode: host
+    # dnsmasq 需要 NET_ADMIN capability 才能 bind 67/69 端口
+    cap_add:
+      - NET_ADMIN
+    # 凭据从 .env 注入 (ZTP_HOST_IP / ZTP_ADMIN_USER / ZTP_ADMIN_PASS / ZTP_SYSNAME / ZTP_MGMT_IP 等)
+    env_file:
+      - .env
+    # 不挂载 volumes (DHCP/TFTP 状态全内存, 容器停止即清空, 适合 T4 真机验证一次性场景)
+    # 日志走 stderr, 由 docker logs 收集
+    restart: "no"
+
 networks:
   h3c-net:
     driver: bridge

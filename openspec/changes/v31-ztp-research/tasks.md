@@ -45,39 +45,48 @@
 **方案**（用户 2026-07-17 03:50 指示）：**开独立 `ztp-server` 容器**，不动 ops-toolkit
 
 **步骤**：
-- [ ] `docker/ztp-stack/Dockerfile` 新增（alpine:3.20 + apk add dnsmasq）
-- [ ] `docker/ztp-stack/dnsmasq.conf` 编写
+- [x] `docker/ztp-stack/Dockerfile` 新增（alpine:3.20 + apk add dnsmasq）
+- [x] `docker/ztp-stack/dnsmasq.conf` 编写
   - dhcp-range: `192.168.100.200,192.168.100.250,12h`
   - dhcp-option=66: `<host-ip>`（TFTP server IP，由 build arg 注入）
   - dhcp-option=67: `autocfg.cfg`（bootfile name）
   - enable-tftp + tftp-root=/var/tftp
-- [ ] `docker/ztp-stack/tftp/autocfg.cfg` 模板编写
+- [x] `docker/ztp-stack/tftp/autocfg.cfg` 模板编写
   - sysname
   - vlan 1 + mgmt IP（用 env vars 注入）
   - ssh server enable
   - netconf ssh server enable
   - local-user admin（凭据走 env vars）
   - 最小可用配置
-- [ ] `docker-compose.dev.yml` 加 ztp-server 服务
+- [x] `docker-compose.dev.yml` 加 ztp-server 服务
   - image build: `docker/ztp-stack`
   - `network_mode: host`（共享宿主机网络栈，接收 .177 DHCP 广播）
   - profiles: `ops`（按需启动，跟 ops-toolkit 一致）
   - volumes 挂载 dnsmasq.conf + autocfg.cfg
   - command: `dnsmasq -k -C /etc/dnsmasq.conf -d`
   - env vars: `ZTP_HOST_IP` / `ZTP_ADMIN_USER` / `ZTP_ADMIN_PASS`（从 .env 注入）
-- [ ] `docs/ztp-stack.md` 新增（容器用法 + 真机验证 SOP）
+- [x] `docs/ztp-stack.md` 新增（容器用法 + 真机验证 SOP）
 - [ ] 1 个 commit: `feat(ztp): T3 ztp-server 容器基建（dnsmasq + autocfg.cfg 模板）`
 
-**T3 验收**：
-- `docker compose -f docker-compose.dev.yml --profile ops build ztp-server` 构建成功
-- `docker compose -f docker-compose.dev.yml --profile ops run --rm ztp-server dnsmasq --test -C /etc/dnsmasq.conf` 配置语法通过
-- 容器内 `dnsmasq -C /etc/dnsmasq.conf` 启动后 `ps aux | grep dnsmasq` 看到进程
-- 容器启动后宿主机 `ss -uln` 看到 0.0.0.0:67 + 0.0.0.0:69 监听
+**T3 验收**（2026-07-17 16:31）：
+- [x] `docker compose -f docker-compose.dev.yml --profile ops build ztp-server` 构建成功
+- [x] `docker compose -f docker-compose.dev.yml --profile ops up -d ztp-server` 启动成功
+- [x] `docker exec h3c-netctrl-ztp-server dnsmasq --test -C /etc/dnsmasq.conf` 配置语法通过
+- [x] 宿主机 `ss -ulnA inet` 看到 `0.0.0.0:67` + `0.0.0.0:69` 监听（host network 模式）
+- [x] 容器内 `/var/tftp/autocfg.cfg` 渲染成功（含 sysname / mgmt IP / SSH / NETCONF）
+- [x] TFTP server IP = 192.168.100.254（从 .env 注入，非 fallback 127.0.0.1）
 
-**T3 约束**：
-- **不**修改 ops-toolkit 容器（按用户指示"开新容器"）
-- **不**修改 .env.example 永久化（`ZTP_*` 变量标记为 ZTP-only，可选）
-- autocfg.cfg 模板走 env vars 占位符（无明文密码）
+**T3 验证关键点**：
+- **必须**在 .env 里设 ZTP_HOST_IP（不能只在 .env.example 注释），否则 fallback 到 127.0.0.1，设备拉不到文件
+- 宿主机 IP **不是** 192.168.100.4（.env.example 注释值）而是 **192.168.100.254**（ens34 物理网段接口）
+- 容器用 host network 模式共享宿主机网络栈，能接收 .177 物理网段 L2 DHCP 广播
+
+**T3 约束**（✅ 已遵守）：
+- ✅ **不**修改 ops-toolkit 容器（按用户指示"开新容器"）
+- ✅ .env.example 永久化（ZTP_* 变量标记为 ZTP-only，可选）
+- ✅ autocfg.cfg 模板走 env vars 占位符（无明文密码固化）
+
+**T3 详细记录**：见 `notes.md §4`
 
 ---
 

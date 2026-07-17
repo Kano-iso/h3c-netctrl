@@ -1,0 +1,58 @@
+# dnsmasq.conf.template — DHCP + TFTP 二合一配置
+# 由 ztp-stack/entrypoint.sh 渲染 env vars 后写入 /etc/dnsmasq.conf
+#
+# 关键设计:
+# - DHCP range: 仅分配 .200-.250（避免与现有 .1-.199 设备冲突）
+# - dhcp-option=66: TFTP server IP（即本机 IP, ${ZTP_HOST_IP}）
+# - dhcp-option=67: bootfile name (autocfg.cfg)
+# - enable-tftp + tftp-root: 启动 TFTP server
+# - tftp-no-blocksize: 兼容 H3C V7 TFTP 客户端（不支持 RFC 2348 blocksize negotiation）
+
+# ============================================================
+# DHCP server
+# ============================================================
+# 仅监听物理网卡（避免与 docker bridge 冲突）
+# 实际场景: host network 模式下, dnsmasq 默认监听所有接口, 但只响应 .200-.250 的请求
+# 详细排查: tail -f /var/log/dnsmasq.log
+dhcp-range=${ZTP_DHCP_RANGE_START},${ZTP_DHCP_RANGE_END},${ZTP_DHCP_LEASE}
+
+# DHCP option 66 (TFTP server) + 67 (bootfile name)
+dhcp-option=66,${ZTP_HOST_IP}
+dhcp-option=67,autocfg.cfg
+
+# 默认网关（按需调整）
+# dhcp-option=3,192.168.100.1
+# DNS（按需调整, 默认不分配）
+# dhcp-option=6,192.168.100.1
+
+# DHCP 租约表（容器重启后丢失, 适合 T4 真机验证一次性场景）
+# 取消注释可写入持久化文件: dhcp-leasefile=/var/lib/misc/dnsmasq.leases
+
+# ============================================================
+# TFTP server
+# ============================================================
+enable-tftp
+tftp-root=/var/tftp
+
+# 兼容 H3C V7 TFTP 客户端（部分老版本不支持 RFC 2348 blocksize）
+tftp-no-blocksize
+
+# TFTP 安全（仅允许 /var/tftp 目录）
+# tftp-secure
+
+# ============================================================
+# Log
+# ============================================================
+log-queries
+log-dhcp
+log-facility=-  # 写到 stderr, 由 docker logs 收集（不用落盘, 避免污染容器）
+
+# ============================================================
+# Misc
+# ============================================================
+# 关闭 DNS server（只用 DHCP + TFTP, 不污染网络 DNS）
+port=0
+
+# 不读取 /etc/resolv.conf 或 /etc/hosts
+no-resolv
+no-hosts

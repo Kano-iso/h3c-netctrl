@@ -229,3 +229,132 @@ sshpass -p "$PASS" scp -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
 - 设备软件版本升级到 R6607+（.5 / .177）
 - 或新采购的 H3C V7 设备出厂已支持 ZTP
 - Controller 端可以构建独立 `ztp` 容器（dnsmasq + tftpd + Jinja2 模板）✅ **T3 即将实现**
+
+---
+
+## §4. 独立 ztp-server 容器基建 — T3 完成
+
+> 状态：✅ **T3 完成**（2026-07-17 16:31，commit 待提交）
+
+### 4.1 实施内容
+
+按用户 2026-07-17 03:50 指示"开新容器"，实施独立 `ztp-server` 容器：
+
+| 文件 | 作用 |
+|---|---|
+| `docker/ztp-stack/Dockerfile` | alpine:3.20 + dnsmasq + bash |
+| `docker/ztp-stack/entrypoint.sh` | 模板渲染（env vars → dnsmasq.conf + autocfg.cfg）|
+| `docker/ztp-stack/dnsmasq.conf.template` | DHCP + TFTP 二合一配置 |
+| `docker/ztp-stack/tftp/autocfg.cfg.template` | H3C V7 自动配置最小可用配置 |
+| `docker-compose.dev.yml` | 新增 ztp-server 服务（network_mode: host + cap_add: NET_ADMIN）|
+| `.env.example` + `.env` | ZTP_* 变量定义 + 实际值注入 |
+| `docs/ztp-stack.md` | 容器使用文档 + 真机验证 SOP |
+
+### 4.2 关键设计
+
+- **network_mode: host**（核心 —— 共享宿主机网络栈，能接收 .177 物理网段 L2 广播）
+- **profiles: ["ops"]**（按需启动，跟 ops-toolkit 一致）
+- **cap_add: NET_ADMIN**（dnsmasq bind 67/69 特权端口需要）
+- **不修改 ops-toolkit**（按用户指示"开新容器"，保持 ops-toolkit 开箱即用）
+
+### 4.3 验证结果（2026-07-17 16:31）
+
+```bash
+# 1. .env 实际 IP
+$ grep ^ZTP_ /root/workpace/h3c-netctrl/.env
+ZTP_HOST_IP=192.168.100.254     # 宿主机 ens34 (.177 物理网段接口)
+ZTP_DHCP_RANGE_START=192.168.100.200
+ZTP_DHCP_RANGE_END=192.168.100.250
+ZTP_DHCP_LEASE=12h
+ZTP_SYSNAME=ztp-device
+ZTP_MGMT_IP=192.168.100.10
+ZTP_MGMT_MASK=255.255.255.0
+ZTP_MGMT_GATEWAY=192.168.100.1
+ZTP_ADMIN_USER=admin
+ZTP_ADMIN_PASS=admin
+
+# 2. 启动 ztp-server
+$ docker compose -f docker-compose.dev.yml --profile ops up -d ztp-server
+Container h3c-netctrl-ztp-server Recreate
+Container h3c-netctrl-ztp-server Recreated
+Container h3c-netctrl-ztp-server Starting
+Container h3c-netctrl-ztp-server Started
+
+# 3. 容器日志（关键 — TFTP server IP 正确）
+$ docker logs h3c-netctrl-ztp-server
+=== 渲染 dnsmasq.conf ===
+=== 渲染 autocfg.cfg ===
+=== dnsmasq 启动 ===
+  DHCP range: 192.168.100.200 - 192.168.100.250
+  TFTP server: 192.168.100.254           ← ✅ 宿主机 IP，非 127.0.0.1 fallback
+  TFTP root: /var/tftp
+  autocfg.cfg sysname: ztp-device
+dnsmasq[1]: started, version 2.90 DNS disabled
+dnsmasq-dhcp[1]: DHCP, IP range 192.168.100.200 -- 192.168.100.250, lease time 12h
+dnsmasq-tftp[1]: TFTP root is /var/tftp
+
+# 4. 宿主机端口监听
+$ ss -ulnA inet | grep -E ':(67|69) '
+udp UNCONN 0 0 0.0.0.0:67 0.0.0.0:*   ← DHCP 67 监听 ✅
+udp UNCONN 0 0 0.0.0.0:69 0.0.0.0:*   ← TFTP 69 监听 ✅
+
+# 5. 容器内配置
+$ docker exec h3c-netctrl-ztp-server ls -la /var/tftp/ /etc/dnsmasq.conf
+-rw-r--r-- 1 root root 2155 Jul 17 16:31 /etc/dnsmasq.conf
+-rw-r--r-- 1 root root 2453 Jul 17 16:31 /var/tftp/autocfg.cfg  ← 模板渲染成功 ✅
+
+# 6. dnsmasq 配置语法
+$ docker exec h3c-netctrl-ztp-server dnsmasq --test -C /etc/dnsmasq.conf
+（无输出，exit code 0）  ← 语法通过 ✅
+```
+
+### 4.4 T3 验收 checklist
+
+- [x] `docker compose build ztp-server` 成功（之前构建过）
+- [x] 容器启动成功（`up -d` 退出码 0）
+- [x] DHCP 67/UDP + TFTP 69/UDP 在 `0.0.0.0` 监听（host network 模式）
+- [x] TFTP server IP = 192.168.100.254（从 .env 注入，非 fallback）
+- [x] `dnsmasq --test` 语法通过
+- [x] autocfg.cfg 模板渲染成功（含 sysname / mgmt IP / SSH / NETCONF）
+
+### 4.5 关键修正
+
+| 修正 | 原因 |
+|---|---|
+| 宿主机 IP = 192.168.100.254（不是 .env.example 注释里的 192.168.100.4）| `ip addr show` 实际显示 ens34 = 192.168.100.254（.177 物理网段接口）|
+| 加 `ZTP_*` 变量到 .env（不只 .env.example）| .env 文件未注入 ZTP 变量，entrypoint.sh fallback 到 127.0.0.1，导致设备拉不到文件 |
+
+### 4.6 容器网络拓扑（host network 模式）
+
+```
+┌────────────────────────────────────────────────────────┐
+│ 宿主机 (192.168.100.254 ens34)                          │
+│                                                         │
+│  ┌──────────────────────┐                                │
+│  │ ztp-server 容器      │                                │
+│  │  - dhclient 0.0.0.0  │ ← host network 共享宿主机网络栈 │
+│  │  - 监听 67/UDP + 69/UDP                                │
+│  └──────────────────────┘                                │
+│         ↓                                                │
+│  ens34 (192.168.100.254/24) ← .177 物理网段              │
+└────────────────────────────────────────────────────────┘
+         ↓ DHCP L2 广播 (192.168.100.0/24)
+         ↓ TFTP GET autocfg.cfg
+┌─────────────────────────┐
+│ H3C V7 设备 (.177)      │ ← 待 T4 真机验证
+│ - 空配置启动            │
+│ - DHCP discover         │
+│ - 拉 autocfg.cfg         │
+│ - 应用配置 + reboot      │
+└─────────────────────────┘
+```
+
+### 4.7 残留的 untracked 文件（**不在 T3 commit 范围**）
+
+```
+docs/EVPN-VXLAN-192-168-1-analysis-2026-07-07.md    (历史 review, 留待单独 commit)
+docs/REVIEW-localhost-5173-cmdb-slow-2026-07-10.md  (历史 review, 留待单独 commit)
+netconf生产项目信息.md                                (历史, 留待单独 commit)
+```
+
+这些是历史 review / 调研残留，跟 v31-ztp-research 无关，不混入 T3 commit。
