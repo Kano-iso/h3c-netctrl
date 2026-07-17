@@ -25,16 +25,17 @@
 | **v2.6.0 i18n 中英双语** | ✅ **2026-07-06 (tag: v2.6.0)** | vue-i18n v9 + 顶导「中 \| EN」切换 + localStorage 持久化 + **400+ 翻译 key（zh-CN + en-US）** + 后端 `APIResponse.error_key` schema 扩展（**BREAKING**，向后兼容） + 9 router 改造 + 26 后端单测 + 25 前端测试 | [RELEASE-NOTES-v2.6.0.md](RELEASE-NOTES-v2.6.0.md) · [v26-i18n](openspec/changes/archive/2026-07-06-v26-i18n/) · [docs/i18n-guide.md](docs/i18n-guide.md) |
 | **v2.6.1 bug 修复轮次** | ✅ **2026-07-07 (tag: v2.6.1)** | 6 个子 change：资产陈旧自动降级 / 采集失败可读化 / split 密码解密修 / vite proxy 精确分发 / **备份数据完整性**（下载 404 + 启动自检 + commit refresh + expire_on_commit + dump_db 工具） / **资产备份状态同步**（offline 设备按钮 disabled + force 逃生 + `backups.forced` 审计字段） / 备份回滚 SFTP 根因定位 + 1 个 review 反思 | [**RELEASE-NOTES-v2.6.1.md**](RELEASE-NOTES-v2.6.1.md) · [REVIEW-v261-bugfix-round.md](docs/REVIEW-v261-bugfix-round.md) |
 | **v2.6.2 回滚预检 + 失败 UX** | ⏳ 2026-07-08 (待 tag v2.6.2) | 1 个 change：H3C V7 S6850 回滚无反应修复（probe + 端点 422 + paramiko 详细日志 + 前端 toast + 面板失败高亮 + `device.status.restore_unsupported` 字段）+ 1 review 反思 | [RELEASE-NOTES-v2.6.2.md](RELEASE-NOTES-v2.6.2.md) · [REVIEW-v262-bugfix-round-real-device-validation.md](docs/REVIEW-v262-bugfix-round-real-device-validation.md) |
-| **v3.0 VPC** | 🚧 **2026-07-16**（sdn-vpc-netconf-schema-xml change 闭环） | VPC + 端口随接随入 + 分布式网关状态闭环（SDN 起步，**42 commits 已 push** + 跨平台 .5/.26 真机验证） | [archive/2026-07-16-sdn-vpc-netconf-schema-xml](openspec/changes/archive/2026-07-16-sdn-vpc-netconf-schema-xml/) · [PRD-V3.0.md](PRD-V3.0.md) |
+| **v3.0 VPC 骨架** | ✅ **2026-07-18 (tag: v3.0.0)** | SDN 业务下发通道（按 device.platform 路由）+ 双套 payload 模板（5 unit × 4 字段）+ 跨平台 .5/.26 真机验证 + 73 SDN 单测 + 42 commits push。**v3.0 PRD 7 个子能力按规划拆到 v3.1.1 / v3.2 / v3.3 / v3.4**（详见 [PRD-V3.0.md](PRD-V3.0.md) 补充说明）| [**RELEASE-NOTES-v3.0.0.md**](RELEASE-NOTES-v3.0.0.md) · [archive/2026-07-16-sdn-vpc-netconf-schema-xml](openspec/changes/archive/2026-07-16-sdn-vpc-netconf-schema-xml/) |
+| **v3.1.0 ZTP 调研** | ✅ **2026-07-18 (tag: v3.1.0)** | H3C V7 ZTP 可行性调研 + 决策 B（精简 ZTP）+ 独立 ztp-server 容器（alpine + dnsmasq 二合一）+ autocfg.cfg 模板（T7064P15 验证通过）。**后续 v3.1.1/v3.1.2/v3.1.3 计划** | [**RELEASE-NOTES-v3.1.0.md**](RELEASE-NOTES-v3.1.0.md) · [archive/2026-07-18-v31-ztp-research](openspec/changes/archive/2026-07-18-v31-ztp-research/) |
 
 详细进度、约束、决策记录见 [VERSION-ROADMAP.md](VERSION-ROADMAP.md)。
 已归档 change 见 [openspec/changes/archive/](openspec/changes/archive/)。
 主规格沉淀见 [openspec/specs/](openspec/specs/)。
 V3.0 产品蓝图见 [PRD-V3.0.md](PRD-V3.0.md)。
 
-## 当前架构（v2.6.2）
+## 当前架构（v3.0.0）
 
-> 详见 [VERSION-ROADMAP.md §v2.6.2 回滚预检 + 失败 UX](VERSION-ROADMAP.md)。v2.5 split 模式为默认，v2.6.0 i18n 上线，v2.6.1 修 6 类 bug，v2.6.2 集中修回滚链路 + 提升失败任务 UX。
+> 详见 [VERSION-ROADMAP.md §v3.0 VPC 骨架](VERSION-ROADMAP.md)。v3.0.0 = **SDN 业务下发通道骨架**（按 device.platform 路由 + 双套 payload 模板 + 跨平台 .5/.26 真机验证），**v3.0 PRD 7 个子能力按新规划拆到 v3.1.1 / v3.2 / v3.3 / v3.4**（详见 [PRD-V3.0.md](PRD-V3.0.md) 补充说明）。v2.5 split 模式为默认，v2.6.0 i18n 上线，v2.6.1 修 6 类 bug，v2.6.2 集中修回滚链路 + 提升失败任务 UX。
 
 | 容器 | 职责 | 实施 | 状态 |
 |---|---|---|---|
@@ -44,7 +45,7 @@ V3.0 产品蓝图见 [PRD-V3.0.md](PRD-V3.0.md)。
 | **backend (monolith)** | ctrl + config + data 合并 | v2.4.1 双模式共存 | ✅ 兼容老调用，profile: core |
 | **qa-backend / qa-frontend** | pytest / lint / build / vitest / playwright | v2.4.2 加 lint+build 必跑 / v2.5 加 vitest+playwright 必跑 | ✅ Archive 必跑 |
 | **ops-toolkit** | **7 个排错脚本**（check-host / check-netconf / capture-config / reboot-wait / paramiko-batch-exec / **interface-config** / **task-monitor**） | v2.4.1 + v2.4.2.1 + v2.5.0 + **v2.6.2 文档**（S6850 SCP 限制）| ✅ 按需启动 |
-| **sdn (v3.0)** | VPC 编排 + 端口随接随入 + 状态闭环（初期默认评估落在 config 容器） | v3.0 sdn-vpc-netconf-schema-xml change 闭环 | 🚧 **业务下发通道已打通**（按 device.platform 路由：LSTN 走 SSH 22 / RSTN 走 NETCONF 830）+ **.5/.26 跨平台真机验证** + 42 commits 已 push |
+| **sdn (v3.0.0)** | **骨架**：业务下发通道（按 device.platform 路由）+ 双套 payload 模板（5 unit × 4 字段）+ 跨平台真机验证 | v3.0.0 骨架发版（sdn-vpc-netconf-schema-xml change 闭环）| ✅ **tag: v3.0.0**：业务下发通道打通（按 device.platform 路由：LSTN 走 SSH 22 / RSTN 走 NETCONF 830）+ .5/.26 跨平台真机验证 + 42 commits push。**v3.0 PRD 7 个子能力按规划拆到 v3.1.1 / v3.2 / v3.3 / v3.4** |
 | **monitor (未来)** | 实时指标 / 告警 / dashboard | 远期 | ⏳ v3.0+ 评估 |
 
 ## v2.6.2 增量能力
