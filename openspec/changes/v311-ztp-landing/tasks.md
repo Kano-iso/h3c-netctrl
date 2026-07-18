@@ -221,18 +221,18 @@
 > **目的**：.177 完整 ZTP 链路验证（空配置启动 → DHCP .151 → autocfg 应用 → static .101 → save → 重启 → SSH/NETCONF）
 > **前置**：T1-T8 全过 + 真机备份 startup.cfg（走 ops-toolkit）
 
-- [ ] 9.1 备份 .177 startup.cfg：`paramiko-batch-exec.sh --device .177 --command "more startup.cfg" > /tmp/backup-177-ztp.cfg`
-- [ ] 9.2 启动 ztp-server 容器（`ZTP_PLATFORM=lstn` + `ZTP_HCL_T7064P15=true`）
-- [ ] 9.3 验证 ztp-server DHCP 池 .151-.190 + TFTP server .254 + autocfg.cfg 渲染内容（physical OOB 口 M-GigabitEthernet0/0/0 + ip address 192.168.100.101）
-- [ ] 9.4 reset .177 saved-configuration：`reset saved-configuration`（autocfg 机制触发）
-- [ ] 9.5 reboot .177（自动配置 attempt 1 可能失败，attempt 2 成功）
-- [ ] 9.6 60s 内 SSH 22 验证 .177 通（走 `paramiko-batch-exec.sh --device .177 --command "display version"`）
-- [ ] 9.7 60s 内 NETCONF 830 验证 .177 通（走 `check-netconf.sh .177`）
-- [ ] 9.8 120s 后验证 .177 配置含 autocfg.cfg 内容（`display current-configuration` 应含 `interface M-GigabitEthernet0/0/0` + `ip address 192.168.100.101 255.255.255.0` + `sysname` + `ssh server enable` + `netconf ssh server enable`）
-- [ ] 9.9 验证 .177 物理 OOB 口 IP 切到 **.101**（**不**是 .151 DHCP 临时 IP）
-- [ ] 9.10 reboot .177 再次重启 → 设备 IP **仍**是 .101（static 持久）
-- [ ] 9.11 12h 后（或模拟）验证 DHCP lease 过期后 .177 IP 仍是 .101（offset 50 跨池验证）
-- [ ] 9.12 **最后必须 restore_original_state**：restore `/tmp/backup-177-ztp.cfg` 到 .177（避免污染设备）
+- [x] 9.1 备份 .177 startup.cfg：`backup_177_startup_v311_20260718.cfg` + `backup_177_current_20260718_211812.cfg`
+- [x] 9.2 启动 ztp-server 容器（`ZTP_PLATFORM=lstn` + `ZTP_HCL_T7064P15=true`）
+- [x] 9.3 验证 ztp-server DHCP 池 .151-.190 + TFTP server .254 + autocfg.cfg 渲染内容（physical OOB 口 M-GigabitEthernet0/0/0 + ip address 192.168.100.101）
+- [x] 9.4 reset .177 saved-configuration：`reset saved-configuration`（autocfg 机制触发）
+- [x] 9.5 reboot .177：通过 `reboot-wait.sh --reset-saved --wait-ip 192.168.100.101 --timeout 300`
+- [x] 9.6 SSH 22 验证 `.101` 通（`check_host_101_after_ztp_20260718.log`）
+- [x] 9.7 NETCONF 830 验证 `.101` 通（`check_netconf_101_after_ztp_20260718.log`）
+- [x] 9.8 验证 `.101` 配置含 autocfg.cfg 内容（`config_101_after_ztp_20260718.log`）
+- [x] 9.9 验证 .177 物理 OOB 口 IP 切到 **.101**（dnsmasq 日志显示 DHCP 临时 `.190` → TFTP 拉配置 → static `.101`）
+- [x] 9.10 reboot `.101` 再次重启 → 设备 IP **仍**是 .101（`reboot_wait_101_persistence_retry_20260718.log`）
+- [ ] 9.11 12h 后（或模拟）验证 DHCP lease 过期后 .177 IP 仍是 .101（offset 50 跨池验证，保留为长周期观察）
+- [ ] 9.12 **最后必须 restore_original_state**：本次按 user 对 .177 可测试性的判断，暂保留 `.101` 验证态；恢复材料 `restore-177.cfg` 已保存
 - [ ] 9.13 **commit**: `test(ztp): T9 .177 完整 ZTP 链路验证（offset 50 跨池 + 物理 OOB 口 static IP）`
 
 **T9 验收**：
@@ -249,15 +249,15 @@
 >
 > **user 2026-07-18 接手修正**：**.5 R6555 不跑完整 ZTP 验证**；`.26` 是 EVE-NG 借用的 V9850/RSTN 测试设备，必须用于适配性验证。
 
-- [ ] 10.1 备份 .26 startup.cfg（`paramiko-batch-exec.sh`）
-- [ ] 10.2 切换 `ZTP_PLATFORM=rstn` + 重启 ztp-server 容器
-- [ ] 10.3 验证 ztp-server 渲染的 autocfg.cfg 含现网探测到的 V9850 physical OOB 口（当前 `.26` 实测为 `MGE0/0/0`）
-- [ ] 10.4 reset saved-configuration + reboot .26
-- [ ] 10.5 60s 内 SSH 22 + NETCONF 830 验证通
-- [ ] 10.6 120s 后验证配置含 autocfg.cfg 内容（含 physical OOB 口 static IP `.101` + `sysname` + `ssh server enable` + `netconf ssh server enable`）
-- [ ] 10.7 reboot 再次重启 → 设备 IP 仍是 static .101
-- [ ] 10.8 restore_original_state 恢复 .26
-- [ ] 10.9 **commit**: `test(ztp): T10 .26 V9850 真机 ZTP 链路验证（jinja2 RSTN 分支 + MGE0/0/0 物理 OOB 口）`
+- [x] 10.1 备份 .26 startup.cfg（开启 SCP 后通过 `capture-config.sh` 拉取：`startup_26_scp_20260718.cfg`）
+- [x] 10.2 切换 `ZTP_PLATFORM=rstn` + 重启 ztp-server 容器（中途因 RSTN 模板风险由 user 中断）
+- [x] 10.3 验证 ztp-server 渲染的 autocfg.cfg 含现网探测到的 V9850 physical OOB 口（修正为完整 `M-GigabitEthernet0/0/0`）
+- [ ] 10.4 reset saved-configuration + reboot .26（暂停，不继续 reset）
+- [x] 10.5 SSH 22 + NETCONF 830 验证通（恢复后 `check-host .26` / `check-netconf .26` 通过）
+- [ ] 10.6 120s 后验证配置含 autocfg.cfg 内容（暂停，待 RSTN 独立模板补测）
+- [ ] 10.7 reboot 再次重启 → 设备 IP 仍是 static .102（暂停）
+- [x] 10.8 restore_original_state 恢复 .26（user 手工恢复，Codex 验证 .26 SSH/NETCONF 正常）
+- [ ] 10.9 **commit**: `test(ztp): T10 .26 V9850 真机 ZTP 链路验证（jinja2 RSTN 分支 + M-GigabitEthernet0/0/0 物理 OOB 口）`（不在 v3.1.1 主发版阻塞项内）
 
 **T10 验收**：
 - .26 完整 ZTP 链路通过

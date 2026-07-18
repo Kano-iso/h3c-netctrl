@@ -61,12 +61,16 @@
 - 用法：`capture-config --device <name|ip>`
 - 输出：`/captures/<ip>_<timestamp>_startup.cfg`
 - 示例：`capture-config --device Leaf-04`
+- 兼容：H3C V7 旧 SSH 栈使用 `ssh-rsa` host key，脚本已加 `-O + HostKeyAlgorithms=+ssh-rsa` 兼容参数
 
 ### reboot-wait
-- 用途：触发 reboot + 等待 SSH 恢复（最多 120s）
-- 用法：`reboot-wait --device <name|ip>`
+- 用途：触发 H3C reboot + 等待 SSH 恢复，支持 reboot 后管理 IP 变化
+- 用法：`reboot-wait --device <name|ip> [--timeout 180]`
 - 注意：会触发设备重启，谨慎使用
 - 示例：`reboot-wait --device Test-Switch-177`
+- ZTP 空配置验证示例：`reboot-wait --device test --reset-saved --wait-ip 192.168.100.101 --timeout 240`
+- 默认行为：reboot 时对“是否保存当前配置”答 `N`，避免覆盖 startup；如需保存当前配置，显式加 `--save-current`
+- 高危参数：`--reset-saved` 会先执行 `reset saved-configuration` 并确认 `Y`
 
 ### paramiko-batch-exec
 - 用途：单设备 SSH 批命令执行（研发场景的"前置加配置 + 后置验证"开发辅助工具）

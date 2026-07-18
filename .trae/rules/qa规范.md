@@ -39,6 +39,7 @@
 
 ### ops-toolkit — 设备排错唯一入口
 
+- **关键核心定位**：仅作为验证/排错工具，**不要放任何业务逻辑**
 - 5 脚本：`check-host / check-netconf / capture-config / reboot-wait / paramiko-batch-exec`
 - 凭据 / 命令 / 默认 device 由工具自己处理，用户不传参
 - 每个脚本末尾自动输出文档链接（用法 + 凭据来源）

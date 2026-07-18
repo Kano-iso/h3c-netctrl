@@ -22,21 +22,23 @@ password-control change-password first-login enable
 
 # === 物理 OOB 口 static IP（offset 50 跨池映射）===
 # LSTN (S6850) = M-GigabitEthernet0/0/0
-# RSTN (V9850) = MGE0/0/0（实测发现，PRD V3.1.1 写的 MEth0/0/0 错）
+# RSTN (V9850) = M-GigabitEthernet0/0/0（MGE0/0/0 可作为缩写，但模板写完整名）
 # v3.1.1 阶段硬编码 .101（PoC 验证单设备），公式化映射由 v3.1.2 接入多设备时实现
 {% if platform == 'lstn' %}
 interface M-GigabitEthernet0/0/0
  ip address {{ mgmt_ip }} 255.255.255.0
 quit
 {% elif platform == 'rstn' %}
-interface MGE0/0/0
+interface M-GigabitEthernet0/0/0
  ip address {{ mgmt_ip }} 255.255.255.0
 quit
 {% endif %}
 
 # === SSH 服务 ===
 ssh server enable
+{% if platform == 'lstn' %}
 ssh server authentication-timeout 300
+{% endif %}
 
 # === 本地用户（项目主账密 python/Admin123!@#，统一 network-admin，禁止第二账号）===
 local-user {{ admin_user }} class manage

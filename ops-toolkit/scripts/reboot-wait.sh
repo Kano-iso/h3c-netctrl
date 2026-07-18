@@ -1,8 +1,9 @@
 #!/bin/bash
-# reboot-wait.sh — 触发 reboot + 等待 SSH 恢复（最多 120s）
+# reboot-wait.sh — 触发 H3C reboot + 等待 SSH 恢复
 # 用法:
 #   reboot-wait                                  # v242: 默认 test 设备
 #   reboot-wait --device <name|ip|alias>
+#   reboot-wait --device test --reset-saved --wait-ip 192.168.100.101 --timeout 240
 #   reboot-wait <ip> <user> <pass>               # 兼容 v2.3
 # 注意: 会触发设备重启，谨慎使用
 set -euo pipefail
@@ -12,6 +13,10 @@ source /scripts/_lib.sh
 DEVICE_INPUT=$(_get_device_arg "$@")
 USER=""
 PASS=""
+RESET_SAVED=false
+SAVE_CURRENT="no"
+WAIT_IP=""
+TIMEOUT=180
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -21,9 +26,30 @@ while [[ $# -gt 0 ]]; do
         --user=*) USER="${1#*=}"; shift ;;
         --pass) PASS="$2"; shift 2 ;;
         --pass=*) PASS="${1#*=}"; shift ;;
+        --reset-saved) RESET_SAVED=true; shift ;;
+        --save-current) SAVE_CURRENT="yes"; shift ;;
+        --no-save-current) SAVE_CURRENT="no"; shift ;;
+        --wait-ip) WAIT_IP="$2"; shift 2 ;;
+        --wait-ip=*) WAIT_IP="${1#*=}"; shift ;;
+        --timeout) TIMEOUT="$2"; shift 2 ;;
+        --timeout=*) TIMEOUT="${1#*=}"; shift ;;
         --help|-h)
-            echo "用法: reboot-wait [--device <name|ip|alias>] [user] [pass]"
-            echo "警告: 会触发设备重启"
+            cat <<'EOF'
+用法:
+  reboot-wait [--device <name|ip|alias>] [--timeout <seconds>]
+  reboot-wait --device test --reset-saved --wait-ip 192.168.100.101 --timeout 240
+  reboot-wait <ip> <user> <pass>
+
+参数:
+  --reset-saved       reboot 前先执行 reset saved-configuration 并确认 Y
+  --save-current      reboot 时保存当前配置
+  --no-save-current   reboot 时不保存当前配置（默认，避免覆盖 startup）
+  --wait-ip <ip>      重启后等待的 SSH IP，适合 ZTP 后 IP 改变
+  --timeout <seconds> 等待 SSH 恢复时间，默认 180
+
+警告:
+  该工具会触发设备重启；--reset-saved 会清空 startup 配置。
+EOF
             _print_doc_links "reboot-wait"
             exit 0
             ;;
@@ -46,24 +72,15 @@ read -r IP USER_RESOLVED PASS_RESOLVED < <(_parse_device_args "$DEVICE_INPUT" "$
 [[ -z "$USER" ]] && USER="$USER_RESOLVED"
 [[ -z "$PASS" ]] && PASS="$PASS_RESOLVED"
 [[ -z "$PASS" ]] && _die "未提供密码"
+[[ -z "$WAIT_IP" ]] && WAIT_IP="$IP"
 
-echo "=== 触发 reboot: $IP ==="
-sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
-    "$USER@$IP" "reboot" <<< "Y" 2>&1 || true
+export _REBOOT_HOST="$IP"
+export _REBOOT_USER="$USER"
+export _REBOOT_PASS="$PASS"
+export _REBOOT_WAIT_IP="$WAIT_IP"
+export _REBOOT_TIMEOUT="$TIMEOUT"
+export _REBOOT_RESET_SAVED="$RESET_SAVED"
+export _REBOOT_SAVE_CURRENT="$SAVE_CURRENT"
 
-echo "等待 SSH 恢复（最多 120s）..."
-for i in $(seq 1 24); do
-    sleep 5
-    if timeout 5 nc -zv "$IP" 22 2>/dev/null; then
-        echo "✅ SSH 已恢复（$((i * 5))s）"
-        echo ""
-        echo "=== 设备版本 ==="
-        sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
-            "$USER@$IP" "display version" 2>&1
-        _print_doc_links "reboot-wait"
-        exit 0
-    fi
-    echo "  等待... (${i}/24)"
-done
-
-_die "SSH 超时未恢复（120s）"
+python3 /scripts/_reboot_wait.py
+_print_doc_links "reboot-wait"

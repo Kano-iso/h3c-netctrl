@@ -1,0 +1,11 @@
+=== connect: 192.168.100.101 ===
+=== reboot ===
+  answer save-current: N
+  answer continue: Y
+=== wait SSH: 192.168.100.101 (timeout=240s) ===
+OK: SSH is ready after 0s (attempt 1)
+
+── 文档 ─────────────────────────────────
+📖 用法:        /opt/docs/ops-toolkit.md#reboot-wait
+📖 凭据来源:    /opt/docs/ops-toolkit.md#凭据来源
+─────────────────────────────────────────

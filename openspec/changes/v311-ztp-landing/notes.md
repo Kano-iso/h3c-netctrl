@@ -411,3 +411,96 @@ python3 -c "import paramiko; c = paramiko.SSHClient(); c.set_missing_host_key_po
 | MCP 浏览器 | UI 单功能验证 | 全量回归 / 组件测试 |
 
 > **核心原则**：用对工具，不要"反正能跑就跑一下"。每次发版必跑 qa-backend（全量回归是发版门槛），但**新基建小工具不应绑 qa-backend 必跑**。
+
+---
+
+## §T9 真机验证进展（2026-07-18）
+
+### 已确认
+- ✅ `ztp-server` 已启动，DHCP/TFTP 语法通过，当前池为 `.151-.190`，TFTP server 为 `.254`
+- ✅ `autocfg.cfg` 当前渲染 static OOB IP 为 `192.168.100.101`
+- ✅ 项目已有可参考的 H3C V7 reboot 完整交互：`backend/app/utils/backup_manager.py::_reboot_and_wait`
+- ✅ 新增临时脚本里的 `reset-reboot-177.py` 交互思路接近正确：`reset saved-configuration` 答 `Y`，`reboot` 时先答 `N` 不保存当前配置，再答 `Y` 确认重启
+
+### 纠偏结论
+- ❌ “设备不支持 reboot”不是当前证据支持的结论。H3C V7 支持 reboot；失败更可能来自临时工具没有处理完整的 `N/Y` 二段交互。
+- ❌ 不建议为 T9 临时需求扩展全局 `SSHExecutor / paramiko-batch-exec` 自定义应答。该路径会把 ZTP reset/reboot 的高危交互扩散到通用批命令工具。
+- ❌ `docker/ztp-stack/tmp-reboot.py` 只处理了 `save current configuration` 的 `N`，没有继续处理 `continue?` 的 `Y`，不能作为 reboot 结论依据。
+- ❌ `docker/ztp-stack/reset-reboot-177.py` 虽然交互方向对，但放在 `docker/ztp-stack` 且硬编码凭据、裸 paramiko，不符合“设备操作走 ops-toolkit”的规则。
+
+### 当前阻塞点
+- `.177` 与目标 static `.101` 当前均不可达（2026-07-18 使用 `check-host` 验证）。
+- 当前 `.env` 为 `ZTP_HCL_T7064P15=false`，因此 `ztp-server` 渲染的是 `.177` 不需要的 prod 分支；T9 主验证 `.177` 前应切到 `ZTP_HCL_T7064P15=true` 并重启 `ztp-server`。
+- `backup_177_current_20260718_211812.cfg` 与 `restore-177.cfg` 均显示 `.177` 原始 OOB 口配置为 `M-GigabitEthernet0/0/0 + 192.168.100.177/24`，恢复材料存在，但设备当前是否已进入空配置/重启中状态需要控制台或重新上线后确认。
+
+### 下一步建议
+- 先把 `ZTP_HCL_T7064P15=true` 生效到 `ztp-server`，确认 autocfg.cfg 渲染 HCL 分支。
+- 用一个作用域很窄的 ops-toolkit 验证工具承载 `reset saved-configuration + reboot + wait`，内部复用 `BackupManager._reboot_and_wait` 的交互逻辑，不改全局 `SSHExecutor`。
+- 真机执行前按红线规则列清单并由 user 审批：目标 `.177`、动作 `reset saved-configuration`、动作 `reboot`、reboot 不保存当前配置、等待 `.101` 上线、失败时按 `restore-177.cfg` 恢复。
+
+---
+
+## §T9/T10 接手实测进展（2026-07-18 Codex）
+
+### T9 .177 主链路结果
+
+- ✅ 新增通用 `reboot-wait.sh` 交互工具：支持 H3C `reboot` 二段提示（先 `N` 不保存 running，再 `Y` 确认重启）。
+- ✅ `reboot-wait.sh --reset-saved --wait-ip 192.168.100.101` 验证通过：`.177` reset saved-configuration 后空配置启动，88s 后 `.101` SSH 恢复。
+- ✅ `ztp-server` 日志确认：`.177` DHCP Discover/Request，临时拿到 `.190`，从 `.254` TFTP 拉取 `autocfg.cfg`。
+- ✅ `.101` 验证通过：SSH 22 通、NETCONF 830 通、current/saved 均含 `sysname ztp-device`、`M-GigabitEthernet0/0/0`、`ip address 192.168.100.101/24`、`local-user python`。
+- ✅ 二次 reboot 持久性验证通过：`.101` 先掉线，再 33s 恢复，配置仍保留在 current/saved。
+
+**证据文件**：
+- `captures/ztp-test/reboot_wait_177_to_101_20260718.log`
+- `captures/ztp-test/ztp_server_logs_after_177_20260718.log`
+- `captures/ztp-test/check_host_101_after_ztp_20260718.log`
+- `captures/ztp-test/check_netconf_101_after_ztp_20260718.log`
+- `captures/ztp-test/config_101_after_ztp_20260718.log`
+- `captures/ztp-test/reboot_wait_101_persistence_retry_20260718.log`
+- `captures/ztp-test/config_101_after_persistence_reboot_20260718.log`
+
+### T10 .26 RSTN 暂停结论
+
+- ⚠️ `.26` reset/reboot 验证中途被 user 中断并手工恢复，未形成完整 T10 结论。
+- ✅ `.26` 恢复后只读检查：`.26` SSH 可达；NETCONF 初始为 Disable，手动进入 system-view 后 `netconf ssh server enable` 可打开，`check-netconf` 成功。
+- ✅ `.26` 配置命令探针：`password-control change-password first-login enable`、`local-user python`、`service-type ssh terminal`、`authorization-attribute user-role network-admin/level-15` 在 system-view / local-user 视图下均可用。
+- ✅ `.26` OOB 口完整名为 `M-GigabitEthernet0/0/0`；`MGE0/0/0` 可作为缩写，但模板应写完整名。
+- ❌ 当前通用模板存在 RSTN 不兼容命令：`ssh server authentication-timeout 300` 在 V9850 R7643P02 上报 `% Wrong parameter found at '^' position`，不能放在 RSTN 分支。
+
+**修正**：
+- RSTN 分支接口改为完整 `interface M-GigabitEthernet0/0/0`
+- `ssh server authentication-timeout 300` 仅在 LSTN 分支渲染
+
+### .26 startup.cfg 抓取结论
+
+- ✅ 按 user 建议开启 `.26` SCP server：`system-view -> scp server enable`，`display ssh server status` 确认 `SCP server: Enable`。
+- ✅ `capture-config.sh` 增加 H3C V7 兼容参数（`scp -O` + `HostKeyAlgorithms=+ssh-rsa`）后，成功拉取 `.26 startup.cfg`。
+- ✅ 证据文件：`captures/ztp-test/startup_26_scp_20260718.cfg`（894 行，16692 bytes）。
+
+从 `.26 startup.cfg` 反推 RSTN 模板结构：
+
+```text
+interface M-GigabitEthernet0/0/0
+ ip address 192.168.100.26 255.255.255.0
+
+line vty 0 4
+ authentication-mode scheme
+ user-role network-operator
+ protocol inbound ssh
+
+line vty 5 63
+ user-role network-operator
+
+ssh server enable
+
+local-user python class manage
+ password hash ...
+ service-type ssh terminal
+ authorization-attribute user-role level-15
+ authorization-attribute user-role network-admin
+ authorization-attribute user-role network-operator
+
+netconf ssh server enable
+```
+
+**当前策略**：T10 不继续 reset/reboot，先沉淀 RSTN 独立模板差异；v3.1.1 可基于 T9 `.177` 主链路先发版，`.26` 完整 RSTN 空配置验证作为后续补测/patch。

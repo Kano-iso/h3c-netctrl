@@ -1,0 +1,10 @@
+=== 拉取 startup.cfg: 192.168.100.26 ===
+Warning: Permanently added '192.168.100.26' (RSA) to the list of known hosts.
+✅ 成功拉到: /captures/192.168.100.26_20260718T140452_startup.cfg (16692 bytes)
+
+=== 完成 ===
+
+── 文档 ─────────────────────────────────
+📖 用法:        /opt/docs/ops-toolkit.md#capture-config
+📖 凭据来源:    /opt/docs/ops-toolkit.md#凭据来源
+─────────────────────────────────────────

@@ -50,7 +50,11 @@ TS=$(date +%Y%m%dT%H%M%S)
 OUT="/captures/${IP}_${TS}_startup.cfg"
 
 echo "=== 拉取 startup.cfg: $IP ==="
-sshpass -p "$PASS" scp -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
+sshpass -p "$PASS" scp -O \
+    -o StrictHostKeyChecking=no \
+    -o ConnectTimeout=10 \
+    -o HostKeyAlgorithms=+ssh-rsa \
+    -o PubkeyAcceptedAlgorithms=+ssh-rsa \
     "$USER@$IP:startup.cfg" "$OUT" 2>&1
 
 if [ -f "$OUT" ]; then

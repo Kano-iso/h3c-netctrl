@@ -1,0 +1,30 @@
+=== 连通性检查: 192.168.100.101 (count=3) ===
+
+--- ping ---
+PING 192.168.100.101 (192.168.100.101) 56(84) bytes of data.
+64 bytes from 192.168.100.101: icmp_seq=1 ttl=254 time=1.09 ms
+64 bytes from 192.168.100.101: icmp_seq=1 ttl=253 time=1.09 ms (DUP!)
+64 bytes from 192.168.100.101: icmp_seq=1 ttl=254 time=1.30 ms (DUP!)
+64 bytes from 192.168.100.101: icmp_seq=1 ttl=253 time=1.30 ms (DUP!)
+64 bytes from 192.168.100.101: icmp_seq=2 ttl=254 time=0.656 ms
+64 bytes from 192.168.100.101: icmp_seq=2 ttl=253 time=0.657 ms (DUP!)
+64 bytes from 192.168.100.101: icmp_seq=2 ttl=254 time=0.658 ms (DUP!)
+64 bytes from 192.168.100.101: icmp_seq=2 ttl=253 time=0.687 ms (DUP!)
+64 bytes from 192.168.100.101: icmp_seq=3 ttl=254 time=0.770 ms
+
+--- 192.168.100.101 ping statistics ---
+3 packets transmitted, 3 received, +6 duplicates, 0% packet loss, time 2027ms
+rtt min/avg/max/mdev = 0.656/0.912/1.303/0.265 ms
+
+--- SSH 22 ---
+Connection to 192.168.100.101 22 port [tcp/ssh] succeeded!
+
+--- NETCONF 830 ---
+Connection to 192.168.100.101 830 port [tcp/*] succeeded!
+
+=== 完成 ===
+
+── 文档 ─────────────────────────────────
+📖 用法:        /opt/docs/ops-toolkit.md#check-host
+📖 凭据来源:    /opt/docs/ops-toolkit.md#凭据来源
+─────────────────────────────────────────
