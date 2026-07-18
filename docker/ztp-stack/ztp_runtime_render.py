@@ -111,7 +111,8 @@ def main() -> int:
     while True:
         try:
             override_mtime = OVERRIDE_PATH.stat().st_mtime if OVERRIDE_PATH.exists() else 0
-            signature = (override_mtime, tuple(sorted((k, os.getenv(k, "")) for k in [
+            template_mtime = TEMPLATE_PATH.stat().st_mtime if TEMPLATE_PATH.exists() else 0
+            signature = (override_mtime, template_mtime, tuple(sorted((k, os.getenv(k, "")) for k in [
                 "ZTP_PLATFORM", "ZTP_HCL_T7064P15", "ZTP_MGMT_IP",
                 "ZTP_SYSNAME", "ZTP_ADMIN_USER", "ZTP_ADMIN_PASS",
             ])))

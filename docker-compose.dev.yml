@@ -209,6 +209,11 @@ services:
       - ZTP_STATE_DIR=/ztp-state
     volumes:
       - ./data/ztp:/ztp-state
+      - ./docker/ztp-stack/entrypoint.sh:/entrypoint.sh:ro
+      - ./docker/ztp-stack/dnsmasq.conf.template:/dnsmasq.conf.template:ro
+      - ./docker/ztp-stack/tftp/autocfg.cfg.j2:/var/tftp/autocfg.cfg.j2:ro
+      - ./docker/ztp-stack/ztp_runtime_render.py:/ztp_runtime_render.py:ro
+      - ./docker/ztp-stack/ztp_onboard_callback.py:/ztp_onboard_callback.py:ro
     # v3.1.3: 挂载恢复上线旁路 state；DHCP/TFTP 租约状态仍不持久化
     # 日志走 stderr, 由 docker logs 收集
     restart: "no"
