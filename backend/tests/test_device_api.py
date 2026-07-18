@@ -1,5 +1,7 @@
 """设备管理 API 测试"""
 
+from unittest.mock import patch
+
 
 def test_create_device(client):
     """测试创建设备"""
@@ -32,6 +34,23 @@ def test_list_devices(client):
     data = resp.json()
     assert data["success"] is True
     assert len(data["data"]) >= 1
+
+
+def test_list_devices_does_not_probe_restore_support(client):
+    """设备列表不能同步探测真实设备，否则前端首屏会被阻塞。"""
+    client.post("/api/devices", json={
+        "name": "SW-No-Probe",
+        "host": "192.0.2.10",
+        "port": 830,
+        "username": "admin",
+        "password": "Admin123!"
+    })
+    with patch("app.utils.backup_manager.BackupManager.check_restore_support") as probe:
+        resp = client.get("/api/devices")
+
+    assert resp.status_code == 200
+    assert resp.json()["success"] is True
+    probe.assert_not_called()
 
 
 def test_get_device(client):

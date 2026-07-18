@@ -81,6 +81,18 @@ def _get_restore_support_cached(device: Device) -> Optional[bool]:
         return None
 
 
+def _peek_restore_support_cached(device: Device) -> Optional[bool]:
+    """只读取 restore 支持缓存，不在列表接口触发实时设备探测。"""
+    key = f"device:{device.id}:restore_support"
+    cached = _restore_support_cache.get(key)
+    if cached is None:
+        return None
+    timestamp, value = cached
+    if time.time() - timestamp <= _RESTORE_SUPPORT_TTL:
+        return value
+    return None
+
+
 def _get_device_or_404(db: Session, device_id: int):
     """根据 ID 获取设备，不存在时返回错误响应元组"""
     device = db.query(Device).filter(Device.id == device_id).first()
@@ -111,14 +123,14 @@ def list_devices(db: Session = Depends(get_db)):
     """获取设备列表
 
     v2.6.2 fix-backup-restore-support Task 6: 填充 restore_unsupported 字段
-    - 探测失败（None）不阻塞 list 返回
-    - 5s TTL 缓存避免重复探测
+    - 列表接口只读取已有缓存，不主动探测真实设备
+    - 避免前端首屏被多设备 SCP restore probe 串行拖慢
     """
     devices = db.query(Device).all()
     data = []
     for d in devices:
         item = DeviceResponse.model_validate(d).model_dump()
-        item["restore_unsupported"] = _get_restore_support_cached(d)
+        item["restore_unsupported"] = _peek_restore_support_cached(d)
         data.append(item)
     return APIResponse(success=True, data=data)
 
