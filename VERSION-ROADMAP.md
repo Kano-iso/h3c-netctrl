@@ -32,8 +32,8 @@
 | **v3.1.1 ZTP 落地** | ✅ 2026-07-18 (tag: v3.1.1) | ztp-server jinja2 多平台模板 + DHCP 临时池 `.151-.190` + `ZTP_MGMT_IP` static OOB 写入 + `.177/.26` 真机完整 ZTP 验证 + ops-toolkit reboot/capture 加固 | [RELEASE-NOTES-v3.1.1.md](RELEASE-NOTES-v3.1.1.md) + [archive/2026-07-18-v311-ztp-landing](openspec/changes/archive/2026-07-18-v311-ztp-landing/) |
 | **v3.1.2 ZTP 联动纳管** | ✅ 2026-07-18 (tag: v3.1.2) | ztp-server watcher 确认 static 管理地址 SSH 22 + NETCONF 830 上线后回调后端；后端幂等纳管入库 + 资产采集/partial 降级 + Devices/CMDB/Dashboard 现有接口可见；不走 DHCP lease 监听 | [RELEASE-NOTES-v3.1.2.md](RELEASE-NOTES-v3.1.2.md) + [archive/2026-07-18-v312-ztp-onboard-and-asset-sync](openspec/changes/archive/2026-07-18-v312-ztp-onboard-and-asset-sync/) |
 | **v3.1.3 ZTP 恢复上线** | ✅ 2026-07-18 (tag: v3.1.3) | 前端 ZTP 恢复页面 + recovery override API + ztp-server runtime 渲染 + OOB `mgt` VRF 标准配置；不联动备份回滚 | [RELEASE-NOTES-v3.1.3.md](RELEASE-NOTES-v3.1.3.md) + [archive/2026-07-18-v313-ztp-recovery-override](openspec/changes/archive/2026-07-18-v313-ztp-recovery-override/) |
-| **v3.2 新平台切换 + 能力评级** | ⏳ 2026-07-19 (待启动) | v3.2.1 新平台割接迁移（ZTP 上线、用户确认新旧设备映射、OOB 地址重编排、旧配置适配迁移）；v3.2.2 新平台能力评级（管理面 / ZTP / 备份回滚 / SDN-VPC 下发回收与状态校验）| [PRD-V3.2.md](PRD-V3.2.md) |
-| **v3.3 剩余 VPC 能力** | ⏳ 2026-07-18 (待启动) | 集中式网关降级/恢复（sdn-gateway-fallback）：主动切换 + 被动切换 + 配置生成 + 状态采集 + ops-toolkit 工具 | [PRD-V3.3.md](PRD-V3.3.md) |
+| **v3.2 平台迁移待办** | 🧊 2026-07-19 (暂缓) | 原计划新平台切换 + 能力评级；因 HCL/177 不能升级官方 S6850 镜像、EVE/V9850 二层广播不可信，当前转为未来迁移方案沉淀，不阻塞 v3.3 | [PRD-V3.2.md](PRD-V3.2.md) |
+| **v3.3 剩余 VPC 能力** | ⏳ 2026-07-19 (下一步) | 在现有平台上继续推进 VPC/SDN 产品能力；接受 NETCONF/XML + CLI over SSH 混合下发，优先完成前端功能与配置/校验闭环 | [PRD-V3.3.md](PRD-V3.3.md) |
 | **v3.4 前端大屏 + UX** | ⏳ 2026-07-18 (待启动) | VPC 详情页 + 端口矩阵 + 网络拓扑 + UX 打磨（5 步 VPC 向导 / 批量操作 / 错误处理）+ ops-toolkit-probes（3 个脚本）| [PRD-V3.4.md](PRD-V3.4.md) |
 | **v3.5 etcd 协调** | ⏳ 远期 | 可选单节点 etcd / 轻量协调方案评估 | 暂未起 spec |
 | **monitor** | ⏳ 远期 | 监控 / 告警 / dashboard 独立化 | 暂未起 spec |
