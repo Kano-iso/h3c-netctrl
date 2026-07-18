@@ -1,18 +1,21 @@
-# dnsmasq.conf.template — DHCP + TFTP 二合一配置
+# dnsmasq.conf.template — DHCP + TFTP 二合一配置（v3.1.1 改造）
 # 由 ztp-stack/entrypoint.sh 渲染 env vars 后写入 /etc/dnsmasq.conf
 #
-# 关键设计:
-# - DHCP range: 仅分配 .200-.250（避免与现有 .1-.199 设备冲突）
-# - dhcp-option=66: TFTP server IP（即本机 IP, ${ZTP_HOST_IP}）
-# - dhcp-option=67: bootfile name (autocfg.cfg)
-# - enable-tftp + tftp-root: 启动 TFTP server
-# - tftp-no-blocksize: 兼容 H3C V7 TFTP 客户端（不支持 RFC 2348 blocksize negotiation）
+# v3.1.1 关键设计变更（user 2026-07-18 拍板）:
+# - DHCP range: .151-.190（v3.1.0 的 .200-.250 → v3.1.1 缩小到 40 IP + offset 50 跨池映射）
+# - static 池: .101-.140（autocfg.cfg 推的 static IP，物理 OOB 口写入）
+# - gap: .141-.150（10 IP 安全余量）
+# - 删除 mac-binding（v3.1.0 调研方向，user 2026-07-18 明确反对）
+# - 删除 dhcp-leasefile 持久化（v3.1.0 调研方向，user 2026-07-18 明确反对）
+# - 删除 dhcp-host=MAC,IP,infinite（v3.1.0 调研方向，user 2026-07-18 明确反对）
 
 # ============================================================
 # DHCP server
 # ============================================================
-# 仅监听物理网卡（避免与 docker bridge 冲突）
-# 实际场景: host network 模式下, dnsmasq 默认监听所有接口, 但只响应 .200-.250 的请求
+# DHCP 池: .151-.190（40 IP，设备首启"一无所知"时分配临时地址）
+# 跨池映射: DHCP .X → autocfg.cfg 推 .X-50（static 池 .101-.140）
+# gap: .141-.150（10 IP 安全余量，dnsmasq 不分配）
+# 实际场景: host network 模式下, dnsmasq 默认监听所有接口
 # 详细排查: tail -f /var/log/dnsmasq.log
 dhcp-range=${ZTP_DHCP_RANGE_START},${ZTP_DHCP_RANGE_END},${ZTP_DHCP_LEASE}
 
@@ -25,8 +28,9 @@ dhcp-option=67,autocfg.cfg
 # DNS（按需调整, 默认不分配）
 # dhcp-option=6,192.168.100.1
 
-# DHCP 租约表（容器重启后丢失, 适合 T4 真机验证一次性场景）
-# 取消注释可写入持久化文件: dhcp-leasefile=/var/lib/misc/dnsmasq.leases
+# v3.1.1 明确不做（user 2026-07-18 拍板反对）:
+# - dhcp-host=MAC,IP,infinite（mac-binding）—— 设备切到 static IP 后永久脱离 DHCP 池，不需要
+# - dhcp-leasefile=/var/lib/misc/dnsmasq.leases（lease 持久化）—— 容器重启后 lease 丢失是设计选择
 
 # ============================================================
 # TFTP server
