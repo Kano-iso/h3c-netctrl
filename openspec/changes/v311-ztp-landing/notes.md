@@ -387,3 +387,34 @@ python3 -c "import paramiko; c = paramiko.SSHClient(); c.set_missing_host_key_po
 ### T7 commit
 
 - `test(ztp): T7 容器层 CI 验证（build + dnsmasq test + jinja2 render + 平台路由）`
+
+---
+
+## §T8 qa-backend 回归 — N/A（user 2026-07-18 拍板跳过）
+
+> **user 反馈**：
+> "qa-backend 是 backend 代码 pytest 回归，ztp-server 是个新基建小工具。虽然将来可能集成到平台里，但现在没必要走 qa-backend。每发版全量 QA 合理，但每次都上线一个新机器不可控。"
+
+### 决策
+
+- **T8 qa-backend 回归不适用 v3.1.1**（已从 tasks.md 标记 N/A）
+- **理由**：
+  1. `qa-backend` = backend 代码 pytest 回归（覆盖 FastAPI 业务代码）
+  2. v3.1.1 = 新增 ztp-server 基建工具，**零 backend 代码改动**
+  3. qa-backend 跑 245+ passed baseline ≠ ztp-server 验证
+  4. 工具分层：基建工具变更 → 工具层 CI（T7 容器层 CI 才是正确验证）
+- **未来**：
+  - v3.1.2 / v3.1.3 把 ztp-server 集成进 controller → 那时 controller 改 backend 代码 → qa-backend 回归才适用
+  - 现阶段 ztp-server 独立运行，qa-backend 跳过
+
+### 工具边界（user 2026-07-18 强化）
+
+| 工具 | 适用场景 | 不适用场景 |
+|------|----------|------------|
+| `qa-backend` | backend 代码变更回归 | 新基建工具（容器/脚本/配置）|
+| `qa-frontend` | frontend 代码变更回归 | 同上 |
+| **工具层 CI**（T7 模式）| 基建工具容器（build + 配置 + 渲染）| backend/frontend 代码 |
+| `ops-toolkit` | 真机端到端（探针/排错）| 容器级 CI 验证 |
+| MCP 浏览器 | UI 单功能验证 | 全量回归 / 组件测试 |
+
+> **核心原则**：用对工具，不要"反正能跑就跑一下"。每次发版必跑 qa-backend（全量回归是发版门槛），但**新基建小工具不应绑 qa-backend 必跑**。

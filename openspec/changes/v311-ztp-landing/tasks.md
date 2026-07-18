@@ -194,16 +194,24 @@
 
 ---
 
-## 8. T8 qa-backend 回归（必跑）
+## 8. T8 ~~qa-backend 回归（必跑）~~ → **N/A（v3.1.1 不适用）**
 
-> **目的**：验证 v3.1.1 零业务代码改动不破坏 backend 245+ passed baseline
-
-- [ ] 8.1 `docker compose -f docker-compose.dev.yml --profile qa up qa-backend`
-- [ ] 8.2 pytest 全量通过（与 v3.1.0 baseline 对比，**不**允许回归）
-- [ ] 8.3 **commit**: `test(ztp): T8 qa-backend 回归通过（245+ passed）`
-
-**T8 验收**：
-- qa-backend 全量 pytest PASS
+> **user 2026-07-18 拍板**：T8 qa-backend 回归**不适用 v3.1.1**
+>
+> **原因**：
+> - `qa-backend` 容器 = backend 代码 pytest 回归（覆盖 FastAPI 业务代码）
+> - v3.1.1 = 新增 `ztp-server` 基建小工具（dnsmasq + jinja2 + entrypoint.sh），**不动 backend 代码**
+> - 跑 qa-backend 复检 = 0 收益（不会因 ztp-server 改动而出现回归）
+> - 每次发版全量跑 qa-backend 是合理的（v3.x backend 主线迭代），但**新基建小工具不应绑 qa-backend 全量回归**
+>
+> **正确的工具分层**：
+> - backend 代码变更 → `qa-backend` 全量 pytest
+> - 基建工具变更 → **对应的工具层 CI**（T7 容器层 CI 验证 = ztp-server 的正确验证）
+> - 真机端到端 → 走 ops-toolkit 探针（T1 + T9-T10）
+>
+> **未来扩展**：
+> - v3.1.2 / v3.1.3 把 ztp-server 集成进 controller → 那时 controller 改 backend 代码，qa-backend 回归才适用
+> - 现阶段 ztp-server 独立运行，qa-backend 跳过
 
 ---
 
