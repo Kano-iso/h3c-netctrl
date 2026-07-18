@@ -30,8 +30,7 @@
 | **v3.0 VPC 骨架** | ✅ 2026-07-18 (tag: v3.0.0) | SDN 业务下发通道（按 device.platform 路由 LSTN→SSH / RSTN→NETCONF）+ 双套 payload 模板（5 unit × 4 字段）+ 跨平台 .5/.26 真机验证。**v3.0 PRD 7 个子能力按新规划拆到 v3.1.1 / v3.2 / v3.3 / v3.4**（详见 [PRD-V3.0.md](PRD-V3.0.md) 补充说明）| [PRD-V3.0.md](PRD-V3.0.md) + [RELEASE-NOTES-v3.0.0.md](RELEASE-NOTES-v3.0.0.md) + [archive/2026-07-16-sdn-vpc-netconf-schema-xml](openspec/changes/archive/2026-07-16-sdn-vpc-netconf-schema-xml/) |
 | **v3.1.0 ZTP 调研** | ✅ 2026-07-18 (tag: v3.1.0) | H3C V7 ZTP 可行性调研 + 决策 B（精简 ZTP）+ 独立 ztp-server 容器（alpine + dnsmasq 二合一）+ autocfg.cfg 模板（T7064P15 验证通过）| [RELEASE-NOTES-v3.1.0.md](RELEASE-NOTES-v3.1.0.md) + [archive/2026-07-18-v31-ztp-research](openspec/changes/archive/2026-07-18-v31-ztp-research/) |
 | **v3.1.1 ZTP 落地** | ✅ 2026-07-18 (tag: v3.1.1) | ztp-server jinja2 多平台模板 + DHCP 临时池 `.151-.190` + `ZTP_MGMT_IP` static OOB 写入 + `.177/.26` 真机完整 ZTP 验证 + ops-toolkit reboot/capture 加固 | [RELEASE-NOTES-v3.1.1.md](RELEASE-NOTES-v3.1.1.md) + [archive/2026-07-18-v311-ztp-landing](openspec/changes/archive/2026-07-18-v311-ztp-landing/) |
-| **v3.1.2 自动纳管** | ⏳ 2026-07-18 (待启动) | controller 监听 DHCP lease → 主动 SSH 纳管 → 推业务 IP → 同步资产 | [PRD-V3.1.md](PRD-V3.1.md) §4 |
-| **v3.1.3 资产可见** | ⏳ 2026-07-18 (待启动) | 前端实时刷新（Devices.vue / CMDB.vue / Dashboard）+ 新设备上线通知 | [PRD-V3.1.md](PRD-V3.1.md) §5 |
+| **v3.1.2 ZTP 联动纳管** | ⏳ 2026-07-18 (待启动) | 原 v3.1.2/v3.1.3 合并：基于 ZTP static 管理地址纳管入库 + 资产采集 + Devices/CMDB/Dashboard 现有接口可见；不走 DHCP lease 监听 | [PRD-V3.1.md](PRD-V3.1.md) §4 |
 | **v3.2 加固切换 + 大迁移** | ⏳ 2026-07-18 (待启动) | ① 架构切 EVENG 平台（独立容器 + 2-3 H3C V7 镜像）② 全 QA 覆盖 SDN 后端已有能力（≥ 200 unit + 集成 + e2e + 压测）③ VPC 全能力验证（prd-and-model / foundation / port-binding / l3vni-validation 4 个子能力）| [PRD-V3.2.md](PRD-V3.2.md) |
 | **v3.3 剩余 VPC 能力** | ⏳ 2026-07-18 (待启动) | 集中式网关降级/恢复（sdn-gateway-fallback）：主动切换 + 被动切换 + 配置生成 + 状态采集 + ops-toolkit 工具 | [PRD-V3.3.md](PRD-V3.3.md) |
 | **v3.4 前端大屏 + UX** | ⏳ 2026-07-18 (待启动) | VPC 详情页 + 端口矩阵 + 网络拓扑 + UX 打磨（5 步 VPC 向导 / 批量操作 / 错误处理）+ ops-toolkit-probes（3 个脚本）| [PRD-V3.4.md](PRD-V3.4.md) |
@@ -329,13 +328,12 @@ save force
 | Change | 范围 | 状态 |
 |---|---|---|
 | v3.1.1 ztp-landing | autocfg.cfg 模板适配多平台 + `.177/.26` 完整 ZTP 真机验证 + ops-toolkit reboot/capture 加固 | ✅ 已完成 |
-| v3.1.2 ztp-auto-onboard | controller 监听 DHCP lease → 主动 SSH 纳管 + 推业务 IP + 同步资产 | ⏳ 待 user 启动 |
-| v3.1.3 ztp-asset-sync | 资产自动可见（前端可查，无需手动 `POST /api/devices`）| ⏳ 待 user 启动 |
+| v3.1.2 ztp-onboard-and-asset-sync | 基于 ZTP static 管理地址纳管入库 + 资产采集 + 前端现有页面可见 | ⏳ 待 user 启动 |
 
 **用户愿景**（2026-07-17 02:13 + 2026-07-18）：
 > "ZTP 阶段只做基础配置（SSH 22 + 带外 IP + NETCONF 830 + 凭据），不做业务配置（VPC / 端口绑定 / 路由协议 / 业务 VLAN），不做配置联动（ZTP 完成后由 controller 推业务配置）"
 >
-> "白屏用户能不用做任何的操作，就能看他上线（自动上线）" —— v3.1.2/v3.1.3 实现
+> "白屏用户能不用做任何的操作，就能看他上线（自动上线）" —— v3.1.2 实现基础联动；专门 ZTP 产品页面后续单独起。
 
 **回退**：v3.1.1 真机验证失败（多平台不兼容）→ 决策 C 重新评估。
 
@@ -363,8 +361,8 @@ save force
 | `.5` | S6850 / T7064P15-prod / LSTN | 不跑完整 ZTP，仅保留 OOB/static 命令探针佐证 |
 
 **关键边界**：
-- v3.1.1 不做 controller 自动纳管、不入库、不前端可见；这些进入 v3.1.2/v3.1.3。
-- v3.1.1 不从 dnsmasq lease 自动计算 static IP；当前由 `ZTP_MGMT_IP` 指定，v3.1.2 再做自动递增/自动分配。
+- v3.1.1 不做 controller 自动纳管、不入库、不前端可见；这些进入 v3.1.2。
+- v3.1.1 不从 dnsmasq lease 自动计算 static IP；当前由 `ZTP_MGMT_IP` 指定，v3.1.2 基于该 static 管理地址做纳管联动，不走 DHCP lease 监听。
 - ZTP 阶段只写基础配置：SSH 22、NETCONF 830、项目统一账号、physical OOB static IP，不写 VPC/业务 VLAN/路由协议。
 
 **关键 commit 序列**：
@@ -379,33 +377,20 @@ save force
 
 ---
 
-### v3.1.2 自动纳管（⏳ 2026-07-18 待启动）
+### v3.1.2 ZTP 联动纳管（⏳ 2026-07-18 待启动）
 
-**目标**：设备 ZTP 完成后，**controller 主动发现并纳管**，白屏用户无需 `POST /api/devices`。
+**目标**：设备 ZTP 完成后，平台基于 static 管理地址完成纳管入库、资产采集和前端可见。原 v3.1.2“自动纳管”和 v3.1.3“资产可见”合并到本版本。
 
 **PRD**：[PRD-V3.1.md §4](PRD-V3.1.md)
 
 **范围**：
-- **DHCP lease 监听**：复用 ztp-server 容器 dnsmasq + 解析 lease log
-- **主动 SSH 纳管**：controller 定期 poll + 主动 SSH 验证凭据 + 自动 `POST /api/devices`
-- **推业务 IP**：纳管成功后 SSH 推业务 IP（VLAN interface / Loopback）
+- **不走 DHCP lease 监听**：当前 dnsmasq/autocfg 链路无法稳定承担“从租约自动发现最终 static IP”的职责。
+- **后端纳管联动**：以后端 API/操作入口接收候选管理地址（例如刚写入的 `ZTP_MGMT_IP`），执行 SSH 22 / NETCONF 830 探测，创建或更新设备记录。
+- **资产采集联动**：纳管成功后触发资产采集，刷新 model / serial / software / mgmt IP / vendor 等 CMDB 字段。
+- **前端可见**：Devices / CMDB / Dashboard 复用现有接口和刷新逻辑即可看到新增设备与统计变化。
+- **后续产品化页面**：上线设备、下线设备、ZTP 生命周期管理单独起前端页面，不塞进本版本。
 
 **依赖**：v3.1.1（静态 IP 持久化）
-
----
-
-### v3.1.3 资产可见（⏳ 2026-07-18 待启动）
-
-**目标**：前端设备列表 / CMDB / Dashboard 自动显示新设备，**无需手动刷新**。
-
-**PRD**：[PRD-V3.1.md §5](PRD-V3.1.md)
-
-**范围**：
-- **前端实时刷新**：Devices.vue / CMDB.vue 表格自动 poll（5s interval）
-- **Dashboard 统计**：设备总数 / 在线 / 离线 实时更新
-- **告警（可选）**：新设备上线通知（WebSocket / SSE 推送）
-
-**依赖**：v3.1.2（自动纳管）
 
 ---
 

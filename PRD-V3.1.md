@@ -2,7 +2,8 @@
 
 | 版本 | 日期 | 作者 | 说明 |
 |---|---|---|---|
-| V3.1 Draft | 2026-07-18 | 用户拍板 + Codex 共创 | V3.1 = ZTP 整体功能大版本蓝图，4 个子阶段（v3.1.0~v3.1.3）逐步落地 |
+| V3.1 Draft | 2026-07-18 | 用户拍板 + Codex 共创 | V3.1 = ZTP 整体功能大版本蓝图，v3.1.0 调研、v3.1.1 落地、v3.1.2 联动纳管 |
+| V3.1 Revise | 2026-07-18 | 用户拍板 + Codex 共创 | v3.1.2/v3.1.3 合并；移除 DHCP lease 监听路线，改为基于 ZTP static 管理地址的后端纳管 + 前端可见联动 |
 
 ---
 
@@ -29,117 +30,99 @@
 
 ## 2. V3.1 大版本拆分
 
-V3.1 = 4 个子版本（v3.1.0~v3.1.3）逐步落地：
+V3.1 = 3 个子版本逐步落地：
 
 | 子版本 | 主题 | 关键产出 | 状态 |
 |---|---|---|---|
 | **v3.1.0** | ZTP 调研 | 决策 B 精简 ZTP + 独立 ztp-server 容器 + autocfg.cfg 模板（T7064P15 验证通过）| ✅ **已发版**（[RELEASE-NOTES-v3.1.0.md](RELEASE-NOTES-v3.1.0.md)）|
-| **v3.1.1** | ZTP 落地 | 1:1 静态 IP 池子（DHCP 拿 IP 即绑定静态 IP）+ autocfg.cfg 多平台适配（.5 R6555 / .26 R7643P02 / .177 T7064P15 各一份模板）| ⏳ 待启动 |
-| **v3.1.2** | 自动纳管 | controller 监听 DHCP lease → 主动 SSH 纳管 → 推业务 IP → 同步资产 | ⏳ 待启动 |
-| **v3.1.3** | 资产可见 | 前端可查设备（无需手动 `POST /api/devices`）| ⏳ 待启动 |
+| **v3.1.1** | ZTP 落地 | ztp-server jinja2 多平台模板 + `ZTP_MGMT_IP` static OOB 写入 + `.177/.26` 真机完整验证 | ✅ **已发版**（[RELEASE-NOTES-v3.1.1.md](RELEASE-NOTES-v3.1.1.md)）|
+| **v3.1.2** | ZTP 联动纳管 | 设备完成 ZTP 后，后端按 static 管理地址纳管入库、采集资产，前端通过现有设备/CMDB/Dashboard 接口可见 | ⏳ 待启动 |
 
-## 3. v3.1.1 ZTP 落地
+## 3. v3.1.1 ZTP 落地（已完成）
 
 ### 3.1 目标
 
 解决 v3.1.0 留下的 2 个未解决问题：
-1. **IP 不持久**（当前 OOB DHCP lease 12h 后过期）
-2. **多平台模板未适配**（autocfg.cfg 仅在 .177 T7064P15 验证通过，.5 R6555 / .26 R7643P02 未测）
+1. **IP 不持久**：设备首启 DHCP 只作为临时地址，最终由 autocfg.cfg 写入 physical OOB static IP。
+2. **多平台模板未适配**：从单一 autocfg 模板升级为 jinja2 通用模板 + 平台条件分支。
 
 ### 3.2 范围
 
-- **1:1 静态 IP 池子方案**：
-  - DHCP 池（`192.168.100.200-.250`）+ 静态 IP 池（**1:1 映射**）
-  - 设备首次 DHCP 拿 .250 → controller 立即 SSH 推 .250 静态 IP 配置 + 持久化
-  - 下次设备重启 → 启动时静态 IP + DHCP 都生效（DHCP 不冲突）
-  - 静态 IP 配置覆盖 OOB 口，确保 IP 持久
+- **DHCP 临时池 + static 管理地址**：
+  - DHCP 池 `192.168.100.151-.190` 只用于首启拉取 `autocfg.cfg`
+  - static 管理地址由 `ZTP_MGMT_IP` 渲染进 autocfg.cfg，并写入 physical OOB 口
+  - `.177` 已验证最终 static `.101`，`.26` 已验证最终 static `.102`
+  - v3.1.1 不从 DHCP lease 自动反推 static IP
 - **autocfg.cfg 多平台适配**：
-  - .5 S6850 R6555（无 autocfg，需要 SSH 推送）
-  - .26 V9850 R7643P02（autocfg 命令兼容性）
-  - .177 S6850 T7064P15（已验证）
-  - **方案 A**：每平台 1 份 autocfg.cfg 模板（按 sysname 路由）
-  - **方案 B**：通用模板 + 平台差异条件分支（jinja2 渲染）
+  - LSTN/S6850：`M-GigabitEthernet0/0/0`
+  - RSTN/V9850：真实配置全名 `M-GigabitEthernet0/0/0`，display brief 简写 `MGE0/0/0`
+  - 采用 1 份 `autocfg.cfg.j2` 通用模板，按 `ZTP_PLATFORM=lstn|rstn` 分支渲染
 - **关闭首次登录改密**：autocfg.cfg 模板加 `password-control login-password-change disable`（v3.1.0 已加）
 
-### 3.3 设计决策（待 v3.1.1 change 启动时细化）
+### 3.3 设计决策
 
-- DHCP 池 vs 静态 IP 池：1:1 映射策略（用户已拍板）
-- 静态 IP 推送通道：SSH 22（已 v3.0 验证）
-- 静态 IP 持久化：autocfg.cfg 模板 vs SSH 推 `save force`（按平台选择）
+- 静态 IP 持久化走 autocfg.cfg 写 physical OOB 口 + `save force`
+- 不做 mac-binding / `dhcp-host=MAC,IP,infinite`
+- 不做 `dhcp-leasefile` 持久化
+- 不走 Vlan-interface1
+- 不在 v3.1.1 做 controller 自动纳管
 
 ### 3.4 验收标准
 
-- [ ] .5 / .26 / .177 三平台 autocfg.cfg 模板全部验证通过
-- [ ] 1:1 静态 IP 池子在 .177 上验证（空配置启动 → DHCP 拿 .250 → controller SSH 推 .250 静态 IP → 重启后 .250 持久）
-- [ ] DHCP lease 过期后设备 IP 仍是 .250（静态 IP 生效）
-- [ ] 17 测试覆盖：3 平台 × 5 场景（空配置 / 部分配置 / 静态 IP 已配 / DHCP 冲突 / lease 过期）
+- [x] `.177` LSTN 完整 ZTP 链路通过：空配置启动 → DHCP → TFTP → static `.101` → SSH/NETCONF → 二次 reboot 持久
+- [x] `.26` RSTN 完整 ZTP 链路通过：空配置启动 → DHCP → TFTP → static `.102` → SSH/NETCONF → 二次 reboot 持久
+- [x] `.5` 不跑完整 ZTP，仅保留 OOB/static 命令探针佐证
+- [x] `reboot-wait.sh` 与 `capture-config.sh` 完成工具加固
 
-## 4. v3.1.2 自动纳管
+## 4. v3.1.2 ZTP 联动纳管
 
 ### 4.1 目标
 
-设备 ZTP 完成后，**controller 主动发现并纳管**，白屏用户无需 `POST /api/devices`。
+设备 ZTP 完成后，平台能把设备纳入现有设备库和资产库，白屏用户无需手动 `POST /api/devices`。本版本把原 v3.1.2“自动纳管”和 v3.1.3“资产可见”合并：后端一旦有数据，前端用现有接口即可展示。
 
 ### 4.2 范围
 
-- **DHCP lease 监听**：
-  - 复用 ztp-server 容器 dnsmasq，开启 lease log
-  - 解析 log → 提取 IP / MAC / sysname
-- **主动 SSH 纳管**：
-  - controller 定期 poll DHCP lease log
-  - 新设备 → SSH 连接 → 验证凭据 → `POST /api/devices`（设备资产表 + 资产表）
-  - 失败重试 + 死信队列
-- **推业务 IP**：
-  - 纳管成功后 → SSH 推业务 IP（VLAN interface IP / Loopback IP 等）
-  - IP 由 controller 维护（避免 DHCP 漂移）
+- **纳管触发**：
+  - v3.1.2 不做 DHCP lease 监听；当前 dnsmasq/autocfg 链路无法稳定承载“从租约自动发现最终 static IP”的职责
+  - 以后端 API/操作入口接收候选管理地址（例如刚写入的 `ZTP_MGMT_IP`：`.101/.102/...`）作为纳管起点
+- **后端联动**：
+  - 按管理地址执行 SSH 22 / NETCONF 830 连通性验证
+  - 使用项目统一凭据纳管设备，创建或更新 `devices` 记录
+  - 触发资产采集，写入或刷新 CMDB 资产信息（model / serial / software / mgmt IP / vendor）
+  - 纳管动作需要幂等：同 IP/同设备重复触发时更新已有记录，不制造重复资产
+- **前端可见**：
+  - Devices / CMDB / Dashboard 复用现有后端数据与刷新逻辑即可可见
+  - 本轮不单独做完整 ZTP 产品页面；后续会起独立页面管理上线设备、下线设备和 ZTP 生命周期
+- **不做业务配置**：
+  - 不推 VPC / 端口绑定 / 路由协议 / 业务 VLAN
+  - 不把 ZTP 联动和 v3.0/v3.2 SDN 业务配置混在一个闭环里
 
 ### 4.3 验收标准
 
-- [ ] 新设备 ZTP 完成 60s 内自动出现在 ctrl 容器设备表
-- [ ] 资产表同步更新（serial / model / mgmt IP / vendor）
-- [ ] 业务 IP 推送成功（VLAN interface / Loopback）
-- [ ] 白屏用户**零操作**看到新设备
+- [ ] 给定一个已完成 ZTP 的 static 管理地址，后端可一键纳管成功
+- [ ] `devices` 表创建/更新正确，重复执行不产生重复设备
+- [ ] 资产采集完成后，CMDB 可看到 model / serial / software / mgmt IP / vendor
+- [ ] Devices / CMDB / Dashboard 通过现有接口能看到新增设备或统计变化
+- [ ] 纳管失败有明确错误原因（SSH 不通 / 凭据失败 / NETCONF 不通 / 资产采集失败）
 
-## 5. v3.1.3 资产可见
-
-### 5.1 目标
-
-前端设备列表 / CMDB / Dashboard 自动显示新设备，**无需手动刷新**。
-
-### 5.2 范围
-
-- **前端实时刷新**：
-  - Devices.vue / CMDB.vue 表格自动 poll（5s 间隔）
-  - 新设备自动出现在列表
-- **Dashboard 统计**：
-  - 设备总数 / 在线 / 离线 实时更新
-  - 按 vendor / model 分布
-- **告警（可选）**：
-  - 新设备上线通知（WebSocket / SSE 推送）
-
-### 5.3 验收标准
-
-- [ ] 新设备 ZTP 完成 90s 内前端 Devices.vue 表格自动显示
-- [ ] Dashboard 设备总数 +1
-- [ ] 用户无需手动刷新页面
-
-## 6. 不做（明确边界）
+## 5. 不做（明确边界）
 
 - ❌ **不做 ZTP 业务配置**：VPC / 端口绑定 / 路由协议 / 业务 VLAN 由 v3.0 骨架 + v3.2 验证负责
 - ❌ **不做 etcd 协调**：v3.5 远期
-- ❌ **不做前端大屏**：v3.4
+- ❌ **不做 DHCP lease 监听自动发现**：当前路线不可稳定落地，不作为 v3.1.2 前置
+- ❌ **不做专门 ZTP 产品页面**：后续单独起页面，管理上线设备、下线设备和 ZTP 生命周期
 
-## 7. 依赖关系
+## 6. 依赖关系
 
 - v3.1.1 不依赖 v3.1.0 之外的能力
 - v3.1.2 依赖 v3.1.1（静态 IP 持久化）
-- v3.1.3 依赖 v3.1.2（自动纳管）
+- 原 v3.1.3 已合并进 v3.1.2，不再单列
 
-## 8. 风险
+## 7. 风险
 
 - **风险 1：多平台 autocfg 模板差异大**：.5 老版本可能不支持某些命令
-  - 缓解：先 .5 / .26 / .177 三平台探针，再定模板
-- **风险 2：DHCP lease 监听漏报**：dnsmasq log 解析可能漏
-  - 缓解：双通道（lease log + 主动扫描网段）
-- **风险 3：自动纳管误纳管**：DHCP 租给非 H3C 设备会被误纳管
-  - 缓解：先 SSH 验证凭据（验证失败 → 不纳管）
+  - 现状：v3.1.1 已用 `.177/.26` 真机验证收敛；后续新增平台仍需探针
+- **风险 2：管理地址来源不可靠**：如果人工/控制器传入错误 IP，纳管会失败
+  - 缓解：后端纳管接口必须先做 SSH/NETCONF 探测，并给出明确失败原因
+- **风险 3：重复纳管**：同一设备重复触发可能产生重复资产
+  - 缓解：按 IP、hostname、serial 等信息做幂等更新

@@ -6,7 +6,7 @@
 
 v3.1.1 把 v3.1.0 调研阶段验证过的 H3C V7 autocfg 机制落到可复用链路：新设备空配置启动后，通过 `ztp-server` 获取 DHCP 临时地址、拉取 `autocfg.cfg`，再把 physical OOB 口写成静态管理 IP，并启用 SSH/NETCONF 与项目统一账号。
 
-本版本仍不做业务配置、不做 VPC/端口绑定、不做 controller 自动纳管；这些进入 v3.1.2/v3.2 之后的能力。
+本版本仍不做业务配置、不做 VPC/端口绑定、不做 controller 自动纳管；纳管入库和前端可见合并进入 v3.1.2，VPC/业务配置进入 v3.2 之后的能力。
 
 ## 核心变化
 
@@ -30,7 +30,7 @@ v3.1.1 把 v3.1.0 调研阶段验证过的 H3C V7 autocfg 机制落到可复用�
 
 ## 已知注意点
 
-- v3.1.1 不从 dnsmasq lease 自动计算 static IP；本轮通过 `ZTP_MGMT_IP` 指定，后续 v3.1.2 再接 controller 自动递增/自动分配。
+- v3.1.1 不从 dnsmasq lease 自动计算 static IP；本轮通过 `ZTP_MGMT_IP` 指定，后续 v3.1.2 基于该 static 管理地址做纳管联动，不走 DHCP lease 监听。
 - 当前环境重建 `ztp-server` 镜像时曾遇到外部 alpine 镜像代理 401；真机验证使用已有镜像并挂载当前模板/entrypoint 完成，不影响已验证的配置逻辑。
 - `.177` 保留 `.101` 验证态，恢复材料已保存；`.26` 经 user 手工恢复后再次执行 `.102` 适配验证。
 

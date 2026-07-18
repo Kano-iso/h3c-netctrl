@@ -26,7 +26,7 @@
 | **v2.6.1 bug 修复轮次** | ✅ **2026-07-07 (tag: v2.6.1)** | 6 个子 change：资产陈旧自动降级 / 采集失败可读化 / split 密码解密修 / vite proxy 精确分发 / **备份数据完整性**（下载 404 + 启动自检 + commit refresh + expire_on_commit + dump_db 工具） / **资产备份状态同步**（offline 设备按钮 disabled + force 逃生 + `backups.forced` 审计字段） / 备份回滚 SFTP 根因定位 + 1 个 review 反思 | [**RELEASE-NOTES-v2.6.1.md**](RELEASE-NOTES-v2.6.1.md) · [REVIEW-v261-bugfix-round.md](docs/REVIEW-v261-bugfix-round.md) |
 | **v2.6.2 回滚预检 + 失败 UX** | ⏳ 2026-07-08 (待 tag v2.6.2) | 1 个 change：H3C V7 S6850 回滚无反应修复（probe + 端点 422 + paramiko 详细日志 + 前端 toast + 面板失败高亮 + `device.status.restore_unsupported` 字段）+ 1 review 反思 | [RELEASE-NOTES-v2.6.2.md](RELEASE-NOTES-v2.6.2.md) · [REVIEW-v262-bugfix-round-real-device-validation.md](docs/REVIEW-v262-bugfix-round-real-device-validation.md) |
 | **v3.0 VPC 骨架** | ✅ **2026-07-18 (tag: v3.0.0)** | SDN 业务下发通道（按 device.platform 路由）+ 双套 payload 模板（5 unit × 4 字段）+ 跨平台 .5/.26 真机验证 + 73 SDN 单测 + 42 commits push。**v3.0 PRD 7 个子能力按规划拆到 v3.1.1 / v3.2 / v3.3 / v3.4**（详见 [PRD-V3.0.md](PRD-V3.0.md) 补充说明）| [**RELEASE-NOTES-v3.0.0.md**](RELEASE-NOTES-v3.0.0.md) · [archive/2026-07-16-sdn-vpc-netconf-schema-xml](openspec/changes/archive/2026-07-16-sdn-vpc-netconf-schema-xml/) |
-| **v3.1.0 ZTP 调研** | ✅ **2026-07-18 (tag: v3.1.0)** | H3C V7 ZTP 可行性调研 + 决策 B（精简 ZTP）+ 独立 ztp-server 容器（alpine + dnsmasq 二合一）+ autocfg.cfg 模板（T7064P15 验证通过）。**后续 v3.1.1/v3.1.2/v3.1.3 计划** | [**RELEASE-NOTES-v3.1.0.md**](RELEASE-NOTES-v3.1.0.md) · [archive/2026-07-18-v31-ztp-research](openspec/changes/archive/2026-07-18-v31-ztp-research/) |
+| **v3.1.0 ZTP 调研** | ✅ **2026-07-18 (tag: v3.1.0)** | H3C V7 ZTP 可行性调研 + 决策 B（精简 ZTP）+ 独立 ztp-server 容器（alpine + dnsmasq 二合一）+ autocfg.cfg 模板（T7064P15 验证通过）。**后续 v3.1.1 落地 / v3.1.2 联动纳管** | [**RELEASE-NOTES-v3.1.0.md**](RELEASE-NOTES-v3.1.0.md) · [archive/2026-07-18-v31-ztp-research](openspec/changes/archive/2026-07-18-v31-ztp-research/) |
 | **v3.1.1 ZTP 落地** | ✅ **2026-07-18 (tag: v3.1.1)** | ztp-server jinja2 多平台模板 + DHCP 临时池 `.151-.190` + `ZTP_MGMT_IP` static OOB 写入 + `.177/.26` 真机完整 ZTP 验证 + ops-toolkit reboot/capture 加固 | [**RELEASE-NOTES-v3.1.1.md**](RELEASE-NOTES-v3.1.1.md) · [archive/2026-07-18-v311-ztp-landing](openspec/changes/archive/2026-07-18-v311-ztp-landing/) |
 
 详细进度、约束、决策记录见 [VERSION-ROADMAP.md](VERSION-ROADMAP.md)。
@@ -47,7 +47,7 @@ V3.0 产品蓝图见 [PRD-V3.0.md](PRD-V3.0.md)。
 | **qa-backend / qa-frontend** | pytest / lint / build / vitest / playwright | v2.4.2 加 lint+build 必跑 / v2.5 加 vitest+playwright 必跑 | ✅ Archive 必跑 |
 | **ops-toolkit** | **7 个排错脚本**（check-host / check-netconf / capture-config / reboot-wait / paramiko-batch-exec / **interface-config** / **task-monitor**） | v2.4.1 + v2.4.2.1 + v2.5.0 + v3.1.1 reboot/capture 加固 | ✅ 按需启动 |
 | **sdn (v3.0.0)** | **骨架**：业务下发通道（按 device.platform 路由）+ 双套 payload 模板（5 unit × 4 字段）+ 跨平台真机验证 | v3.0.0 骨架发版（sdn-vpc-netconf-schema-xml change 闭环）| ✅ **tag: v3.0.0**：业务下发通道打通（按 device.platform 路由：LSTN 走 SSH 22 / RSTN 走 NETCONF 830）+ .5/.26 跨平台真机验证 + 42 commits push。**v3.0 PRD 7 个子能力按规划拆到 v3.1.1 / v3.2 / v3.3 / v3.4** |
-| **ztp-server (v3.1.1)** | DHCP + TFTP + autocfg.cfg 渲染，完成设备首启基础配置 | v3.1.0 基建 + v3.1.1 落地 | ✅ `.177` LSTN 与 `.26` RSTN 完整链路通过；业务纳管留给 v3.1.2 |
+| **ztp-server (v3.1.1)** | DHCP + TFTP + autocfg.cfg 渲染，完成设备首启基础配置 | v3.1.0 基建 + v3.1.1 落地 | ✅ `.177` LSTN 与 `.26` RSTN 完整链路通过；纳管入库 + 前端可见合并到 v3.1.2 |
 | **monitor (未来)** | 实时指标 / 告警 / dashboard | 远期 | ⏳ v3.0+ 评估 |
 
 ## v2.6.2 增量能力

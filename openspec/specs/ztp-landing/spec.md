@@ -3,7 +3,7 @@
 > **新能力**（v3.1.1 引入）：ZTP 落地能力 — DHCP 临时池 + static OOB 管理地址写入 + autocfg.cfg 多平台适配（jinja2 + 2 平台条件分支）
 > **范围**：仅 `ztp-server` 容器（`docker/ztp-stack/`），**零业务代码改动**
 > **依赖**：v3.1.0（ztp-server 容器基建 + autocfg.cfg T7064P15 模板）
-> **后续**：v3.1.2（自动纳管）/ v3.1.3（资产可见）依赖本 spec
+> **后续**：v3.1.2（ZTP 联动纳管：纳管入库 + 资产采集 + 前端可见）依赖本 spec
 
 ---
 
@@ -11,7 +11,7 @@
 
 ### 4 条核心方向
 
-1. **静态地址池与 DHCP 临时池隔离**：DHCP 给新设备的地址只用于首次拉取 autocfg.cfg，最终管理地址由 `ZTP_MGMT_IP` 写入 physical OOB 口。v3.1.1 已验证 `.177 → .101`、`.26 → .102`；后续 v3.1.2 再把“DHCP 临时租约 → static 地址”的自动分配逻辑接入 controller。
+1. **静态地址池与 DHCP 临时池隔离**：DHCP 给新设备的地址只用于首次拉取 autocfg.cfg，最终管理地址由 `ZTP_MGMT_IP` 写入 physical OOB 口。v3.1.1 已验证 `.177 → .101`、`.26 → .102`；后续 v3.1.2 基于该 static 管理地址做纳管入库、资产采集和前端可见联动。
 2. **autocfg.cfg 推 static IP 写物理 OOB 口**（用户原话"我们只在第 1 步刚上线的时候获取的时候用动态壁纸而已"）：S6850 当前实测 = `M-GigabitEthernet0/0/0`；V9850 当前 `.26` 现网实测 = `MGE0/0/0`（不是旧 PRD 写的 `MEth0/0/0`）。后续不把接口名写成跨设备绝对规则，但 MUST 确保命中的是真实 physical OOB 口。**不**走 Vlan-interface1（v3.1.0 失败路径）。
 3. **jinja2 通用模板 + 2 平台条件分支**：`lstn`（S6850 平台 = .5 T7064P15-prod + .177 T7064P15-hcl）/ `rstn`（V9850 平台 = .26 R7643P02）。
 4. **明确不做**（user 2026-07-18 拍板反对）：
@@ -38,7 +38,7 @@ ztp-server 容器 MUST 支持 DHCP 临时池与 static 管理池**完全分离**
 - DHCP 池：`192.168.100.151-.190`（40 IP，autocfg 机制临时分配）
 - Static 池：`192.168.100.101-.140`（40 IP，autocfg.cfg 内嵌物理 OOB 口静态 IP）
 - v3.1.1：static 地址由 `ZTP_MGMT_IP` 指定（`.101` / `.102` 已真机验证）
-- v3.1.2：controller 监听上线事件后再实现自动递增/自动分配
+- v3.1.2：controller 基于 static 管理地址做纳管联动，不走 DHCP lease 监听
 - gap：`.141-.150` 10 IP 闲置作安全余量
 
 #### Scenario: .177 真机 PoC 验证
@@ -245,12 +245,12 @@ v3.1.1 MUST 同步 3 处 A 类文档 + 1 处 B 类文档：
 ## 范围外（明确边界）
 
 - ❌ **业务配置**（VPC / 端口绑定 / 路由协议）—— v3.0 + v3.2 负责
-- ❌ **controller 自动纳管**（DHCP lease → POST /api/devices）—— v3.1.2
-- ❌ **前端 ZTP 管理界面**（设备列表实时刷新）—— v3.1.3
+- ❌ **controller 纳管入库 + 前端可见联动**—— v3.1.2
+- ❌ **专门 ZTP 产品页面**（上线设备、下线设备、ZTP 生命周期管理）—— 后续单独起
 - ❌ **DHCP 高可用**（单 dnsmasq 足够测试）
 - ❌ **HTTP 协议替换 TFTP**（H3C V7 TFTP 明文风险）—— v3.x 远期
 - ❌ **设备序列号绑定**（option 82）—— 远期
-- ❌ **per-MAC 静态 IP 分配**（multi-device ZTP）—— v3.1.2 范畴
+- ❌ **per-MAC 静态 IP 分配**（multi-device ZTP）—— 后续按产品化方案再评估
 - ❌ **mac-binding / `dhcp-host=MAC,IP,infinite`**（user 2026-07-18 明确反对）
 - ❌ **`dhcp-leasefile` 持久化**（user 2026-07-18 明确反对）
 - ❌ **Vlan-interface1 路径**（v3.1.0 失败，已走物理 OOB 口）
