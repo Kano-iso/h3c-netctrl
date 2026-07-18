@@ -4,7 +4,9 @@
 > **范围**：① 1:1 静态 IP 池子（offset 50 跨池，autocfg.cfg 推 static IP 写物理 OOB 口）② autocfg.cfg 多平台适配（jinja2 + 2 平台条件分支：LSTN S6850 / RSTN V9850）
 > **依赖**：v3.1.0（ztp-server 容器 + autocfg.cfg T7064P15 模板已闭环）
 > **后续**：v3.1.2（自动纳管）/ v3.1.3（资产可见）依赖本 change 落地
-> **基线 PRD**：[PRD-V3.1.1.md](../../../../PRD-V3.1.1.md)（v3.1.1 蓝图），但**用户 2026-07-18 复盘调整了设计**（从"mac-binding + autocfg 不推 static + SSH 推" 改为 "offset 50 跨池 + autocfg.cfg 推 static IP"），以本文档为准
+> **基线 PRD**：[PRD-V3.1.1.md](../../../../PRD-V3.1.1.md)（v3.1.1 蓝图），但**用户 2026-07-18 复盘调整了设计**（从"mac-binding + autocfg 不推 static + SSH 推" 改为 "offset 50 跨池 + autocfg.cfg 推 static IP"），且 T1 实测又修正了 `.26` OOB 口与验证范围。**以本 change + notes.md 的最新记录为准**。
+
+> **接手口径（2026-07-18 用户修正）**：`.177` 是完整 ZTP 主验证设备；`.26` 是 EVE-NG 借用的 V9850/RSTN 测试设备，必须在 `.177` 后做适配性验证；`.5` 不跑完整 ZTP。OOB 口名按现网探测，不把 `MGE`/`MEth` 写成跨设备绝对规则，但必须确保命中的是真实 physical OOB 口。
 
 ***
 
@@ -38,7 +40,7 @@ v3.1.0 ZTP 调研闭环（决策 B 精简 ZTP），但留下 2 个未解决问�
 
 > "我们用静态啊，我们只在第 1 步刚上线的时候获取的时候用动态壁纸而已"
 
-→ **autocfg.cfg 推 static IP**（**写物理 OOB 口** `M-GigabitEthernet0/0/0` for S6850 / `MEth0/0/0` for V9850）。**不**走 mac-binding / `dhcp-host=MAC,IP,infinite` / SSH 推 static IP。**不**走 Vlan-interface1（v3.1.0 失败路径）。
+→ **autocfg.cfg 推 static IP**（**写物理 OOB 口**；S6850 当前实测 `M-GigabitEthernet0/0/0`，`.26` V9850 当前实测 `MGE0/0/0`，不是旧 PRD 写的 `MEth0/0/0`）。**不**走 mac-binding / `dhcp-host=MAC,IP,infinite` / SSH 推 static IP。**不**走 Vlan-interface1（v3.1.0 失败路径）。
 
 > "不用探索点5（VRF 绑定），然后 26 可以探索一下"
 
@@ -55,7 +57,7 @@ v3.1.0 ZTP 调研闭环（决策 B 精简 ZTP），但留下 2 个未解决问�
 | Static 池      | **192.168.100.101-.140**（40 IP）                                    | autocfg.cfg 推的最终 static IP；避开 .100 Spine                          |
 | gap 安全余量     | **192.168.100.141-.150**（10 IP）                                    | DHCP 池和 static 池之间留 10 IP 安全间隔（防止 dnsmasq 误配）                |
 | static IP 推送通道 | **autocfg.cfg 内嵌**（写物理 OOB 口）                                     | 不走 Vlan-interface1（v3.1.0 Unrecognized）；v2.x 在 M-GE 0/0/0 验证成功      |
-| 物理 OOB 口      | **S6850 平台：M-GigabitEthernet0/0/0** / **V9850 平台：MEth0/0/0**     | v2.x .177 startup.cfg 真实配置（M-GE 0/0/0）；V9850 OOB 命名差异（PRD L146）|
+| 物理 OOB 口      | **按现网探测到的 physical OOB 口**：S6850 当前 `M-GigabitEthernet0/0/0`；`.26` V9850 当前 `MGE0/0/0` | v2.x .177 startup.cfg 真实配置（M-GE 0/0/0）；T1 实测推翻旧 PRD 的 `MEth0/0/0` |
 | 持久化方式        | **save force**（autocfg.cfg 应用后）                                  | H3C V7 save force v3.1.0 已验证；不需要 dhcp-leasefile 持久化            |
 | 模板方案         | **jinja2 通用 + 2 平台条件分支**                                         | 1 份 `autocfg.cfg.j2` 维护，按 `{% if platform == 'lstn' %}` / `{% elif platform == 'rstn' %}` 路由；用户 2026-07-18 拍板 |
 | 不走 mac-binding | ✅ 明确不走 `dhcp-host=MAC,IP,infinite`                              | 用户原话"不是 mac 绑定，不用了"；v3.1.1 设计只用 static IP + offset 50 跨池     |
@@ -77,7 +79,7 @@ v3.1.0 ZTP 调研闭环（决策 B 精简 ZTP），但留下 2 个未解决问�
 * **gap**：`.141-.150` 10 IP 闲置作安全余量
 
 * **autocfg.cfg 写** `interface M-GigabitEthernet0/0/0 + ip address 192.168.100.101 255.255.255.0`（LSTN 平台）
-  或 `interface MEth0/0/0 + ip address 192.168.100.101 255.255.255.0`（RSTN 平台）
+  或现网探测到的 RSTN physical OOB 口（当前 `.26` 实测 `MGE0/0/0`）+ `ip address 192.168.100.101 255.255.255.0`
 
 * **首设备 PoC 测试**（.177 接入）：
   * DHCP 给 .151（首 IP） → autocfg 拉 `ip address 192.168.100.101 255.255.255.0`（= .151 - 50）→ save
@@ -97,9 +99,9 @@ v3.1.0 ZTP 调研闭环（决策 B 精简 ZTP），但留下 2 个未解决问�
 * **平台条件分支**：用 `{% if platform == 'lstn' %}` / `{% elif platform == 'rstn' %}` 隔离差异
 
 * **差异点**（**T1 探针确定**）：
-  * 物理 OOB 口命名（S6850 = `M-GigabitEthernet0/0/0`，V9850 = `MEth0/0/0`）
-  * NETCONF 启用命令（S6850 = `netconf ssh server enable`，V9850 待 T1 探针）
-  * user-role 命名（S6850 = `network-admin`，V9850 待 T1 探针）
+  * 物理 OOB 口命名（S6850 = `M-GigabitEthernet0/0/0`；`.26` V9850 当前实测 = `MGE0/0/0`）
+  * NETCONF 启用命令（S6850 / `.26` V9850 均可用 `netconf ssh server enable`）
+  * user-role 命名（S6850 / `.26` V9850 均可用 `network-admin`；`.26` 同时支持 `level-15`）
 
 * **通用段**（所有平台共用）：
   * sysname
@@ -170,9 +172,9 @@ v3.1.0 ZTP 调研闭环（决策 B 精简 ZTP），但留下 2 个未解决问�
 | 容器基建        | ztp-server 容器                              | `docker/ztp-stack/`                      |
 | DHCP server | dnsmasq (DHCP + TFTP 二合一)                  | `docker/ztp-stack/dnsmasq.conf.template` |
 | TFTP 文件     | autocfg.cfg.j2                             | `docker/ztp-stack/tftp/autocfg.cfg.j2`   |
-| 真实设备        | 192.168.100.177 T7064P15（默认测试）             | -                                        |
-| 真实设备        | 192.168.100.5 S6850 R6555（v3.1.1 重点适配）     | -                                        |
-| 真实设备        | 192.168.100.26 V9850 R7643P02（v3.1.1 重点适配） | -                                        |
+| 真实设备        | 192.168.100.177 T7064P15（完整 ZTP 主验证）             | -                                        |
+| 真实设备        | 192.168.100.5 S6850 R6555（仅命令探针佐证，不跑完整 ZTP）     | -                                        |
+| 真实设备        | 192.168.100.26 V9850 R7643P02（EVE-NG 借用 RSTN 适配性验证） | -                                        |
 
 ### 2. QA 验证项
 
@@ -188,7 +190,7 @@ v3.1.0 ZTP 调研闭环（决策 B 精简 ZTP），但留下 2 个未解决问�
 
 * [ ] 模板路由逻辑：2 平台 env var 切换后 autocfg.cfg 内容差异符合预期
   * `ZTP_PLATFORM=lstn` → autocfg.cfg 含 `interface M-GigabitEthernet0/0/0`
-  * `ZTP_PLATFORM=rstn` → autocfg.cfg 含 `interface MEth0/0/0`
+  * `ZTP_PLATFORM=rstn` → autocfg.cfg 含现网探测到的 RSTN physical OOB 口（当前 `.26` 为 `MGE0/0/0`）
 
 * [ ] DHCP 池范围 .151-.190 生效（dnsmasq log 验证）
 
@@ -198,18 +200,18 @@ v3.1.0 ZTP 调研闭环（决策 B 精简 ZTP），但留下 2 个未解决问�
 
 * [ ] **T1 三平台探针**（v3.1.1 必须先跑通）：
 
-  * [ ] **.5 R6555**（S6850 平台）：探 `interface M-GigabitEthernet0/0/0 + ip address X X` 1 条命令（确认物理 OOB 静态 IP 支持）
+  * [x] **.5 R6555**（S6850 平台）：已探 `interface M-GigabitEthernet0/0/0 + ip address X X`，仅作 LSTN 佐证，不跑完整 ZTP
 
   * [ ] **.26 R7643P02**（V9850 平台）：探 5 条命令
-    * `display interface MEth0/0/0` 存在
-    * `interface MEth0/0/0 + ip address X X` 静态 IP
-    * `netconf ssh server enable` vs `netconf soap http enable`（**T1 后定**）
-    * `authorization-attribute user-role network-admin` vs `level-15`（**T1 后定**）
+    * 探测 physical OOB 口（当前 `.26` 实测 `MGE0/0/0`，`MEth0/0/0` 不存在）
+    * `interface <physical-oob> + ip address X X` 静态 IP
+    * `netconf ssh server enable`（已验证；SOAP 可用但非主选）
+    * `authorization-attribute user-role network-admin`（已验证；`level-15` 也支持）
     * `save force`
 
   * [ ] **.177 T7064P15**（S6850 平台）：v3.1.0 已验 `M-GigabitEthernet0/0/0 + ip address` 路径，**复用 v3.1.0 结果**（除非物理 OOB 口 static IP 命令在 v3.1.0 没测过，需要重探）
 
-* [ ] **.177 完整 ZTP 链路**（默认测试设备）：
+* [ ] **.177 完整 ZTP 链路**（主验证设备）：
 
   * [ ] 空配置启动 → DHCP 拿 .151（DHCP 池首 IP）→ autocfg 应用 `interface M-GigabitEthernet0/0/0 + ip address 192.168.100.101 255.255.255.0`（= .151 - 50）→ save
 
@@ -217,7 +219,7 @@ v3.1.0 ZTP 调研闭环（决策 B 精简 ZTP），但留下 2 个未解决问�
 
   * [ ] SSH 22 / NETCONF 830 验证通过
 
-* [ ] **.5 / .26 至少 1 平台真机验证完整 ZTP 链路**（DHCP → TFTP → autocfg → 应用 → save → 重启 → SSH/NETCONF）
+* [ ] **.26 RSTN 真机适配性验证**（`.177` 主验证通过后执行；DHCP → TFTP → autocfg → 应用 → save → 重启 → SSH/NETCONF）
 
 * [ ] **最后必须 restore\_original\_state**（设备恢复到测试前状态）
 
@@ -243,7 +245,7 @@ docker compose -f docker-compose.dev.yml --profile ops build ztp-server
 docker compose -f docker-compose.dev.yml --profile ops run --rm ztp-server \
     sh -c "python3 -c \"from jinja2 import Template; print(Template(open('/var/tftp/autocfg.cfg.j2').read()).render(platform='lstn', mgmt_ip='192.168.100.101', admin_user='admin', admin_pass='admin'))\""
 
-# 真机集成（按需，需 .177 / .5 / .26 可达）
+# 真机集成（按需，需 .177 / .26 可达；.5 不跑完整 ZTP）
 # 1. 启动 ztp-server（ZTP_PLATFORM=lstn 默认）
 docker compose -f docker-compose.dev.yml --profile ops up -d ztp-server
 
@@ -272,9 +274,9 @@ docker compose -f docker-compose.dev.yml --profile qa up qa-frontend
 
 * [ ] DHCP lease 12h 过期后 .177 仍 **.101**（static IP 生效，已脱离 DHCP 池）
 
-* [ ] .5 / .26 三平台 autocfg.cfg 模板 jinja2 渲染成功（LSTN → M-GigabitEthernet / RSTN → MEth0/0/0）
+* [ ] .177 / .26 两条主线 autocfg.cfg 模板 jinja2 渲染成功（LSTN → M-GigabitEthernet；RSTN → 现网 physical OOB 口，当前 `.26` 为 MGE0/0/0）
 
-* [ ] .5 / .26 至少 1 平台真机验证完整 ZTP 链路
+* [ ] `.26` RSTN 真机适配性验证完成（`.5` 不跑完整 ZTP）
 
 * [ ] 容器构建 + 模板渲染 + qa-backend + qa-frontend 全 PASS
 

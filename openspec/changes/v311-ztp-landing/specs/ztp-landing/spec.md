@@ -12,7 +12,7 @@
 ### 4 条核心方向
 
 1. **1:1 映射 = offset 50 跨池**（用户原话"250 映射到 150"）：DHCP 给的 IP X → autocfg.cfg 写 `X - 50`（DHCP 池 `.151-.190` ↔ static 池 `.101-.140`）。**绝对不能自映射**（X → X），否则设备永久占住 DHCP 池地址，lease 续约冲突。
-2. **autocfg.cfg 推 static IP 写物理 OOB 口**（用户原话"我们只在第 1 步刚上线的时候获取的时候用动态壁纸而已"）：S6850 = `M-GigabitEthernet0/0/0` / V9850 = `MEth0/0/0`。**不**走 Vlan-interface1（v3.1.0 失败路径）。
+2. **autocfg.cfg 推 static IP 写物理 OOB 口**（用户原话"我们只在第 1 步刚上线的时候获取的时候用动态壁纸而已"）：S6850 当前实测 = `M-GigabitEthernet0/0/0`；V9850 当前 `.26` 现网实测 = `MGE0/0/0`（不是旧 PRD 写的 `MEth0/0/0`）。后续不把接口名写成跨设备绝对规则，但 MUST 确保命中的是真实 physical OOB 口。**不**走 Vlan-interface1（v3.1.0 失败路径）。
 3. **jinja2 通用模板 + 2 平台条件分支**：`lstn`（S6850 平台 = .5 T7064P15-prod + .177 T7064P15-hcl）/ `rstn`（V9850 平台 = .26 R7643P02）。
 4. **明确不做**（user 2026-07-18 拍板反对）：
    - mac-binding / `dhcp-host=MAC,IP,infinite`
@@ -25,7 +25,7 @@
 | 设备 | 实际型号 | 实际软件 | 物理 OOB 口 | user-role 命令 | 首次改密 |
 |------|---------|---------|-----------|----------------|---------|
 | .5 | S6850 | T7064P15-**prod** | `M-GigabitEthernet0/0/0` | `network-admin` ✅ | `change-password first-login enable` (no-op) |
-| .26 | V9850-256H | R7643P02 | `MEth0/0/0` | T1 探针待定（network-admin vs level-15）| 同 prod |
+| .26 | V9850-256H | R7643P02 | 当前现网实测 `MGE0/0/0` | `network-admin` ✅（`level-15` 也支持）| 同 prod |
 | .177 | S6850 | T7064P15-**hcl** | `M-GigabitEthernet0/0/0` | `network-admin` ✅ | **`login-password-change disable`**（HCL 独有） |
 
 ---
@@ -92,7 +92,7 @@ ztp-server 容器 MUST 使用 jinja2 通用模板 + 2 平台条件分支（`lstn
 #### Scenario: jinja2 模板渲染 RSTN 分支
 
 - **WHEN** 容器启动并设置 `ZTP_PLATFORM=rstn`（.26 R7643P02 用）
-- **THEN** 渲染后 autocfg.cfg 内容含 `interface MEth0/0/0 + ip address 192.168.100.101 255.255.255.0`
+- **THEN** 渲染后 autocfg.cfg 内容含现网探测到的 V9850 physical OOB 口（当前 `.26` 为 `MGE0/0/0`）+ `ip address 192.168.100.101 255.255.255.0`
 - **AND** 渲染后 autocfg.cfg 内容含 `netconf ssh server enable`（V9850 默认 disabled，显式 enable）
 - **AND** 渲染后 autocfg.cfg 内容含 `authorization-attribute user-role {network-admin|level-15}`（T1 探针决定）
 - **AND** 渲染后 autocfg.cfg 内容含 `password-control change-password first-login enable`（no-op 安全）
@@ -131,8 +131,8 @@ v3.1.1 MUST 在 T1 阶段通过 ops-toolkit `paramiko-batch-exec.sh` 探针以�
 #### Scenario: .26 R7643P02 命令探针
 
 - **WHEN** 走 ops-toolkit `paramiko-batch-exec.sh --device .26 --command "..."`
-- **THEN** 探针 #1：`display interface MEth0/0/0`（V9850 物理 OOB 口存在）
-- **AND** 探针 #2：`interface MEth0/0/0 + ip address 192.168.100.50 255.255.255.0`（V9850 物理 OOB 静态 IP）
+- **THEN** 探针 #1：探测 V9850 物理 OOB 口（当前 `.26` 实测 `MGE0/0/0` 存在，`MEth0/0/0` 不存在）
+- **AND** 探针 #2：`interface <physical-oob> + ip address 192.168.100.50 255.255.255.0`（V9850 物理 OOB 静态 IP）
 - **AND** 探针 #3：`netconf ssh server enable`（V9850 NETCONF 默认 disabled）
 - **AND** 探针 #4：`netconf soap http enable`（V9850 NETCONF SOAP 备选）
 - **AND** 探针 #5：`authorization-attribute user-role level-15`（V9850 数字等级）
@@ -181,24 +181,24 @@ v3.1.1 MUST 在 .177 上验证完整 ZTP 链路（autocfg 机制）：空配置�
 - **WHEN** 设备 reboot 后做连通性检查
 - **THEN** 必须 sleep + retry 至少 120s（不允许 1 次 timeout 失败就推断不通）
 
-### Requirement: .5 / .26 至少 1 平台真机 ZTP 链路验证
+### Requirement: .26 RSTN 真机 ZTP 适配性验证
 
-v3.1.1 MUST 在 .5 / .26 至少 1 平台做真机 ZTP 链路验证（**不**仅 .177）：
-- 优先 .5 T7064P15-prod（同 S6850 平台，命令与 .177 接近但 password-control 行为不同）
-- 备选 .26 R7643P02（V9850 平台，命令差异大）
-- 不可达则文档记录"该平台待商用升级后验证"
+v3.1.1 MUST 在 `.177` 主验证通过后，在 `.26` RSTN/V9850 平台做真机 ZTP 适配性验证：
+- `.26` 是 EVE-NG 借用的 V9850/RSTN 测试设备，代表 v3.2 EVENG/虚拟化验证方向
+- `.26` 验证重点是 physical OOB 口、RSTN 平台模板、user-role、NETCONF、save 行为
+- `.5` 不跑完整 ZTP；已完成的 `.5` OOB/static 命令探针只作为 S6850/LSTN 参考
 
-#### Scenario: .5 真机 ZTP 验证（条件性）
+#### Scenario: .26 真机 ZTP 适配性验证
 
-- **WHEN** .5 T7064P15-prod 真机可达（T1 探针 SSH + NETCONF 通）
-- **THEN** 按 `.177 完整 ZTP 链路` 场景做 .5 版本
-- **AND** 切换 `ZTP_PLATFORM=lstn` + `ZTP_HCL_T7064P15=false`（或 unset）重启 ztp-server
-- **AND** jinja2 渲染 LSTN-prod autocfg.cfg（含 `change-password first-login enable`，**不**含 `login-password-change disable`）
-- **AND** 验证 .5 ZTP 链路通（autocfg 应用 + static IP 持久 + SSH/NETCONF 通 + 首次登录**不**触发改密）
+- **WHEN** `.177` 完整 ZTP 主验证已通过
+- **AND** `.26` V9850/RSTN 真机可达（T1 探针 SSH + NETCONF 通）
+- **THEN** 切换 `ZTP_PLATFORM=rstn` 重启 ztp-server
+- **AND** jinja2 渲染 RSTN autocfg.cfg，内容含当前现网探测到的 physical OOB 口（`.26` 当前为 `MGE0/0/0`）
+- **AND** 验证 `.26` ZTP 链路通（autocfg 应用 + static IP 持久 + SSH/NETCONF 通）
 
 #### Scenario: 平台不可达处理
 
-- **WHEN** T1 探针发现 .5 / .26 任一平台 SSH / NETCONF 不可达
+- **WHEN** T1 探针发现 .26 平台 SSH / NETCONF 不可达
 - **THEN** 文档 `notes.md` 记录不可达原因
 - **AND** VERSION-ROADMAP 标注 v3.1.1 "部分平台待商用升级后验证"
 - **AND** 不阻塞 v3.1.1 发版（已知限制）

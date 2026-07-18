@@ -22,29 +22,30 @@
 > **工具**：ops-toolkit `paramiko-batch-exec.sh`（所有探针走容器，**不**裸写 SSH）
 > **关键约束**：T1 通过后才进 T2（jinja2 模板 + entrypoint）；T1 失败 → 决策 C 重新评估
 >
-> **user 2026-07-18 拍板简化**：
-> - **T1.1 .5 R6555 探针：跳过**（.5 不跑 ZTP 验证，与 .177 同 S6850 平台，命令支持假设一致）
-> - T1.2 .26 R7643P02：完整 7 条探针
-> - T1.3 .177 T7064P15：复用 v3.1.0 结果 + 补做 M-GigabitEthernet0/0/0 + ip address 探针（v3.1.1 新增的物理 OOB 方案）
+> **user 2026-07-18 接手修正**：
+> - `.177` 是完整 ZTP 主验证设备，先在 `.177` 验证一切无误
+> - `.26` 是 EVE-NG 借用的 V9850/RSTN 测试设备，`.177` 后必须做适配性验证
+> - `.5` 不跑完整 ZTP；已发生的 `.5` 探针只作为 S6850/LSTN 命令佐证
+> - OOB 口名按现网探测，不把 `MGE`/`MEth` 写成跨设备绝对规则；必须确保命中的是真实 physical OOB 口
 
-### 1.1 ~~.5 R6555（S6850 平台）探针~~（**跳过**）
+### 1.1 .5 R6555（S6850 平台）探针（**已做，仅作佐证；不跑完整 ZTP**）
 
-> **user 2026-07-18 拍板**：.5 不跑 ZTP 验证（生产设备，谨慎）。T1.1 整段跳过，假设 S6850 平台（.5 R6555）命令与 .177 T7064P15 一致。
+> **user 2026-07-18 接手修正**：.5 不跑完整 ZTP 验证（生产/现网参考设备，谨慎）。已经完成的 OOB/static 命令探针保留为 LSTN 佐证。
 
 ### 1.2 .26 R7643P02（V9850 平台）探针
 
 > **范围**：5 条核心探针（**用户 2026-07-18 指示"26 可以探索一下"**）
 
-- [ ] 1.2.1 `check-host` / `check-netconf` 验证 .26 SSH 22 + NETCONF 830 可达
-- [ ] 1.2.2 探针 #1：`display interface MEth0/0/0`（确认 V9850 物理 OOB 口存在）
-- [ ] 1.2.3 探针 #2：`interface MEth0/0/0 + ip address 192.168.100.50 255.255.255.0 + quit + display this + undo ip address`（V9850 物理 OOB 静态 IP）
-- [ ] 1.2.4 探针 #3：`netconf ssh server enable` + `display netconf server status`（V9850 SSH 协议支持？）
-- [ ] 1.2.5 探针 #4：`netconf soap http enable` + `display netconf server status`（V9850 SOAP 协议支持？）
-- [ ] 1.2.6 探针 #5：`authorization-attribute user-role level-15`（V9850 数字等级？）
-- [ ] 1.2.7 探针 #6：`authorization-attribute user-role network-admin`（V9850 字符串角色？）
-- [ ] 1.2.8 探针 #7：`save force` + `display saved-configuration | include save`（V9850 save force 支持）
-- [ ] 1.2.9 记录结果到 `notes.md §T1.2.26`（每条命令成功 / Unrecognized / 错误）
-- [ ] 1.2.10 **commit**: `probe(ztp): T1.2 .26 R7643P02 V9850 平台 7 条命令探针（OOB + NETCONF + user-role + save）`
+- [x] 1.2.1 `check-host` / `check-netconf` 验证 .26 SSH 22 + NETCONF 830 可达
+- [x] 1.2.2 探针 #1：探测 V9850 physical OOB 口（实测 `MGE0/0/0` 存在，`MEth0/0/0` 不存在）
+- [x] 1.2.3 探针 #2：`interface MGE0/0/0 + ip address 192.168.100.50 255.255.255.0 + quit + display this`（V9850 物理 OOB 静态 IP）
+- [x] 1.2.4 探针 #3：`netconf ssh server enable`（V9850 SSH 协议支持，no-op 安全）
+- [x] 1.2.5 探针 #4：`netconf soap http enable`（V9850 SOAP 协议支持，备选）
+- [x] 1.2.6 探针 #5：`authorization-attribute user-role level-15`（V9850 数字等级支持）
+- [x] 1.2.7 探针 #6：`authorization-attribute user-role network-admin`（V9850 字符串角色支持，模板统一用此项）
+- [x] 1.2.8 探针 #7：`save force`（V9850 save force 支持）
+- [x] 1.2.9 记录结果到 `notes.md §T1.2.26`（每条命令成功 / Unrecognized / 错误）
+- [x] 1.2.10 结果已纳入 T7/notes 提交（未单独拆 T1.2 commit）
 
 **T1.2 验收**：
 - .26 SSH 22 + NETCONF 830 通
@@ -59,8 +60,8 @@
 
 - [x] 1.3.1 v3.1.0 已验命令（sysname / local-user / ssh / netconf / save force）—— **复用结果**
 - [x] 1.3.2 v3.1.0 失败命令（Vlan-interface1 + ip address）—— **已知失败，v3.1.1 改走物理 OOB 口**
-- [ ] 1.3.3 **如需重探**（v3.1.1 新增的 `interface M-GigabitEthernet0/0/0 + ip address X X`）：跑 T1.1.2 同款探针
-- [ ] 1.3.4 记录 v3.1.0 已知结果到 `notes.md §T1.3.177`（仅记录，不重跑）
+- [x] 1.3.3 v3.1.1 新增的 `interface M-GigabitEthernet0/0/0 + ip address X X` 已探针成功；但探针误用 `undo ip address + save force` 造成 `.177` 失联，详见 `notes.md §高危操作红线`
+- [x] 1.3.4 记录 v3.1.0 已知结果到 `notes.md §T1.3.177` / `notes.md §.177 探针`
 
 **T1.3 验收**：
 - v3.1.0 已知结果已文档化
@@ -79,17 +80,17 @@
 > **目的**：写 1 份 jinja2 通用模板 + 2 平台条件分支
 > **路径**：`docker/ztp-stack/tftp/autocfg.cfg.j2`
 
-- [ ] 2.1 创建 `docker/ztp-stack/tftp/autocfg.cfg.j2`（jinja2 模板，**完整**结构见 [design.md Decision 4](design.md)）
-- [ ] 2.2 模板变量：`platform`（lstn/rstn）/ `mgmt_ip`（默认 `.101`）/ `sysname`（默认 `ztp-device`）/ `admin_user`（默认 `admin`）/ `admin_pass`（默认 `admin`）/ `ztp_date`
-- [ ] 2.3 LSTN 分支：`interface M-GigabitEthernet0/0/0 + ip address {{ mgmt_ip }} 255.255.255.0`
-- [ ] 2.4 RSTN 分支：`interface MEth0/0/0 + ip address {{ mgmt_ip }} 255.255.255.0`（**仅当** T1.2 探针 #2 验证通过）
-- [ ] 2.5 LSTN 分支 NETCONF：`netconf ssh server enable`
-- [ ] 2.6 RSTN 分支 NETCONF：按 T1.2 探针 #3/#4 结果写（SSH 或 SOAP）
-- [ ] 2.7 LSTN 分支 user-role：`authorization-attribute user-role network-admin`
-- [ ] 2.8 RSTN 分支 user-role：按 T1.2 探针 #5/#6 结果写（network-admin 或 level-15）
-- [ ] 2.9 通用段：sysname / local-user / password simple / VTY / save force / `password-control login-password-change disable`
-- [ ] 2.10 验证 jinja2 语法：`jinja2 --version` + `python3 -c "from jinja2 import Template; ..."`
-- [ ] 2.11 **commit**: `feat(ztp): T2 autocfg.cfg.j2 jinja2 通用模板（2 平台条件分支 + 物理 OOB 口 static IP）`
+- [x] 2.1 创建 `docker/ztp-stack/tftp/autocfg.cfg.j2`（jinja2 模板，**完整**结构见 [design.md Decision 4](design.md)）
+- [x] 2.2 模板变量：`platform`（lstn/rstn）/ `mgmt_ip`（默认 `.101`）/ `sysname`（默认 `ztp-device`）/ `admin_user`（默认 `python`）/ `admin_pass`（默认项目主账密）/ `ztp_date`
+- [x] 2.3 LSTN 分支：`interface M-GigabitEthernet0/0/0 + ip address {{ mgmt_ip }} 255.255.255.0`
+- [x] 2.4 RSTN 分支：按 T1 现网探测结果使用 `interface MGE0/0/0 + ip address {{ mgmt_ip }} 255.255.255.0`
+- [x] 2.5 LSTN 分支 NETCONF：`netconf ssh server enable`
+- [x] 2.6 RSTN 分支 NETCONF：T1 探针确认 `netconf ssh server enable` 可用，模板统一使用 SSH NETCONF
+- [x] 2.7 LSTN 分支 user-role：`authorization-attribute user-role network-admin`
+- [x] 2.8 RSTN 分支 user-role：T1 探针确认 `network-admin` / `level-15` 均可用，模板统一用 `network-admin`
+- [x] 2.9 通用段：sysname / local-user / password simple / VTY / save force / password-control 平台分支
+- [x] 2.10 验证 jinja2 语法：T7 容器层 CI 已覆盖 LSTN/RSTN 渲染
+- [x] 2.11 **commit**: `feat(ztp): T2 autocfg.cfg.j2 jinja2 通用模板（2 平台条件分支 + 物理 OOB 口 static IP）`
 
 **T2 验收**：
 - `autocfg.cfg.j2` 文件存在
@@ -103,11 +104,11 @@
 > **目的**：`entrypoint.sh` 读取 `ZTP_PLATFORM` env var → jinja2 渲染 `autocfg.cfg.j2` → 输出 `/var/tftp/autocfg.cfg`
 > **路径**：`docker/ztp-stack/entrypoint.sh`
 
-- [ ] 3.1 改 `entrypoint.sh`：在 dnsmasq 启动前加 jinja2 渲染步骤
-- [ ] 3.2 渲染命令：`python3 -c "from jinja2 import Template; print(Template(open('/var/tftp/autocfg.cfg.j2').read()).render(platform=os.environ.get('ZTP_PLATFORM', 'lstn'), mgmt_ip=os.environ.get('ZTP_MGMT_IP', '192.168.100.101'), sysname=os.environ.get('ZTP_SYSNAME', 'ztp-device'), admin_user=os.environ.get('ZTP_ADMIN_USER', 'admin'), admin_pass=os.environ.get('ZTP_ADMIN_PASS', 'admin'), ztp_date=datetime.now().strftime('%Y-%m-%d')))"`
-- [ ] 3.3 输出：`/var/tftp/autocfg.cfg`
-- [ ] 3.4 启动日志打印：渲染后 autocfg.cfg 前 10 行 + `ZTP_PLATFORM` 值
-- [ ] 3.5 **commit**: `feat(ztp): T3 entrypoint.sh jinja2 渲染 + ZTP_PLATFORM 路由`
+- [x] 3.1 改 `entrypoint.sh`：在 dnsmasq 启动前加 jinja2 渲染步骤
+- [x] 3.2 渲染命令：用 `python3 -c` + jinja2 Template 渲染 env var
+- [x] 3.3 输出：`/var/tftp/autocfg.cfg`
+- [x] 3.4 启动日志打印：渲染后 autocfg.cfg 前 10 行 + `ZTP_PLATFORM` 值
+- [x] 3.5 **commit**: `feat(ztp): T3 entrypoint.sh jinja2 渲染 + ZTP_PLATFORM 路由`
 
 **T3 验收**：
 - 容器启动后 `/var/tftp/autocfg.cfg` 内容正确（按 `ZTP_PLATFORM` 路由）
@@ -119,11 +120,11 @@
 
 > **目的**：Dockerfile apk add jinja2 + jinja2-cli（用于容器内 jinja2 渲染）
 
-- [ ] 4.1 改 `docker/ztp-stack/Dockerfile`：`apk add --no-cache python3 py3-jinja2 py3-jinja2-cli`（jinja2-cli 提供命令行工具，备选；entrypoint.sh 用 `python3 -c` 即可）
-- [ ] 4.2 确认 `python3` 已存在（alpine:3.20 默认有）
-- [ ] 4.3 验证镜像构建成功：`docker compose -f docker-compose.dev.yml --profile ops build ztp-server`
-- [ ] 4.4 验证 jinja2 可用：`docker exec ztp-server python3 -c "import jinja2; print(jinja2.__version__)"`
-- [ ] 4.5 **commit**: `feat(ztp): T4 Dockerfile jinja2 依赖（python3 + py3-jinja2）`
+- [x] 4.1 改 `docker/ztp-stack/Dockerfile`：`apk add --no-cache python3 py3-jinja2`
+- [x] 4.2 确认 `python3` 可用
+- [x] 4.3 验证镜像构建成功：T7 容器层 CI 已通过
+- [x] 4.4 验证 jinja2 可用：T7 容器层 CI 已覆盖
+- [x] 4.5 **commit**: `feat(ztp): T4 Dockerfile jinja2 依赖（python3 + py3-jinja2）`
 
 **T4 验收**：
 - 镜像构建成功
@@ -135,11 +136,11 @@
 
 > **目的**：调整 DHCP 池范围到 .151-.190，**删**除 v3.1.0 的 mac-binding / dhcp-leasefile 持久化（用户 2026-07-18 明确反对）
 
-- [ ] 5.1 改 `docker/ztp-stack/dnsmasq.conf.template`：`dhcp-range=${ZTP_DHCP_RANGE_START},${ZTP_DHCP_RANGE_END},${ZTP_DHCP_LEASE}`（默认值 .151-.190）
-- [ ] 5.2 **删** `dhcp-host=MAC,IP,infinite` 配置（v3.1.1 不做 mac-binding）
-- [ ] 5.3 **删** `dhcp-leasefile=/var/lib/misc/dnsmasq.leases` 配置（v3.1.1 不做 lease 持久化）
-- [ ] 5.4 验证：`dnsmasq --test -C /etc/dnsmasq.conf` 配置语法通过
-- [ ] 5.5 **commit**: `feat(ztp): T5 dnsmasq.conf DHCP 池 .151-.190 迁移 + 删除 mac-binding/leasefile（v3.1.1 设计简化）`
+- [x] 5.1 改 `docker/ztp-stack/dnsmasq.conf.template`：`dhcp-range=${ZTP_DHCP_RANGE_START},${ZTP_DHCP_RANGE_END},${ZTP_DHCP_LEASE}`（默认值 .151-.190）
+- [x] 5.2 **删** `dhcp-host=MAC,IP,infinite` 配置（v3.1.1 不做 mac-binding）
+- [x] 5.3 **删** `dhcp-leasefile=/var/lib/misc/dnsmasq.leases` 配置（v3.1.1 不做 lease 持久化）
+- [x] 5.4 验证：`dnsmasq --test -C /etc/dnsmasq.conf` 配置语法通过（T7 已验证）
+- [x] 5.5 **commit**: `feat(ztp): T5 dnsmasq.conf DHCP 池 .151-.190 迁移 + 删除 mac-binding/leasefile（v3.1.1 设计简化）`
 
 **T5 验收**：
 - dnsmasq 配置语法通过
@@ -152,18 +153,18 @@
 
 > **目的**：调整 ztp-server volume 挂载（删除 `/var/lib/misc`，不需要 lease 持久化）+ `.env` 注入 `ZTP_PLATFORM`
 
-- [ ] 6.1 改 `docker-compose.dev.yml`：
+- [x] 6.1 改 `docker-compose.dev.yml`：
   - **删** ztp-server volume `ztp-lease:/var/lib/misc`（v3.1.1 不做 lease 持久化）
-  - **加** ztp-server volume `ztp-tftp:/var/tftp`（autocfg.cfg.j2 模板源，**只读**）
-- [ ] 6.2 改 `.env.example`：
+  - **不加**额外 TFTP volume：模板已 COPY 到镜像内，容器启动时渲染 `/var/tftp/autocfg.cfg`
+- [x] 6.2 改 `.env.example`：
   - **加** `ZTP_PLATFORM=lstn`
   - **加** `ZTP_DHCP_RANGE_START=192.168.100.151`
   - **加** `ZTP_DHCP_RANGE_END=192.168.100.190`
-  - **删** `ZTP_MGMT_IP`（autocfg.cfg 模板硬编码 .101）
+  - **保留** `ZTP_MGMT_IP=192.168.100.101` 作为 v3.1.1 PoC static IP 变量（默认值仍 .101，v3.1.2 再公式化）
   - **删** `ZTP_MGMT_MASK`（autocfg.cfg 模板硬编码 255.255.255.0）
   - **删** `ZTP_MGMT_GATEWAY`（autocfg.cfg 不写 ip gateway）
-- [ ] 6.3 改 `.env`（实际环境）：同步 .env.example 变更
-- [ ] 6.4 **commit**: `feat(ztp): T6 docker-compose + .env 调整（删除 lease volume + ZTP_PLATFORM 注入）`
+- [ ] 6.3 改 `.env`（实际环境）：同步 .env.example 变更（当前未确认，不在本轮自动改真实 `.env`）
+- [x] 6.4 **commit**: `feat(ztp): T6 .env.example 调整（ZTP_PLATFORM + offset 50 跨池 + 账密统一 + 禁二账号）`
 
 **T6 验收**：
 - `docker compose -f docker-compose.dev.yml --profile ops up -d ztp-server` 启动成功
@@ -176,15 +177,15 @@
 
 > **目的**：T2-T6 完成后跑容器层 QA 验证（不需真机）
 
-- [ ] 7.1 容器构建：`docker compose -f docker-compose.dev.yml --profile ops build ztp-server`
-- [ ] 7.2 dnsmasq 配置语法：`docker exec ztp-server dnsmasq --test -C /etc/dnsmasq.conf`
-- [ ] 7.3 端口监听：`ss -ulnA inet | grep -E '(:67|:69)'`（宿主机）
-- [ ] 7.4 jinja2 渲染：手动跑 entrypoint 验证 LSTN 分支内容
-- [ ] 7.5 jinja2 渲染：手动跑 entrypoint 验证 RSTN 分支内容
-- [ ] 7.6 模板路由：切换 `ZTP_PLATFORM=rstn` 重新启动容器，验证 autocfg.cfg 含 `MEth0/0/0`
-- [ ] 7.7 DHCP 池范围：dnsmasq log 输出 `IP range 192.168.100.151 -- 192.168.100.190`
-- [ ] 7.8 **不**含 dhcp-host：grep `dhcp-host` dnsmasq.conf 应为空
-- [ ] 7.9 **commit**: `test(ztp): T7 容器层 CI 验证（build + dnsmasq test + jinja2 render + 平台路由）`
+- [x] 7.1 容器构建：`docker compose -f docker-compose.dev.yml --profile ops build ztp-server`
+- [x] 7.2 dnsmasq 配置语法：`docker exec ztp-server dnsmasq --test -C /etc/dnsmasq.conf`
+- [x] 7.3 端口监听：`ss -ulnA inet | grep -E '(:67|:69)'`（宿主机）
+- [x] 7.4 jinja2 渲染：手动跑 entrypoint 验证 LSTN 分支内容
+- [x] 7.5 jinja2 渲染：手动跑 entrypoint 验证 RSTN 分支内容
+- [x] 7.6 模板路由：切换 `ZTP_PLATFORM=rstn` 重新启动容器，验证 autocfg.cfg 含现网 RSTN OOB 口 `MGE0/0/0`
+- [x] 7.7 DHCP 池范围：dnsmasq log/配置输出 `192.168.100.151 -- 192.168.100.190`
+- [x] 7.8 **不**含 dhcp-host：grep `dhcp-host` dnsmasq.conf 实际配置为空（注释除外）
+- [x] 7.9 **commit**: `test(ztp): T7 容器层 CI 验证（build + dnsmasq test + jinja2 render + 平台路由）`
 
 **T7 验收**：
 - 容器构建成功
@@ -215,13 +216,13 @@
 
 ---
 
-## 9. T9 真机 ZTP 链路验证（.177 默认测试设备）
+## 9. T9 真机 ZTP 链路验证（.177 主验证设备，必须先跑）
 
 > **目的**：.177 完整 ZTP 链路验证（空配置启动 → DHCP .151 → autocfg 应用 → static .101 → save → 重启 → SSH/NETCONF）
 > **前置**：T1-T8 全过 + 真机备份 startup.cfg（走 ops-toolkit）
 
 - [ ] 9.1 备份 .177 startup.cfg：`paramiko-batch-exec.sh --device .177 --command "more startup.cfg" > /tmp/backup-177-ztp.cfg`
-- [ ] 9.2 启动 ztp-server 容器（`ZTP_PLATFORM=lstn`）
+- [ ] 9.2 启动 ztp-server 容器（`ZTP_PLATFORM=lstn` + `ZTP_HCL_T7064P15=true`）
 - [ ] 9.3 验证 ztp-server DHCP 池 .151-.190 + TFTP server .254 + autocfg.cfg 渲染内容（physical OOB 口 M-GigabitEthernet0/0/0 + ip address 192.168.100.101）
 - [ ] 9.4 reset .177 saved-configuration：`reset saved-configuration`（autocfg 机制触发）
 - [ ] 9.5 reboot .177（自动配置 attempt 1 可能失败，attempt 2 成功）
@@ -241,19 +242,19 @@
 
 ---
 
-## 10. T10 .26 R7643P02 真机 ZTP 验证（V9850 平台）
+## 10. T10 .26 R7643P02 真机 ZTP 适配性验证（V9850/RSTN 平台，必须在 .177 后跑）
 
 > **目的**：.26 R7643P02 跑完整 ZTP 链路（验证 V9850 物理 OOB 口命令 + jinja2 模板 RSTN 分支）
 > **前置**：T1.2 .26 探针全过 + T9 .177 已闭环
 >
-> **user 2026-07-18 拍板**：**.5 R6555 不跑 ZTP 验证**（生产设备，谨慎；同 S6850 平台已被 .177 覆盖）
+> **user 2026-07-18 接手修正**：**.5 R6555 不跑完整 ZTP 验证**；`.26` 是 EVE-NG 借用的 V9850/RSTN 测试设备，必须用于适配性验证。
 
 - [ ] 10.1 备份 .26 startup.cfg（`paramiko-batch-exec.sh`）
 - [ ] 10.2 切换 `ZTP_PLATFORM=rstn` + 重启 ztp-server 容器
-- [ ] 10.3 验证 ztp-server 渲染的 autocfg.cfg 含 `MGE0/0/0`（V9850 物理 OOB 口）
+- [ ] 10.3 验证 ztp-server 渲染的 autocfg.cfg 含现网探测到的 V9850 physical OOB 口（当前 `.26` 实测为 `MGE0/0/0`）
 - [ ] 10.4 reset saved-configuration + reboot .26
 - [ ] 10.5 60s 内 SSH 22 + NETCONF 830 验证通
-- [ ] 10.6 120s 后验证配置含 autocfg.cfg 内容（含 `interface MGE0/0/0` + `ip address 192.168.100.101 255.255.255.0` + `sysname` + `ssh server enable` + `netconf ssh server enable`）
+- [ ] 10.6 120s 后验证配置含 autocfg.cfg 内容（含 physical OOB 口 static IP `.101` + `sysname` + `ssh server enable` + `netconf ssh server enable`）
 - [ ] 10.7 reboot 再次重启 → 设备 IP 仍是 static .101
 - [ ] 10.8 restore_original_state 恢复 .26
 - [ ] 10.9 **commit**: `test(ztp): T10 .26 V9850 真机 ZTP 链路验证（jinja2 RSTN 分支 + MGE0/0/0 物理 OOB 口）`
@@ -360,7 +361,7 @@ T0 (Propose) ─→ T1 (探针) ─→ T2 (jinja2 模板) ─→ T3 (entrypoint)
 - T1 必须先跑（确认命令支持）→ 决定 T2 模板内容
 - T2-T6 串行（jinja2 模板 → entrypoint → Dockerfile → dnsmasq → compose）
 - T7-T8 可并行（容器 CI + qa-backend 回归）
-- T9-T10 串行（默认测试 .177 闭环后，再做 .5/.26）
+- T9-T10 串行（`.177` 主验证闭环后，再做 `.26` RSTN 适配性验证；`.5` 不跑完整 ZTP）
 - T11 独立（.env 清理）
 - T12 依赖 T1-T11 全部完成
 - T13 依赖 T12 完成后才能 archive

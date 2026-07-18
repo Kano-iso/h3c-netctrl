@@ -1,8 +1,9 @@
 # ztp-stack 容器 + H3C V7 ZTP 真机验证 SOP
 
-> **变更**：v3.1 ZTP 调研 T3-T4 基建（[proposal](../../openspec/changes/v31-ztp-research/proposal.md)）
+> **变更**：v3.1 ZTP 调研 T3-T4 基建 + v3.1.1 ZTP 落地（[active change](../openspec/changes/v311-ztp-landing/proposal.md)）
 > **创建时间**：2026-07-17
-> **目标**：在受控局域网内，对 H3C V7 设备做 Zero Touch Provisioning 验证
+> **更新**：2026-07-18
+> **目标**：在受控局域网内，对 H3C V7 设备做 Zero Touch Provisioning / autocfg 自动配置验证
 
 ---
 
@@ -19,21 +20,21 @@
 
 ## 2. 容器组件
 
-**镜像**：`alpine:3.20`（轻量，约 7MB）+ `dnsmasq`（DHCP 67/UDP + TFTP 69/UDP 二合一）
+**镜像**：`alpine:3.20`（轻量，约 7MB）+ `dnsmasq`（DHCP 67/UDP + TFTP 69/UDP 二合一）+ `python3/py3-jinja2`（v3.1.1 起渲染 `autocfg.cfg.j2`）
 
 **目录结构**：
 ```
 docker/ztp-stack/
-├── Dockerfile                        # alpine + dnsmasq
+├── Dockerfile                        # alpine + dnsmasq + python3 + py3-jinja2
 ├── entrypoint.sh                     # 渲染 env vars 到 dnsmasq.conf + autocfg.cfg
 ├── dnsmasq.conf.template             # DHCP + TFTP 模板
 └── tftp/
-    └── autocfg.cfg.template          # H3C V7 启动配置模板
+    └── autocfg.cfg.j2                # H3C V7 启动配置 jinja2 模板
 ```
 
 **渲染流程**（entrypoint.sh）：
 1. `sed` 替换 `dnsmasq.conf.template` 中 `${ZTP_*}` 占位符 → `/etc/dnsmasq.conf`
-2. `sed` 替换 `autocfg.cfg.template` 中 `${ZTP_*}` 占位符 → `/var/tftp/autocfg.cfg`
+2. `python3 + jinja2` 渲染 `autocfg.cfg.j2` → `/var/tftp/autocfg.cfg`
 3. `exec dnsmasq -k -C /etc/dnsmasq.conf -d`（前台运行，日志到 stderr）
 
 ---
@@ -49,27 +50,44 @@ ztp-server:
 
 **原因**：H3C V7 设备的 DHCP discover 是 **L2 广播**，不能跨网段。ops-toolkit 容器在 docker bridge network（172.x.x.x），不在 .177 物理网段（192.168.100.0/24），广播不通。`host network` 模式下，容器直接绑定宿主机网络接口，能接收物理网段的 L2 广播。
 
-### 3.2 DHCP 范围设计
+### 3.2 DHCP 范围设计（v3.1.1 当前口径）
 
 ```conf
-dhcp-range=192.168.100.200,192.168.100.250,12h
+dhcp-range=192.168.100.151,192.168.100.190,12h
 ```
 
-- 仅分配 `.200-.250`，**避开现有 `.1-.199`**（`.4` 宿主机 + `.5/.26/.177` 设备）
-- 12h 租约（容器停止即清空，不污染网络）
+- DHCP 池：`.151-.190`，只作为新设备首启临时地址
+- Static 池：`.101-.140`，由 `autocfg.cfg` 写入 physical OOB 口
+- 映射：`static = dhcp - 50`，例如 `.151 → .101`
+- Gap：`.141-.150` 空出 10 个地址，避免误配时 DHCP/static 池贴边
+- 不做 `dhcp-host=MAC,IP,infinite`，不做 `dhcp-leasefile` 持久化
 
-### 3.3 autocfg.cfg 最小配置
+### 3.3 v3.1.1 autocfg.cfg 当前策略
 
 按 user 2026-07-17 02:13 明确：
 - ✅ 只做基础配置：SSH 22 + NETCONF 830 + 凭据 + 带外 IP
 - ❌ 不做业务配置：VPC / 端口绑定 / 路由协议 / 业务 VLAN
 - ❌ 不做配置联动：ZTP 完成后由 controller 继续推业务配置
+- ✅ v3.1.1 起由 `autocfg.cfg` 写 physical OOB 口 static IP
+- ✅ LSTN 当前 OOB 口：`M-GigabitEthernet0/0/0`
+- ✅ RSTN `.26` 当前 OOB 口：`MGE0/0/0`；不要把接口名写成绝对规则，后续以现网探测到的 physical OOB 口为准
 
 ### 3.4 凭据走 env vars
 
 `autocfg.cfg` 模板中所有占位符（`${ZTP_*}`）由 .env 注入：
 - 避免硬编码密码（user memory 红线）
 - 同一份模板可用于不同设备（仅 .env 变量不同）
+- v3.1.1 统一使用项目主账密变量：`ZTP_ADMIN_USER=python` / `ZTP_ADMIN_PASS=Admin123!@#`
+
+### 3.5 v3.1.1 验证顺序
+
+| 顺序 | 设备 | 目的 |
+|---|---|---|
+| 1 | `.177` S6850/T7064P15-hcl | 完整 ZTP 主验证：空配置 → DHCP → TFTP → autocfg → static `.101` → save → 重启持久 |
+| 2 | `.26` V9850/R7643P02 | EVE-NG 借用 RSTN 设备的适配性验证：OOB 口、模板、user-role、NETCONF、save |
+| - | `.5` S6850/T7064P15-prod | 不跑完整 ZTP；仅保留已完成的 OOB/static 命令探针作为 LSTN 佐证 |
+
+`.26` 的背景：它是 v3.0 起用于 RSTN/schema NETCONF 路径验证的 EVE-NG 借用测试设备。v3.1.1 继续让它承担 RSTN 平台适配验证；v3.2 会把这条思路扩展为 EVENG 平台迁移和完整数据面验证。
 
 ---
 
@@ -82,18 +100,18 @@ dhcp-range=192.168.100.200,192.168.100.250,12h
 # ZTP 宿主机 IP（按实际修改）
 ZTP_HOST_IP=192.168.100.4
 
-# DHCP 范围（默认 .200-.250）
-ZTP_DHCP_RANGE_START=192.168.100.200
-ZTP_DHCP_RANGE_END=192.168.100.250
+# DHCP 范围（v3.1.1 默认 .151-.190）
+ZTP_DHCP_RANGE_START=192.168.100.151
+ZTP_DHCP_RANGE_END=192.168.100.190
 ZTP_DHCP_LEASE=12h
 
 # 设备自动配置（autocfg.cfg 渲染变量）
-ZTP_SYSNAME=ztp-177
-ZTP_MGMT_IP=192.168.100.10
-ZTP_MGMT_MASK=255.255.255.0
-ZTP_MGMT_GATEWAY=192.168.100.1
-ZTP_ADMIN_USER=admin
-ZTP_ADMIN_PASS=admin
+ZTP_PLATFORM=lstn
+ZTP_HCL_T7064P15=false
+ZTP_SYSNAME=ztp-device
+ZTP_MGMT_IP=192.168.100.101
+ZTP_ADMIN_USER=python
+ZTP_ADMIN_PASS=Admin123!@#
 ```
 
 ### 4.2 构建镜像

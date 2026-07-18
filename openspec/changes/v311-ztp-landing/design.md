@@ -3,6 +3,7 @@
 > **状态**：Propose → Design 阶段（**Apply 前必读**）
 > **目的**：技术方案 + 关键决策 + 实施风险 + 部署回退
 > **用户 2026-07-18 复盘后修订**：从"mac-binding + dhcp-leasefile 持久化"改为"autocfg.cfg 推 static IP 写物理 OOB 口 + offset 50 跨池映射"
+> **接手修订**：`.177` 是完整 ZTP 主验证设备；`.26` 是 EVE-NG 借用的 V9850/RSTN 测试设备，必须做适配性验证；`.5` 不跑完整 ZTP。OOB 口按现网探测结果使用，当前 `.26` 实测为 `MGE0/0/0`，不是旧 PRD 的 `MEth0/0/0`。
 
 ---
 
@@ -27,7 +28,7 @@
 - **核心**：解决上述 2 遗留问题，**为 v3.1.2 / v3.1.3 解锁**
 - **约束**：
   - 静态 IP 推送通道：**autocfg.cfg 推 static IP 写物理 OOB 口**（用户 2026-07-18 拍板）
-  - 物理 OOB 口：**S6850 = M-GigabitEthernet0/0/0** / **V9850 = MEth0/0/0**（v2.x 验证成功路径）
+  - 物理 OOB 口：按现网探测到的 physical OOB 口写入（S6850 当前 `M-GigabitEthernet0/0/0`；`.26` V9850 当前 `MGE0/0/0`）
   - 模板方案：**jinja2 通用 + 2 平台条件分支**（LSTN / RSTN）
   - 1:1 映射 = **offset 50 跨池**（DHCP .151-.190 ↔ static .101-.140，user 拍板）
   - **不走** mac-binding / `dhcp-host=MAC,IP,infinite` / dhcp-leasefile 持久化（user 2026-07-18 明确反对）
@@ -41,7 +42,7 @@
 
 - **user**：项目 owner，决策拍板
 - **AI（assistant）**：实施 + 测试
-- **设备**：.5 R6555（S6850 平台）/ .26 R7643P02（V9850 平台）/ .177 T7064P15（默认测试设备）
+- **设备**：.177 T7064P15（完整 ZTP 主验证）/ .26 R7643P02（V9850/RSTN 适配性验证）/ .5 R6555（S6850/LSTN 命令探针佐证，不跑完整 ZTP）
 
 ---
 
@@ -50,11 +51,11 @@
 ### Goals
 
 1. ✅ 1:1 静态 IP 池子（offset 50 跨池，DHCP .151-.190 ↔ static .101-.140）
-2. ✅ autocfg.cfg 推 static IP 写**物理 OOB 口**（S6850 = M-GigabitEthernet0/0/0 / V9850 = MEth0/0/0）
+2. ✅ autocfg.cfg 推 static IP 写**物理 OOB 口**（S6850 当前 = M-GigabitEthernet0/0/0；`.26` V9850 当前 = MGE0/0/0；后续按现网探测）
 3. ✅ autocfg.cfg jinja2 通用模板 + 2 平台条件分支（LSTN / RSTN）
 4. ✅ ZTP 模板路由（`ZTP_PLATFORM` env var：lstn / rstn）
 5. ✅ .177 真机验证完整 ZTP 链路（空配置 → DHCP .151 → static .101 → 重启持久）
-6. ✅ .5 / .26 真机探针 + 至少 1 平台真机验证
+6. ✅ .26 真机适配性验证（`.177` 主验证通过后）；`.5` 仅命令探针佐证
 7. ✅ 文档同步（docs/ztp-stack.md + VERSION-ROADMAP + README）
 
 ### Non-Goals
@@ -150,7 +151,7 @@
 | 平台 | 设备型号 | 软件版本 | 物理 OOB 口 | 依据 |
 |------|---------|---------|-----------|------|
 | **LSTN** | .5 S6850 / .177 S6850 | R6555 / T7064P15 | **`M-GigabitEthernet0/0/0`** | v2.x .177 startup.cfg L236-238 真实配置 |
-| **RSTN** | .26 V9850 | R7643P02 | **`MEth0/0/0`** | [PRD-V3.1.1.md L146](../../../../PRD-V3.1.1.md) 明确：V9850 OOB 口是 MEth0/0/0 |
+| **RSTN** | .26 V9850 | R7643P02 | **当前现网实测 `MGE0/0/0`** | T1 探针发现；旧 PRD 写的 `MEth0/0/0` 在 `.26` 上不存在 |
 
 **autocfg.cfg.j2 模板物理 OOB 口命令**（jinja2 条件分支）：
 
@@ -160,7 +161,7 @@ interface M-GigabitEthernet0/0/0
  ip address {{ mgmt_ip }} 255.255.255.0
 quit
 {% elif platform == 'rstn' %}
-interface MEth0/0/0
+interface MGE0/0/0
  ip address {{ mgmt_ip }} 255.255.255.0
 quit
 {% endif %}
@@ -193,7 +194,7 @@ interface M-GigabitEthernet0/0/0
  ip address {{ mgmt_ip }} 255.255.255.0
 quit
 {% elif platform == 'rstn' %}
-interface MEth0/0/0
+interface MGE0/0/0
  ip address {{ mgmt_ip }} 255.255.255.0
 quit
 {% endif %}
@@ -291,12 +292,12 @@ log-facility=/var/log/dnsmasq.log
 
 | 风险 | 严重度 | 缓解 |
 |------|------|------|
-| 2 平台 OOB 口命名差异（M-GigabitEthernet0/0/0 vs MEth0/0/0）| 🟡 中 | jinja2 条件分支隔离；T1 探针 #1/#2 验证 OOB 口存在 |
-| .5 R6555 物理 OOB 静态 IP 命令未知 | 🟡 中 | T1 探针 #3 验证 `.5 + M-GigabitEthernet0/0/0 + ip address X X` |
+| 2 平台 OOB 口命名差异（M-GigabitEthernet0/0/0 vs `.26` 当前 MGE0/0/0）| 🟡 中 | jinja2 条件分支隔离；T1 探针 #1/#2 验证 OOB 口存在；后续按现网 physical OOB 口探测结果更新 |
+| .5 R6555 完整 ZTP 风险 | 🟢 低 | `.5` 不跑完整 ZTP；仅保留已完成的 OOB/static 命令探针作为 LSTN 佐证 |
 | .26 R7643P02 NETCONF 差异（SSH vs SOAP）| 🟡 中 | T1 探针 #6 验证 `.26 + netconf ssh server enable` vs `netconf soap http enable` |
 | .26 R7643P02 user-role 差异（network-admin vs level-15）| 🟡 中 | T1 探针 #7 验证 `.26 + authorization-attribute user-role level-15` |
 | H3C V7 TFTP 传输 autocfg.cfg 明文密码 | 🟡 中 | 接受 v3.1.1 风险，HTTP 协议 + password hash 留 v3.x 远期 |
-| .5 / .26 设备实际验证不可达 | 🟡 中 | T1 `check-host` / `check-netconf` 探针先验，不通则文档记录"该平台待商用升级后才能 ZTP" |
+| .26 设备实际验证不可达 | 🟡 中 | T1 `check-host` / `check-netconf` 探针先验，不通则文档记录"RSTN 适配性验证待设备恢复" |
 | 设备失联（reset saved-configuration 后无法 SSH）| 🔴 高 | 真机测试前必 backup startup.cfg + 准备 restore 脚本（走 ops-toolkit）|
 | autocfg 失败时设备进入不一致状态 | 🟡 中 | T4 失败立即 `restore 备份`（参数化 restore 脚本）|
 | ZTP_PLATFORM 误配（用户填错）| 🟢 低 | `entrypoint.sh` 启动时校验 `ZTP_PLATFORM ∈ {lstn, rstn}`，不在则 warning + 用 lstn 默认 |
@@ -389,9 +390,10 @@ docker compose -f docker-compose.dev.yml --profile ops up -d ztp-server
 3. **.26 R7643P02 user-role 命名（network-admin vs level-15）？**
    - T1 探针 #7 验证
    - PRD V3.1.1 写 `level-15`，但 .26 实际可能跟 S6850 一样支持 `network-admin`
-4. **.5 / .26 真机是否可达？**
-   - T1 `check-host` / `check-netconf` 探针先验
-   - 不可达则标记"待商用 R6607+ 升级后验证"
+4. **.177 / .26 真机是否可达？**
+   - `.177` 是完整 ZTP 主验证设备，必须先确认可达/可恢复
+   - `.26` 是 EVE-NG 借用的 V9850/RSTN 适配性验证设备
+   - `.5` 不跑完整 ZTP
 5. **autocfg.cfg 中 sysname 来源？**
    - 固定 `{{ sysname }}` env var（v3.1.0 模式）
    - 或 DHCP option 12 hostname（dnsmasq 支持，但增加复杂度）
