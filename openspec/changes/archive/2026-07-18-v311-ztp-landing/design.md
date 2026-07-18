@@ -4,6 +4,7 @@
 > **目的**：技术方案 + 关键决策 + 实施风险 + 部署回退
 > **用户 2026-07-18 复盘后修订**：从"mac-binding + dhcp-leasefile 持久化"改为"autocfg.cfg 推 static IP 写物理 OOB 口 + offset 50 跨池映射"
 > **接手修订**：`.177` 是完整 ZTP 主验证设备；`.26` 是 EVE-NG 借用的 V9850/RSTN 测试设备，必须做适配性验证；`.5` 不跑完整 ZTP。OOB 口按现网探测结果使用，当前 `.26` 实测为 `MGE0/0/0`，不是旧 PRD 的 `MEth0/0/0`。
+> **归档口径（2026-07-18）**：最终实现以 `RELEASE-NOTES-v3.1.1.md` 与 `docs/ztp-stack.md` 为准。v3.1.1 不从 DHCP lease 自动推导 static IP，而是由 `ZTP_MGMT_IP` 指定；`.177=.101`、`.26=.102` 已完成真机验证。`.26` current/saved 配置中的 OOB 口全名为 `M-GigabitEthernet0/0/0`，display brief 简写为 `MGE0/0/0`。
 
 ---
 

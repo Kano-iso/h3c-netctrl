@@ -292,8 +292,8 @@ docker compose -f docker-compose.dev.yml --profile ops down ztp-server
 
 ## 8. 相关文档
 
-- [v31-ztp-research/proposal.md](../../openspec/changes/v31-ztp-research/proposal.md) — 调研立项
-- [v31-ztp-research/design.md §2.5](../../openspec/changes/v31-ztp-research/design.md) — ztp-server 容器设计
-- [v31-ztp-research/notes.md §3](../../openspec/changes/v31-ztp-research/notes.md) — capture-config 失败 + 新发现
+- [v31-ztp-research/proposal.md](../openspec/changes/archive/2026-07-18-v31-ztp-research/proposal.md) — 调研立项
+- [v31-ztp-research/design.md](../openspec/changes/archive/2026-07-18-v31-ztp-research/design.md) — ztp-server 容器设计
+- [v3.1.1 release notes](../RELEASE-NOTES-v3.1.1.md) — 落地结论、真机验证与已知注意点
 - [H3C S5560-EI 基础配置指导 §13 自动配置](https://www.h3c.com/cn/d_201912/1252406_30005_0.htm) — 官方文档
 - [H3C VCF Fabric §73](https://www.h3c.com/en/d_202404/2113460_294551_0.htm) — VCF ZTP 文档（R6607+）

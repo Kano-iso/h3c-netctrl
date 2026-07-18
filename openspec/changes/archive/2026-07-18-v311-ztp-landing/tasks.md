@@ -44,7 +44,7 @@
 - [x] 1.2.6 探针 #5：`authorization-attribute user-role level-15`（V9850 数字等级支持）
 - [x] 1.2.7 探针 #6：`authorization-attribute user-role network-admin`（V9850 字符串角色支持，模板统一用此项）
 - [x] 1.2.8 探针 #7：`save force`（V9850 save force 支持）
-- [x] 1.2.9 记录结果到 `notes.md §T1.2.26`（每条命令成功 / Unrecognized / 错误）
+- [x] 1.2.9 记录结果到 release notes / captures（每条命令成功 / Unrecognized / 错误）
 - [x] 1.2.10 结果已纳入 T7/notes 提交（未单独拆 T1.2 commit）
 
 **T1.2 验收**：
@@ -60,8 +60,8 @@
 
 - [x] 1.3.1 v3.1.0 已验命令（sysname / local-user / ssh / netconf / save force）—— **复用结果**
 - [x] 1.3.2 v3.1.0 失败命令（Vlan-interface1 + ip address）—— **已知失败，v3.1.1 改走物理 OOB 口**
-- [x] 1.3.3 v3.1.1 新增的 `interface M-GigabitEthernet0/0/0 + ip address X X` 已探针成功；但探针误用 `undo ip address + save force` 造成 `.177` 失联，详见 `notes.md §高危操作红线`
-- [x] 1.3.4 记录 v3.1.0 已知结果到 `notes.md §T1.3.177` / `notes.md §.177 探针`
+- [x] 1.3.3 v3.1.1 新增的 `interface M-GigabitEthernet0/0/0 + ip address X X` 已探针成功；但探针误用 `undo ip address + save force` 造成 `.177` 失联，复盘结论已同步到 release notes / docs
+- [x] 1.3.4 记录 v3.1.0 已知结果到 release notes / captures
 
 **T1.3 验收**：
 - v3.1.0 已知结果已文档化
@@ -316,13 +316,13 @@
 
 > **目的**：change archive 闭环 + 通知 user review
 
-- [ ] 13.1 跑 `openspec status --change v311-ztp-landing --json` 确认所有 task 完成
-- [ ] 13.2 跑 `openspec instructions archive --change v311-ztp-landing` 获取 archive 指令
-- [ ] 13.3 `git mv openspec/changes/v311-ztp-landing/ → openspec/changes/archive/2026-07-XX-v311-ztp-landing/`
-- [ ] 13.4 **删** `notes.md`（v3.1.0 调研笔记 B 类规则，archive 时不归档）
-- [ ] 13.5 `git add -A && git commit -m "chore(ztp): v3.1.1 archive"`
-- [ ] 13.6 通知 user review，等待反馈后 push + tag
-- [ ] 13.7 **commit**: `chore(ztp): T13 v3.1.1 archive 闭环`
+- [x] 13.1 跑 `openspec status --change v311-ztp-landing --json` 确认 planning artifacts 完成（`isComplete: true`）
+- [x] 13.2 跑 `openspec instructions archive --change v311-ztp-landing`：当前 `spec-driven` schema 无 `archive` artifact，工具返回不支持；本轮按项目既有规则手工 archive
+- [x] 13.3 `git mv openspec/changes/v311-ztp-landing/ → openspec/changes/archive/2026-07-18-v311-ztp-landing/`
+- [x] 13.4 **删** `notes.md`（B 类临时笔记，关键结论已同步到 release notes / docs）
+- [x] 13.5 `git add -A && git commit -m "chore(ztp): T13 v3.1.1 archive"`
+- [x] 13.6 通知 user review；push + tag 等 user 确认后执行
+- [x] 13.7 **commit**: `chore(ztp): T13 v3.1.1 archive 闭环`
 
 **T13 验收**：
 - openspec/changes/v311-ztp-landing/ 移到 archive/
