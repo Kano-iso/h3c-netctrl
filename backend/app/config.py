@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     # False = 关闭降级 + dashboard 不过滤（兼容历史数据场景）
     ASSET_STALE_ENABLED: bool = True
 
+    # v3.1.3 ZTP 恢复上线：ctrl/backend 写入，ztp-server 通过共享 volume 读取
+    ZTP_STATE_DIR: str = "/app/data/ztp"
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
 

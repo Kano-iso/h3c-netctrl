@@ -2,7 +2,7 @@
 # H3C V7 自动配置 - autocfg.cfg
 # 平台: {{ platform }} ({{ platform_long }})
 # 生成时间: {{ ztp_date }}
-# 用途: 新设备首次上线基础配置（sysname + 物理 OOB 口 static IP + SSH + NETCONF + 凭据）
+# 用途: 新设备首次上线 / 已有设备恢复上线基础配置（sysname + OOB VRF/IP + SSH + NETCONF + 凭据）
 # IP 映射: offset 50 跨池（DHCP .151-.190 ↔ static .101-.140，gap .141-.150）
 # 凭据: python / Admin123!@#（项目主账密统一，user 2026-07-18 拍板）
 # 模板版本: v3.1.1（zinja2 通用 + 2 平台条件分支 + HCL 子分支）
@@ -20,16 +20,22 @@ password-control login-password-change disable
 password-control change-password first-login enable
 {% endif %}
 
+# === OOB 管理 VRF ===
+ip vpn-instance mgt
+quit
+
 # === 物理 OOB 口 static IP（offset 50 跨池映射）===
 # LSTN (S6850) = M-GigabitEthernet0/0/0
 # RSTN (V9850) = M-GigabitEthernet0/0/0（MGE0/0/0 可作为缩写，但模板写完整名）
 # v3.1.1 阶段硬编码 .101（PoC 验证单设备），公式化映射由 v3.1.2 接入多设备时实现
 {% if platform == 'lstn' %}
 interface M-GigabitEthernet0/0/0
+ ip binding vpn-instance mgt
  ip address {{ mgmt_ip }} 255.255.255.0
 quit
 {% elif platform == 'rstn' %}
 interface M-GigabitEthernet0/0/0
+ ip binding vpn-instance mgt
  ip address {{ mgmt_ip }} 255.255.255.0
 quit
 {% endif %}

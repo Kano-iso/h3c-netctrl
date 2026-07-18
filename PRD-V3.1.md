@@ -4,6 +4,7 @@
 |---|---|---|---|
 | V3.1 Draft | 2026-07-18 | 用户拍板 + Codex 共创 | V3.1 = ZTP 整体功能大版本蓝图，v3.1.0 调研、v3.1.1 落地、v3.1.2 联动纳管 |
 | V3.1 Revise | 2026-07-18 | 用户拍板 + Codex 共创 | v3.1.2/v3.1.3 合并；移除 DHCP lease 监听路线，改为基于 ZTP static 管理地址的后端纳管 + 前端可见联动 |
+| V3.1 Revise 2 | 2026-07-18 | 用户拍板 + Codex 共创 | 旧 v3.1.3“资产可见”已并入 v3.1.2；新 v3.1.3 定义为已有设备 ZTP 恢复上线旁路能力 |
 
 ---
 
@@ -37,6 +38,7 @@ V3.1 = 3 个子版本逐步落地：
 | **v3.1.0** | ZTP 调研 | 决策 B 精简 ZTP + 独立 ztp-server 容器 + autocfg.cfg 模板（T7064P15 验证通过）| ✅ **已发版**（[RELEASE-NOTES-v3.1.0.md](RELEASE-NOTES-v3.1.0.md)）|
 | **v3.1.1** | ZTP 落地 | ztp-server jinja2 多平台模板 + `ZTP_MGMT_IP` static OOB 写入 + `.177/.26` 真机完整验证 | ✅ **已发版**（[RELEASE-NOTES-v3.1.1.md](RELEASE-NOTES-v3.1.1.md)）|
 | **v3.1.2** | ZTP 联动纳管 | ztp-server 确认 static 管理地址上线后回调后端；后端按该地址纳管入库、采集资产，前端通过现有设备/CMDB/Dashboard 接口可见 | ✅ 已完成 |
+| **v3.1.3** | ZTP 恢复上线 | 前端临时指定已有设备 OOB 地址；ztp-server 通过 recovery override 重渲染 autocfg.cfg；恢复 SSH/NETCONF/地址后由备份回滚页面独立处理配置恢复 | ✅ 已完成 |
 
 ## 3. v3.1.1 ZTP 落地（已完成）
 
@@ -105,20 +107,49 @@ V3.1 = 3 个子版本逐步落地：
 - [x] Devices / CMDB / Dashboard 通过现有接口能看到新增设备或统计变化
 - [x] 纳管失败有明确错误原因（SSH 不通 / 凭据失败 / NETCONF 不通 / 资产采集失败）
 
-## 5. 不做（明确边界）
+## 5. v3.1.3 ZTP 恢复上线
+
+### 5.1 目标
+
+已有设备因模拟器重启或配置丢失后，可通过前端临时指定该设备原 OOB 管理地址，让 ztp-server 旁路渲染 `autocfg.cfg`，恢复设备的 OOB 地址、SSH、NETCONF 和统一账号。
+
+### 5.2 范围
+
+- **前端入口**：
+  - 运营管理分组新增“ZTP 恢复”页面
+  - 备份回滚移除“未来”标记，拓扑 / AI 继续保留
+- **后端 override**：
+  - `/api/ztp/recovery-override` 支持查询、写入、清除
+  - 写入 `data/ztp/recovery_override.json`，不改 `.env`
+- **ztp-server runtime 渲染**：
+  - 运行时监控 override 文件
+  - override 存在时临时渲染指定 host / platform / sysname / credential
+  - override 清除后恢复默认 ZTP 序列
+- **OOB VRF**：
+  - `autocfg.cfg` 标准模板补齐 `ip vpn-instance mgt`
+  - physical OOB 口补齐 `ip binding vpn-instance mgt`
+
+### 5.3 边界
+
+- 不自动触发备份回滚；配置恢复仍由备份回滚页面负责
+- 不做 MAC 绑定
+- 不做 DHCP lease 监听
+- 不自动识别具体设备
+
+## 6. 不做（明确边界）
 
 - ❌ **不做 ZTP 业务配置**：VPC / 端口绑定 / 路由协议 / 业务 VLAN 由 v3.0 骨架 + v3.2 验证负责
 - ❌ **不做 etcd 协调**：v3.5 远期
 - ❌ **不做 DHCP lease 监听自动发现**：当前路线不可稳定落地，不作为 v3.1.2 前置
-- ❌ **不做专门 ZTP 产品页面**：后续单独起页面，管理上线设备、下线设备和 ZTP 生命周期
+- ❌ **不做完整 ZTP 生命周期页面**：v3.1.3 只做恢复上线旁路，后续再管理上线设备、下线设备和生命周期
 
-## 6. 依赖关系
+## 7. 依赖关系
 
 - v3.1.1 不依赖 v3.1.0 之外的能力
 - v3.1.2 依赖 v3.1.1（静态 IP 持久化）
-- 原 v3.1.3 已合并进 v3.1.2，不再单列
+- v3.1.3 基于 v3.1.1/v3.1.2，提供已有设备恢复上线旁路能力
 
-## 7. 风险
+## 8. 风险
 
 - **风险 1：多平台 autocfg 模板差异大**：.5 老版本可能不支持某些命令
   - 现状：v3.1.1 已用 `.177/.26` 真机验证收敛；后续新增平台仍需探针

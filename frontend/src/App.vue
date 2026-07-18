@@ -33,7 +33,8 @@ const groups = computed(() => [
     desc: t('nav.groups.ops-mgmt.desc'),
     items: [
       { name: 'cmdb',       label: t('nav.items.cmdb.label'),       desc: t('nav.items.cmdb.desc'),       icon: 'cmdb' },
-      { name: 'backup',     label: t('nav.items.backup.label'),     desc: t('nav.items.backup.desc'),     icon: 'backup', future: true }
+      { name: 'ztp',        label: t('nav.items.ztp.label'),        desc: t('nav.items.ztp.desc'),        icon: 'ztp' },
+      { name: 'backup',     label: t('nav.items.backup.label'),     desc: t('nav.items.backup.desc'),     icon: 'backup' }
     ]
   },
   {
@@ -78,6 +79,7 @@ const Icons = {
   interface: 'M9 2v6M15 2v6M5 8h14v3a7 7 0 01-14 0zM12 18v4',
   batch:    'M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5',
   cmdb:     'M4 7h16M4 12h16M4 17h10',
+  ztp:      'M12 3v5M7 8h10M5 12h14M8 16h8M10 21h4M12 16v5',
   backup:   'M19 14l-7 7-7-7M12 21V3M5 7l7-4 7 4',
   logs:     'M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8zM14 2v6h6M16 13H8M16 17H8M10 9H8',
   topology: 'M12 2v6m0 8v6M2 12h6m8 0h6M5 5l4 4m6 6l4 4M5 19l4-4m6-6l4-4',

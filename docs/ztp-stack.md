@@ -14,7 +14,7 @@
 | 容器 | 职责 | 网络 | 凭据 | 启动方式 |
 |---|---|---|---|---|
 | **ops-toolkit** | 设备排错 / 探针 / 单功能验证 | docker bridge | .env 注入 | `docker compose ... --profile ops run --rm ops-toolkit` |
-| **ztp-server**（新）| ZTP 服务的 DHCP + TFTP 二合一 | **host network**（共享宿主机网络栈）| .env 注入（ZTP_* 变量）| `docker compose ... --profile ops up -d ztp-server` |
+| **ztp-server** | ZTP 服务的 DHCP + TFTP 二合一 + recovery override | **host network**（共享宿主机网络栈）| .env 注入（ZTP_* 变量）+ `data/ztp` state | `docker compose ... --profile ops up -d ztp-server` |
 
 ---
 
@@ -26,7 +26,8 @@
 ```
 docker/ztp-stack/
 ├── Dockerfile                        # alpine + dnsmasq + python3 + py3-jinja2
-├── entrypoint.sh                     # 渲染 env vars 到 dnsmasq.conf + autocfg.cfg
+├── entrypoint.sh                     # 渲染 env vars 到 dnsmasq.conf，启动 runtime renderer
+├── ztp_runtime_render.py             # v3.1.3: 监控 recovery override 并重渲染 autocfg.cfg
 ├── dnsmasq.conf.template             # DHCP + TFTP 模板
 └── tftp/
     └── autocfg.cfg.j2                # H3C V7 启动配置 jinja2 模板
@@ -34,8 +35,9 @@ docker/ztp-stack/
 
 **渲染流程**（entrypoint.sh）：
 1. `sed` 替换 `dnsmasq.conf.template` 中 `${ZTP_*}` 占位符 → `/etc/dnsmasq.conf`
-2. `python3 + jinja2` 渲染 `autocfg.cfg.j2` → `/var/tftp/autocfg.cfg`
-3. `exec dnsmasq -k -C /etc/dnsmasq.conf -d`（前台运行，日志到 stderr）
+2. `ztp_runtime_render.py` 渲染 `autocfg.cfg.j2` → `/var/tftp/autocfg.cfg`
+3. 若 `data/ztp/recovery_override.json` 存在，runtime renderer 临时使用 override；清除后恢复 `.env` 默认值
+4. `exec dnsmasq -k -C /etc/dnsmasq.conf -d`（前台运行，日志到 stderr）
 
 ---
 
@@ -60,6 +62,7 @@ dhcp-range=192.168.100.151,192.168.100.190,12h
 - Static 池：`.101-.140`，由 `ZTP_MGMT_IP` 渲染进 `autocfg.cfg` 并写入 physical OOB 口
 - v3.1.1 已验证：`.177 → .101`、`.26 → .102`
 - v3.1.2 由 ztp-server watcher 基于 static 管理地址确认 SSH 22 + NETCONF 830 上线，再回调后端完成纳管入库、资产采集和前端可见联动；本轮不从 dnsmasq lease 自动反推 static 地址
+- v3.1.3 增加 recovery override：前端可临时指定已有设备 OOB 地址，ztp-server 只在 override 存在时旁路渲染该地址
 - Gap：`.141-.150` 空出 10 个地址，避免误配时 DHCP/static 池贴边
 - 不做 `dhcp-host=MAC,IP,infinite`，不做 `dhcp-leasefile` 持久化
 
@@ -70,6 +73,7 @@ dhcp-range=192.168.100.151,192.168.100.190,12h
 - ❌ 不做业务配置：VPC / 端口绑定 / 路由协议 / 业务 VLAN
 - ❌ 不做配置联动：ZTP 完成后由 controller 继续推业务配置
 - ✅ v3.1.1 起由 `autocfg.cfg` 写 physical OOB 口 static IP
+- ✅ v3.1.3 起模板标准配置 `ip vpn-instance mgt`，并在 physical OOB 口下 `ip binding vpn-instance mgt`
 - ✅ LSTN 当前 OOB 口：`M-GigabitEthernet0/0/0`
 - ✅ RSTN `.26` 当前 OOB 口：配置文件全名 `M-GigabitEthernet0/0/0`，display brief 简写 `MGE0/0/0`；不要把接口名写成绝对规则，后续以现网探测到的 physical OOB 口为准
 
@@ -287,6 +291,7 @@ docker compose -f docker-compose.dev.yml --profile ops down ztp-server
 | 设备 reset 失联 | 设备不可达 | 备份 startup.cfg + console 线兜底；重启动作走 ops-toolkit `reboot-wait.sh` |
 | host network 容器异常 | 影响宿主机网络 | 容器自带 restart: "no"，异常退出不会重启 |
 | 构建镜像受外部仓库影响 | 当前环境曾遇到 alpine 镜像代理 401 | 代码逻辑已验证；必要时复用本地镜像或修复镜像源后再 build |
+| v3.1.3 runtime renderer 未进入旧镜像 | ztp-server 镜像需重建后才包含 `ztp_runtime_render.py` | 修复镜像源后执行 `docker compose -f docker-compose.dev.yml --profile ops build ztp-server` |
 
 ---
 

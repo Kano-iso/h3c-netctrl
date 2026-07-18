@@ -132,6 +132,17 @@ class ZtpOnboardRequest(BaseModel):
     source: str = Field(default="ztp-server", max_length=50)
 
 
+class ZtpRecoveryOverrideRequest(BaseModel):
+    host: str = Field(..., min_length=1)
+    name: Optional[str] = Field(default=None, max_length=100)
+    platform: str = Field(default="lstn", pattern="^(lstn|rstn)$")
+    hcl_t7064p15: bool = False
+    username: str = Field(default="python", min_length=1)
+    password: str = Field(default="Admin123!@#", min_length=1)
+    netconf_port: int = Field(default=830, ge=1, le=65535)
+    collect_asset: bool = True
+
+
 # ── v3.0 SDN/VPC Schema ──
 
 class SdnTenantCreate(BaseModel):

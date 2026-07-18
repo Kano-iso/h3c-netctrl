@@ -28,7 +28,8 @@ if [ "$ZTP_SYSNAME" = "ztp-device" ]; then
 fi
 ZTP_ADMIN_USER="${ZTP_ADMIN_USER:-python}"
 ZTP_ADMIN_PASS="${ZTP_ADMIN_PASS:-Admin123!@#}"
-export ZTP_PLATFORM ZTP_HCL_T7064P15 ZTP_MGMT_IP ZTP_SYSNAME ZTP_ADMIN_USER ZTP_ADMIN_PASS
+ZTP_STATE_DIR="${ZTP_STATE_DIR:-/ztp-state}"
+export ZTP_PLATFORM ZTP_HCL_T7064P15 ZTP_MGMT_IP ZTP_SYSNAME ZTP_ADMIN_USER ZTP_ADMIN_PASS ZTP_STATE_DIR
 
 # ZTP DHCP / TFTP 变量
 ZTP_HOST_IP="${ZTP_HOST_IP:-127.0.0.1}"
@@ -123,6 +124,10 @@ head -10 "$AUTOCFG_OUT"
 echo "..."
 
 # === 4. exec dnsmasq (前台运行, -d 保留 log 到 stderr) ===
+echo "=== ZTP runtime renderer enabled ==="
+echo "  State dir: ${ZTP_STATE_DIR}"
+python3 /ztp_runtime_render.py &
+
 if [ "${ZTP_ONBOARD_ENABLED:-false}" = "true" ]; then
     echo "=== ZTP onboard watcher enabled ==="
     echo "  API URL: ${ZTP_ONBOARD_API_URL:-http://127.0.0.1:8001/api/ztp/onboard}"

@@ -39,6 +39,18 @@ export const deviceApi = {
   test: (id) => apiCall(`/devices/${id}/test`, { method: 'POST' }),
 }
 
+// ZTP 上线 / 恢复
+export const ztpApi = {
+  getRecoveryOverride: () => apiCall('/ztp/recovery-override'),
+  setRecoveryOverride: (payload) =>
+    apiCall('/ztp/recovery-override', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  clearRecoveryOverride: () =>
+    apiCall('/ztp/recovery-override', { method: 'DELETE' }),
+}
+
 // 运维终端 —— 在设备上执行命令
 // run(deviceId, payload) 接受：
 //   - { command: "display version" }                单命令（向后兼容）

@@ -29,6 +29,7 @@
 | **v3.1.0 ZTP 调研** | ✅ **2026-07-18 (tag: v3.1.0)** | H3C V7 ZTP 可行性调研 + 决策 B（精简 ZTP）+ 独立 ztp-server 容器（alpine + dnsmasq 二合一）+ autocfg.cfg 模板（T7064P15 验证通过）。**后续 v3.1.1 落地 / v3.1.2 联动纳管** | [**RELEASE-NOTES-v3.1.0.md**](RELEASE-NOTES-v3.1.0.md) · [archive/2026-07-18-v31-ztp-research](openspec/changes/archive/2026-07-18-v31-ztp-research/) |
 | **v3.1.1 ZTP 落地** | ✅ **2026-07-18 (tag: v3.1.1)** | ztp-server jinja2 多平台模板 + DHCP 临时池 `.151-.190` + `ZTP_MGMT_IP` static OOB 写入 + `.177/.26` 真机完整 ZTP 验证 + ops-toolkit reboot/capture 加固 | [**RELEASE-NOTES-v3.1.1.md**](RELEASE-NOTES-v3.1.1.md) · [archive/2026-07-18-v311-ztp-landing](openspec/changes/archive/2026-07-18-v311-ztp-landing/) |
 | **v3.1.2 ZTP 联动纳管** | ✅ **2026-07-18 (tag: v3.1.2)** | ztp-server watcher 确认 static 管理地址 SSH 22 + NETCONF 830 上线后回调后端；后端幂等纳管入库、资产采集/partial 降级、Devices/CMDB/Dashboard 现有接口可见 | [**RELEASE-NOTES-v3.1.2.md**](RELEASE-NOTES-v3.1.2.md) · [archive/2026-07-18-v312-ztp-onboard-and-asset-sync](openspec/changes/archive/2026-07-18-v312-ztp-onboard-and-asset-sync/) |
+| **v3.1.3 ZTP 恢复上线** | ✅ **2026-07-18 (tag: v3.1.3)** | 运营管理新增 ZTP 恢复页面；后端写入一次性 recovery override；ztp-server 运行时重渲染 autocfg.cfg；OOB 口补齐 `mgt` VRF；备份回滚 future 标记移除 | [**RELEASE-NOTES-v3.1.3.md**](RELEASE-NOTES-v3.1.3.md) · [archive/2026-07-18-v313-ztp-recovery-override](openspec/changes/archive/2026-07-18-v313-ztp-recovery-override/) |
 
 详细进度、约束、决策记录见 [VERSION-ROADMAP.md](VERSION-ROADMAP.md)。
 已归档 change 见 [openspec/changes/archive/](openspec/changes/archive/)。
@@ -48,7 +49,7 @@ V3.0 产品蓝图见 [PRD-V3.0.md](PRD-V3.0.md)。
 | **qa-backend / qa-frontend** | pytest / lint / build / vitest / playwright | v2.4.2 加 lint+build 必跑 / v2.5 加 vitest+playwright 必跑 | ✅ Archive 必跑 |
 | **ops-toolkit** | **7 个排错脚本**（check-host / check-netconf / capture-config / reboot-wait / paramiko-batch-exec / **interface-config** / **task-monitor**） | v2.4.1 + v2.4.2.1 + v2.5.0 + v3.1.1 reboot/capture 加固 | ✅ 按需启动 |
 | **sdn (v3.0.0)** | **骨架**：业务下发通道（按 device.platform 路由）+ 双套 payload 模板（5 unit × 4 字段）+ 跨平台真机验证 | v3.0.0 骨架发版（sdn-vpc-netconf-schema-xml change 闭环）| ✅ **tag: v3.0.0**：业务下发通道打通（按 device.platform 路由：LSTN 走 SSH 22 / RSTN 走 NETCONF 830）+ .5/.26 跨平台真机验证 + 42 commits push。**v3.0 PRD 7 个子能力按规划拆到 v3.1.1 / v3.2 / v3.3 / v3.4** |
-| **ztp-server (v3.1.2)** | DHCP + TFTP + autocfg.cfg 渲染 + static 管理地址上线确认回调 | v3.1.0 基建 + v3.1.1 落地 + v3.1.2 联动纳管 | ✅ `.177` LSTN 与 `.26` RSTN 完整 ZTP 通过；v3.1.2 增加 watcher 回调后端入库/资产同步（默认关闭，验证时显式开启） |
+| **ztp-server (v3.1.3)** | DHCP + TFTP + autocfg.cfg 渲染 + static 管理地址上线确认回调 + recovery override | v3.1.0 基建 + v3.1.1 落地 + v3.1.2 联动纳管 + v3.1.3 恢复上线 | ✅ `.177` LSTN 与 `.26` RSTN 完整 ZTP 通过；支持前端临时指定已有设备 OOB 地址恢复上线 |
 | **monitor (未来)** | 实时指标 / 告警 / dashboard | 远期 | ⏳ v3.0+ 评估 |
 
 ## v2.6.2 增量能力

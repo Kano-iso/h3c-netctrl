@@ -31,6 +31,7 @@
 | **v3.1.0 ZTP 调研** | ✅ 2026-07-18 (tag: v3.1.0) | H3C V7 ZTP 可行性调研 + 决策 B（精简 ZTP）+ 独立 ztp-server 容器（alpine + dnsmasq 二合一）+ autocfg.cfg 模板（T7064P15 验证通过）| [RELEASE-NOTES-v3.1.0.md](RELEASE-NOTES-v3.1.0.md) + [archive/2026-07-18-v31-ztp-research](openspec/changes/archive/2026-07-18-v31-ztp-research/) |
 | **v3.1.1 ZTP 落地** | ✅ 2026-07-18 (tag: v3.1.1) | ztp-server jinja2 多平台模板 + DHCP 临时池 `.151-.190` + `ZTP_MGMT_IP` static OOB 写入 + `.177/.26` 真机完整 ZTP 验证 + ops-toolkit reboot/capture 加固 | [RELEASE-NOTES-v3.1.1.md](RELEASE-NOTES-v3.1.1.md) + [archive/2026-07-18-v311-ztp-landing](openspec/changes/archive/2026-07-18-v311-ztp-landing/) |
 | **v3.1.2 ZTP 联动纳管** | ✅ 2026-07-18 (tag: v3.1.2) | ztp-server watcher 确认 static 管理地址 SSH 22 + NETCONF 830 上线后回调后端；后端幂等纳管入库 + 资产采集/partial 降级 + Devices/CMDB/Dashboard 现有接口可见；不走 DHCP lease 监听 | [RELEASE-NOTES-v3.1.2.md](RELEASE-NOTES-v3.1.2.md) + [archive/2026-07-18-v312-ztp-onboard-and-asset-sync](openspec/changes/archive/2026-07-18-v312-ztp-onboard-and-asset-sync/) |
+| **v3.1.3 ZTP 恢复上线** | ✅ 2026-07-18 (tag: v3.1.3) | 前端 ZTP 恢复页面 + recovery override API + ztp-server runtime 渲染 + OOB `mgt` VRF 标准配置；不联动备份回滚 | [RELEASE-NOTES-v3.1.3.md](RELEASE-NOTES-v3.1.3.md) + [archive/2026-07-18-v313-ztp-recovery-override](openspec/changes/archive/2026-07-18-v313-ztp-recovery-override/) |
 | **v3.2 加固切换 + 大迁移** | ⏳ 2026-07-18 (待启动) | ① 架构切 EVENG 平台（独立容器 + 2-3 H3C V7 镜像）② 全 QA 覆盖 SDN 后端已有能力（≥ 200 unit + 集成 + e2e + 压测）③ VPC 全能力验证（prd-and-model / foundation / port-binding / l3vni-validation 4 个子能力）| [PRD-V3.2.md](PRD-V3.2.md) |
 | **v3.3 剩余 VPC 能力** | ⏳ 2026-07-18 (待启动) | 集中式网关降级/恢复（sdn-gateway-fallback）：主动切换 + 被动切换 + 配置生成 + 状态采集 + ops-toolkit 工具 | [PRD-V3.3.md](PRD-V3.3.md) |
 | **v3.4 前端大屏 + UX** | ⏳ 2026-07-18 (待启动) | VPC 详情页 + 端口矩阵 + 网络拓扑 + UX 打磨（5 步 VPC 向导 / 批量操作 / 错误处理）+ ops-toolkit-probes（3 个脚本）| [PRD-V3.4.md](PRD-V3.4.md) |
@@ -329,6 +330,7 @@ save force
 |---|---|---|
 | v3.1.1 ztp-landing | autocfg.cfg 模板适配多平台 + `.177/.26` 完整 ZTP 真机验证 + ops-toolkit reboot/capture 加固 | ✅ 已完成 |
 | v3.1.2 ztp-onboard-and-asset-sync | ztp-server watcher 确认 static 管理地址上线后回调后端，完成纳管入库 + 资产采集 + 前端现有页面可见 | ✅ 已完成 |
+| v3.1.3 ztp-recovery-override | 已有设备清空配置后的 ZTP 恢复上线旁路能力，前端可临时指定 OOB 地址 | ✅ 已完成 |
 
 **用户愿景**（2026-07-17 02:13 + 2026-07-18）：
 > "ZTP 阶段只做基础配置（SSH 22 + 带外 IP + NETCONF 830 + 凭据），不做业务配置（VPC / 端口绑定 / 路由协议 / 业务 VLAN），不做配置联动（ZTP 完成后由 controller 推业务配置）"
@@ -396,6 +398,31 @@ save force
 
 **QA**：
 - `docker compose -f docker-compose.dev.yml --profile qa run --rm qa-backend pytest -q tests/test_ztp_onboard.py tests/test_data_internal.py` → 12 passed
+
+### v3.1.3 ZTP 恢复上线（✅ 2026-07-18 tag: v3.1.3）
+
+**目标**：为已有设备提供一个旁路恢复能力。设备配置丢失后，用户在前端临时指定原管理地址，ztp-server 将 `autocfg.cfg` 渲染为该地址，使设备先恢复 OOB、SSH、NETCONF 与统一账号。完整配置恢复仍由备份回滚页面负责。
+
+**OpenSpec**：[archive/2026-07-18-v313-ztp-recovery-override](openspec/changes/archive/2026-07-18-v313-ztp-recovery-override/)
+**Release Notes**：[RELEASE-NOTES-v3.1.3.md](RELEASE-NOTES-v3.1.3.md)
+
+**完成范围**：
+- 新增 `/api/ztp/recovery-override` GET / POST / DELETE。
+- 后端写入共享文件 `data/ztp/recovery_override.json`，不修改 `.env`。
+- ztp-server 挂载 `./data/ztp:/ztp-state`，运行时监控 override 并重渲染 `autocfg.cfg`。
+- `autocfg.cfg` 标准模板补齐 `ip vpn-instance mgt` 与 OOB 口 `ip binding vpn-instance mgt`。
+- 前端运营管理新增“ZTP 恢复”页面。
+- 备份回滚移除“未来”标记；拓扑 / AI 继续保留“未来”标记。
+
+**边界**：
+- 不自动触发配置回滚。
+- 不做 MAC 绑定、DHCP lease 监听、自动识别具体设备。
+- 清除 recovery override 后恢复默认 ZTP 序列。
+
+**QA**：
+- `docker compose -f docker-compose.dev.yml --profile qa run --rm qa-backend pytest -q tests/test_ztp_recovery.py tests/test_ztp_onboard.py tests/test_device_api.py` → 16 passed
+- `docker compose -f docker-compose.dev.yml --profile qa run --rm qa-frontend npm run test:unit -- src/__tests__/ZtpRecovery.spec.js src/__tests__/Smoke.spec.js` → 20 passed
+- `docker compose -f docker-compose.dev.yml --profile qa run --rm qa-frontend npm run build` → passed
 
 ---
 

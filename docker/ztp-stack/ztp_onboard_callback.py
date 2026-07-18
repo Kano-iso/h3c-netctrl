@@ -11,6 +11,10 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from pathlib import Path
+
+STATE_DIR = Path(os.getenv("ZTP_STATE_DIR", "/ztp-state"))
+OVERRIDE_PATH = STATE_DIR / "recovery_override.json"
 
 
 def getenv_int(name: str, default: int) -> int:
@@ -41,27 +45,43 @@ def post_json(url: str, payload: dict) -> dict:
         return json.loads(body or "{}")
 
 
+def load_override() -> dict:
+    try:
+        with OVERRIDE_PATH.open("r", encoding="utf-8") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError):
+        return {}
+
+
+def current_payload(netconf_port: int) -> dict:
+    override = load_override()
+    host = override.get("host") or override.get("mgmt_ip") or os.getenv("ZTP_MGMT_IP", "192.168.100.101")
+    return {
+        "host": host,
+        "name": override.get("sysname") or os.getenv("ZTP_SYSNAME") or None,
+        "username": override.get("username") or os.getenv("ZTP_ADMIN_USER", "python"),
+        "password": override.get("password") or os.getenv("ZTP_ADMIN_PASS", "Admin123!@#"),
+        "port": int(override.get("netconf_port") or netconf_port),
+        "platform": override.get("platform") or os.getenv("ZTP_PLATFORM") or None,
+        "collect_asset": override.get(
+            "collect_asset",
+            os.getenv("ZTP_ONBOARD_COLLECT_ASSET", "true").lower() == "true",
+        ),
+        "source": "ztp-server",
+    }
+
+
 def main() -> int:
-    host = os.getenv("ZTP_MGMT_IP", "192.168.100.101")
     api_url = os.getenv("ZTP_ONBOARD_API_URL", "http://127.0.0.1:8001/api/ztp/onboard")
     timeout = getenv_int("ZTP_ONBOARD_TIMEOUT", 300)
     interval = getenv_int("ZTP_ONBOARD_INTERVAL", 5)
     initial_delay = getenv_int("ZTP_ONBOARD_INITIAL_DELAY", 20)
     netconf_port = getenv_int("ZTP_ONBOARD_NETCONF_PORT", 830)
 
-    payload = {
-        "host": host,
-        "name": os.getenv("ZTP_SYSNAME") or None,
-        "username": os.getenv("ZTP_ADMIN_USER", "python"),
-        "password": os.getenv("ZTP_ADMIN_PASS", "Admin123!@#"),
-        "port": netconf_port,
-        "platform": os.getenv("ZTP_PLATFORM") or None,
-        "collect_asset": os.getenv("ZTP_ONBOARD_COLLECT_ASSET", "true").lower() == "true",
-        "source": "ztp-server",
-    }
-
     print(
-        f"=== ZTP onboard watcher === host={host} api={api_url} "
+        f"=== ZTP onboard watcher === api={api_url} "
         f"timeout={timeout}s interval={interval}s",
         flush=True,
     )
@@ -69,9 +89,12 @@ def main() -> int:
 
     deadline = time.time() + timeout
     while time.time() < deadline:
+        payload = current_payload(netconf_port)
+        host = payload["host"]
+        port = payload["port"]
         ssh_ok = tcp_open(host, 22)
-        netconf_ok = tcp_open(host, netconf_port)
-        print(f"[ztp-onboard] probe host={host} ssh22={ssh_ok} netconf{netconf_port}={netconf_ok}", flush=True)
+        netconf_ok = tcp_open(host, port)
+        print(f"[ztp-onboard] probe host={host} ssh22={ssh_ok} netconf{port}={netconf_ok}", flush=True)
         if ssh_ok and netconf_ok:
             try:
                 resp = post_json(api_url, payload)
