@@ -59,7 +59,7 @@ dhcp-range=192.168.100.151,192.168.100.190,12h
 - DHCP 池：`.151-.190`，只作为新设备首启临时地址
 - Static 池：`.101-.140`，由 `ZTP_MGMT_IP` 渲染进 `autocfg.cfg` 并写入 physical OOB 口
 - v3.1.1 已验证：`.177 → .101`、`.26 → .102`
-- v3.1.2 基于 static 管理地址做纳管入库、资产采集和前端可见联动；本轮不从 dnsmasq lease 自动反推 static 地址
+- v3.1.2 由 ztp-server watcher 基于 static 管理地址确认 SSH 22 + NETCONF 830 上线，再回调后端完成纳管入库、资产采集和前端可见联动；本轮不从 dnsmasq lease 自动反推 static 地址
 - Gap：`.141-.150` 空出 10 个地址，避免误配时 DHCP/static 池贴边
 - 不做 `dhcp-host=MAC,IP,infinite`，不做 `dhcp-leasefile` 持久化
 

@@ -36,7 +36,7 @@ V3.1 = 3 个子版本逐步落地：
 |---|---|---|---|
 | **v3.1.0** | ZTP 调研 | 决策 B 精简 ZTP + 独立 ztp-server 容器 + autocfg.cfg 模板（T7064P15 验证通过）| ✅ **已发版**（[RELEASE-NOTES-v3.1.0.md](RELEASE-NOTES-v3.1.0.md)）|
 | **v3.1.1** | ZTP 落地 | ztp-server jinja2 多平台模板 + `ZTP_MGMT_IP` static OOB 写入 + `.177/.26` 真机完整验证 | ✅ **已发版**（[RELEASE-NOTES-v3.1.1.md](RELEASE-NOTES-v3.1.1.md)）|
-| **v3.1.2** | ZTP 联动纳管 | 设备完成 ZTP 后，后端按 static 管理地址纳管入库、采集资产，前端通过现有设备/CMDB/Dashboard 接口可见 | ⏳ 待启动 |
+| **v3.1.2** | ZTP 联动纳管 | ztp-server 确认 static 管理地址上线后回调后端；后端按该地址纳管入库、采集资产，前端通过现有设备/CMDB/Dashboard 接口可见 | ✅ 已完成 |
 
 ## 3. v3.1.1 ZTP 落地（已完成）
 
@@ -84,7 +84,7 @@ V3.1 = 3 个子版本逐步落地：
 
 - **纳管触发**：
   - v3.1.2 不做 DHCP lease 监听；当前 dnsmasq/autocfg 链路无法稳定承载“从租约自动发现最终 static IP”的职责
-  - 以后端 API/操作入口接收候选管理地址（例如刚写入的 `ZTP_MGMT_IP`：`.101/.102/...`）作为纳管起点
+  - ztp-server watcher 基于刚写入的 `ZTP_MGMT_IP`（如 `.101/.102/...`）确认 SSH 22 + NETCONF 830 均开放后，主动回调后端 `/api/ztp/onboard`
 - **后端联动**：
   - 按管理地址执行 SSH 22 / NETCONF 830 连通性验证
   - 使用项目统一凭据纳管设备，创建或更新 `devices` 记录
@@ -99,11 +99,11 @@ V3.1 = 3 个子版本逐步落地：
 
 ### 4.3 验收标准
 
-- [ ] 给定一个已完成 ZTP 的 static 管理地址，后端可一键纳管成功
-- [ ] `devices` 表创建/更新正确，重复执行不产生重复设备
-- [ ] 资产采集完成后，CMDB 可看到 model / serial / software / mgmt IP / vendor
-- [ ] Devices / CMDB / Dashboard 通过现有接口能看到新增设备或统计变化
-- [ ] 纳管失败有明确错误原因（SSH 不通 / 凭据失败 / NETCONF 不通 / 资产采集失败）
+- [x] 给定一个已完成 ZTP 的 static 管理地址，后端可一键纳管成功
+- [x] `devices` 表创建/更新正确，重复执行不产生重复设备
+- [x] 资产采集完成后，CMDB 可看到 model / serial / software / mgmt IP / vendor
+- [x] Devices / CMDB / Dashboard 通过现有接口能看到新增设备或统计变化
+- [x] 纳管失败有明确错误原因（SSH 不通 / 凭据失败 / NETCONF 不通 / 资产采集失败）
 
 ## 5. 不做（明确边界）
 

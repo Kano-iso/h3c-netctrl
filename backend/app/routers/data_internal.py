@@ -29,6 +29,14 @@ class BackupRequest(BaseModel):
     types: Optional[List[str]] = None
 
 
+class AssetUpsertRequest(BaseModel):
+    status: str = "unknown"
+    model: Optional[str] = None
+    serial_number: Optional[str] = None
+    firmware_version: Optional[str] = None
+    software_package: Optional[str] = None
+
+
 @router.get("/assets", response_model=APIResponse)
 def internal_list_assets(db: Session = Depends(get_db)):
     """返回所有资产数据（供 ctrl dashboard 聚合用）
@@ -55,6 +63,43 @@ def internal_list_assets(db: Session = Depends(get_db)):
             item["is_stale"] = age_hours > threshold_hours
         data.append(item)
     return {"success": True, "data": data}
+
+
+@router.post("/assets/device/{device_id}/upsert", response_model=APIResponse)
+def internal_upsert_asset(device_id: int, req: AssetUpsertRequest, db: Session = Depends(get_db)):
+    """创建或更新设备资产（供 ctrl 的 ZTP onboard 调用）。"""
+    valid_statuses = {"online", "offline", "maintenance", "decommissioned", "unknown"}
+    if req.status not in valid_statuses:
+        return {"success": False, "error": f"status 不合法: {req.status}"}
+
+    asset = db.query(Asset).filter(Asset.device_id == device_id).first()
+    if not asset:
+        asset = Asset(device_id=device_id)
+        db.add(asset)
+
+    asset.status = req.status
+    if req.model is not None:
+        asset.model = req.model
+    if req.serial_number is not None:
+        asset.serial_number = req.serial_number
+    if req.firmware_version is not None:
+        asset.firmware_version = req.firmware_version
+    if req.software_package is not None:
+        asset.software_package = req.software_package
+
+    db.commit()
+    db.refresh(asset)
+    return {
+        "success": True,
+        "data": {
+            "device_id": asset.device_id,
+            "status": asset.status,
+            "model": asset.model,
+            "serial_number": asset.serial_number,
+            "firmware_version": asset.firmware_version,
+            "software_package": asset.software_package,
+        },
+    }
 
 
 @router.post("/backup", response_model=APIResponse)

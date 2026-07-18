@@ -169,6 +169,12 @@ def get_assets() -> dict:
     return _internal_get(f"{DATA_URL}/internal/assets")
 
 
+def upsert_asset(device_id: int, status: str, info: dict) -> dict:
+    """让 ctrl 容器在 split 模式下写 data 容器 asset。"""
+    payload = {"status": status, **(info or {})}
+    return _internal_post(f"{DATA_URL}/internal/assets/device/{device_id}/upsert", payload)
+
+
 def cleanup_device(device_id: int) -> dict:
     """调 data 容器清理设备的 asset / backup 数据 + 本地备份文件
 

@@ -20,6 +20,32 @@ def test_internal_list_assets_empty(client):
     assert isinstance(data["data"], list)
 
 
+def test_internal_upsert_asset_creates_and_updates(client):
+    """POST /internal/assets/device/{id}/upsert 创建后再更新资产。"""
+    resp = client.post("/internal/assets/device/901/upsert", json={
+        "status": "online",
+        "model": "H3C S6850-56HF",
+        "serial_number": "CNEZTP901",
+    })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["success"] is True
+    assert data["data"]["device_id"] == 901
+    assert data["data"]["status"] == "online"
+    assert data["data"]["model"] == "H3C S6850-56HF"
+
+    resp2 = client.post("/internal/assets/device/901/upsert", json={
+        "status": "offline",
+        "firmware_version": "Version 7.1.070",
+    })
+    assert resp2.status_code == 200
+    data2 = resp2.json()
+    assert data2["success"] is True
+    assert data2["data"]["status"] == "offline"
+    assert data2["data"]["model"] == "H3C S6850-56HF"
+    assert data2["data"]["firmware_version"] == "Version 7.1.070"
+
+
 def test_internal_list_backups_empty(client):
     """GET /internal/backups/{device_id} 无备份"""
     resp = client.get("/internal/backups/1")

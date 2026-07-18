@@ -26,9 +26,10 @@ COPY docker/ztp-stack/dnsmasq.conf.template /dnsmasq.conf.template
 # v3.1.1: autocfg.cfg.template → autocfg.cfg.j2（jinja2 模板 + 2 平台条件分支）
 COPY docker/ztp-stack/tftp/autocfg.cfg.j2 /var/tftp/autocfg.cfg.j2
 COPY docker/ztp-stack/entrypoint.sh /entrypoint.sh
+COPY docker/ztp-stack/ztp_onboard_callback.py /ztp_onboard_callback.py
 
 # entrypoint.sh 会渲染模板到 /etc/dnsmasq.conf + /var/tftp/autocfg.cfg，然后 exec dnsmasq
-RUN chmod +x /entrypoint.sh
+RUN chmod +x /entrypoint.sh /ztp_onboard_callback.py
 
 # 暴露 DHCP 67/UDP + TFTP 69/UDP（host network 模式下端口直接暴露在宿主机）
 EXPOSE 67/udp 69/udp

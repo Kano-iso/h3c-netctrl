@@ -28,6 +28,7 @@ if [ "$ZTP_SYSNAME" = "ztp-device" ]; then
 fi
 ZTP_ADMIN_USER="${ZTP_ADMIN_USER:-python}"
 ZTP_ADMIN_PASS="${ZTP_ADMIN_PASS:-Admin123!@#}"
+export ZTP_PLATFORM ZTP_HCL_T7064P15 ZTP_MGMT_IP ZTP_SYSNAME ZTP_ADMIN_USER ZTP_ADMIN_PASS
 
 # ZTP DHCP / TFTP 变量
 ZTP_HOST_IP="${ZTP_HOST_IP:-127.0.0.1}"
@@ -122,4 +123,12 @@ head -10 "$AUTOCFG_OUT"
 echo "..."
 
 # === 4. exec dnsmasq (前台运行, -d 保留 log 到 stderr) ===
+if [ "${ZTP_ONBOARD_ENABLED:-false}" = "true" ]; then
+    echo "=== ZTP onboard watcher enabled ==="
+    echo "  API URL: ${ZTP_ONBOARD_API_URL:-http://127.0.0.1:8001/api/ztp/onboard}"
+    python3 /ztp_onboard_callback.py &
+else
+    echo "=== ZTP onboard watcher disabled (ZTP_ONBOARD_ENABLED != true) ==="
+fi
+
 exec dnsmasq -k -C "$DNSMASQ_CONF" -d

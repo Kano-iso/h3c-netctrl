@@ -119,6 +119,19 @@ class AssetUpdate(BaseModel):
     status: Optional[str] = None
 
 
+# --- ZTP onboard 请求模型 ---
+
+class ZtpOnboardRequest(BaseModel):
+    host: str = Field(..., min_length=1)
+    name: Optional[str] = Field(default=None, max_length=100)
+    username: str = Field(default="python", min_length=1)
+    password: str = Field(default="Admin123!@#", min_length=1)
+    port: int = Field(default=830, ge=1, le=65535)
+    platform: Optional[str] = Field(default=None, pattern="^(lstn|rstn)$")
+    collect_asset: bool = True
+    source: str = Field(default="ztp-server", max_length=50)
+
+
 # ── v3.0 SDN/VPC Schema ──
 
 class SdnTenantCreate(BaseModel):
