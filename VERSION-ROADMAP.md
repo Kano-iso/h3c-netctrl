@@ -32,7 +32,7 @@
 | **v3.1.1 ZTP 落地** | ✅ 2026-07-18 (tag: v3.1.1) | ztp-server jinja2 多平台模板 + DHCP 临时池 `.151-.190` + `ZTP_MGMT_IP` static OOB 写入 + `.177/.26` 真机完整 ZTP 验证 + ops-toolkit reboot/capture 加固 | [RELEASE-NOTES-v3.1.1.md](RELEASE-NOTES-v3.1.1.md) + [archive/2026-07-18-v311-ztp-landing](openspec/changes/archive/2026-07-18-v311-ztp-landing/) |
 | **v3.1.2 ZTP 联动纳管** | ✅ 2026-07-18 (tag: v3.1.2) | ztp-server watcher 确认 static 管理地址 SSH 22 + NETCONF 830 上线后回调后端；后端幂等纳管入库 + 资产采集/partial 降级 + Devices/CMDB/Dashboard 现有接口可见；不走 DHCP lease 监听 | [RELEASE-NOTES-v3.1.2.md](RELEASE-NOTES-v3.1.2.md) + [archive/2026-07-18-v312-ztp-onboard-and-asset-sync](openspec/changes/archive/2026-07-18-v312-ztp-onboard-and-asset-sync/) |
 | **v3.1.3 ZTP 恢复上线** | ✅ 2026-07-18 (tag: v3.1.3) | 前端 ZTP 恢复页面 + recovery override API + ztp-server runtime 渲染 + OOB `mgt` VRF 标准配置；不联动备份回滚 | [RELEASE-NOTES-v3.1.3.md](RELEASE-NOTES-v3.1.3.md) + [archive/2026-07-18-v313-ztp-recovery-override](openspec/changes/archive/2026-07-18-v313-ztp-recovery-override/) |
-| **v3.2 加固切换 + 大迁移** | ⏳ 2026-07-18 (待启动) | ① 架构切 EVENG 平台（独立容器 + 2-3 H3C V7 镜像）② 全 QA 覆盖 SDN 后端已有能力（≥ 200 unit + 集成 + e2e + 压测）③ VPC 全能力验证（prd-and-model / foundation / port-binding / l3vni-validation 4 个子能力）| [PRD-V3.2.md](PRD-V3.2.md) |
+| **v3.2 新平台切换 + 能力评级** | ⏳ 2026-07-19 (待启动) | v3.2.1 新平台割接迁移（ZTP 上线、用户确认新旧设备映射、OOB 地址重编排、旧配置适配迁移）；v3.2.2 新平台能力评级（管理面 / ZTP / 备份回滚 / SDN-VPC 下发回收与状态校验）| [PRD-V3.2.md](PRD-V3.2.md) |
 | **v3.3 剩余 VPC 能力** | ⏳ 2026-07-18 (待启动) | 集中式网关降级/恢复（sdn-gateway-fallback）：主动切换 + 被动切换 + 配置生成 + 状态采集 + ops-toolkit 工具 | [PRD-V3.3.md](PRD-V3.3.md) |
 | **v3.4 前端大屏 + UX** | ⏳ 2026-07-18 (待启动) | VPC 详情页 + 端口矩阵 + 网络拓扑 + UX 打磨（5 步 VPC 向导 / 批量操作 / 错误处理）+ ops-toolkit-probes（3 个脚本）| [PRD-V3.4.md](PRD-V3.4.md) |
 | **v3.5 etcd 协调** | ⏳ 远期 | 可选单节点 etcd / 轻量协调方案评估 | 暂未起 spec |
@@ -426,22 +426,24 @@ save force
 
 ---
 
-### v3.2 加固切换 + 大迁移（⏳ 2026-07-18 待启动）
+### v3.2 新平台切换 + 能力评级（⏳ 2026-07-19 待启动）
 
-**目标**：v3.2 三件大事：① 架构切到 EVENG 平台 ② 全 QA 覆盖 SDN 后端已有能力 ③ VPC 全能力验证。
+**目标**：v3.2 分两步完成新平台迁移与能力评级：
 
 **PRD**：[PRD-V3.2.md](PRD-V3.2.md)
 
 **范围**：
-- **架构切 EVENG 平台**：独立容器 + 2-3 H3C V7 镜像（qemu 仿真）+ L2/L3 拓扑
-- **全 QA 覆盖 SDN 后端**：≥ 200 unit + 集成测试 + e2e + 性能压测
-- **VPC 全能力验证**：v3.0 PRD 4 个子能力在 EVENG 验证（prd-and-model / foundation / port-binding / l3vni-validation）
+- **v3.2.1 新平台割接迁移**：用户逐台通过 ZTP 上线新平台设备，人工确认“新 OOB 地址 ↔ 旧设备身份”映射；旧平台 OOB 地址迁入备份地址段，新平台恢复关键业务配置。
+- **v3.2.2 新平台能力评级**：在新平台上验证管理面、ZTP、备份/回滚、现有前端、SDN/VPC 下发/回收/校验能力，形成 A/B/C/D 能力评级和后续缺口清单。
+- **VPC 全能力验证**：v3.0 PRD 4 个子能力在新平台验证（prd-and-model / foundation / port-binding / l3vni-validation）。
 
-**走法**（4 阶段）：
-1. EVENG 平台搭建（独立容器 + H3C V7 镜像）
-2. SDN 后端 QA 扩张（≥ 200 unit）
-3. VPC 全能力 EVENG 验证（4 个子能力）
-4. v3.2.0 整体发版（tag + RELEASE-NOTES + push）
+**走法**：
+1. 新平台设备 ZTP 上线，确认 SSH/SCP/NETCONF 可达。
+2. 用户提供新旧设备映射，例如 `.103 -> 原 .2`、`.104 -> 原 .3`、`.105 -> 原 .100`。
+3. 维护窗口内调整旧平台 OOB 地址到备份段，避免管理地址冲突。
+4. 对照旧配置与新平台配置，迁移平台无关配置，适配物理接口/OOB/平台差异配置。
+5. 在新平台做管理面、备份回滚、ZTP、SDN/VPC 能力评级。
+6. 发版收尾（RELEASE-NOTES + tag + push）。
 
 **依赖**：v3.0 骨架 + v3.1 ZTP 全部完成
 
