@@ -1,0 +1,27 @@
+=== connect: 192.168.100.26 ===
+=== reset saved-configuration ===
+  answer reset: Y
+=== reboot ===
+  answer save-current: N
+  answer continue: Y
+=== wait SSH: 192.168.100.102 (timeout=360s) ===
+=== wait SSH drop ===
+  SSH is down; start recovery wait
+  wait... 1 (OSError: [Errno 113] No route to host)
+  wait... 2 (TimeoutError: timed out)
+  wait... 3 (TimeoutError: timed out)
+  wait... 4 (TimeoutError: timed out)
+  wait... 5 (TimeoutError: timed out)
+  wait... 6 (TimeoutError: timed out)
+  wait... 7 (TimeoutError: timed out)
+  wait... 8 (TimeoutError: timed out)
+  wait... 9 (TimeoutError: timed out)
+  wait... 10 (TimeoutError: timed out)
+  wait... 11 (TimeoutError: timed out)
+  wait... 12 (TimeoutError: timed out)
+OK: SSH is ready after 94s (attempt 13)
+
+── 文档 ─────────────────────────────────
+📖 用法:        /opt/docs/ops-toolkit.md#reboot-wait
+📖 凭据来源:    /opt/docs/ops-toolkit.md#凭据来源
+─────────────────────────────────────────

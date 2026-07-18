@@ -1,0 +1,26 @@
+=== 连通性检查: 192.168.100.102 (count=3) ===
+
+--- ping ---
+PING 192.168.100.102 (192.168.100.102) 56(84) bytes of data.
+64 bytes from 192.168.100.102: icmp_seq=1 ttl=254 time=1.74 ms
+64 bytes from 192.168.100.102: icmp_seq=1 ttl=254 time=1.78 ms (DUP!)
+64 bytes from 192.168.100.102: icmp_seq=2 ttl=254 time=0.888 ms
+64 bytes from 192.168.100.102: icmp_seq=2 ttl=254 time=1.04 ms (DUP!)
+64 bytes from 192.168.100.102: icmp_seq=3 ttl=254 time=0.942 ms
+
+--- 192.168.100.102 ping statistics ---
+3 packets transmitted, 3 received, +2 duplicates, 0% packet loss, time 2003ms
+rtt min/avg/max/mdev = 0.888/1.276/1.778/0.395 ms
+
+--- SSH 22 ---
+Connection to 192.168.100.102 22 port [tcp/ssh] succeeded!
+
+--- NETCONF 830 ---
+Connection to 192.168.100.102 830 port [tcp/*] succeeded!
+
+=== 完成 ===
+
+── 文档 ─────────────────────────────────
+📖 用法:        /opt/docs/ops-toolkit.md#check-host
+📖 凭据来源:    /opt/docs/ops-toolkit.md#凭据来源
+─────────────────────────────────────────

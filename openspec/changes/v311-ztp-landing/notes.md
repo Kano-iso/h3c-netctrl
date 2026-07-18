@@ -505,7 +505,24 @@ local-user python class manage
 netconf ssh server enable
 ```
 
-**当前策略**：T10 不继续 reset/reboot，先沉淀 RSTN 独立模板差异；v3.1.1 可基于 T9 `.177` 主链路先发版，`.26` 完整 RSTN 空配置验证作为后续补测/patch。
+### T10 .26 RSTN 完整链路补测结果
+
+- ✅ 重新开启 `ztp-server`（按当前 RSTN 模板，以本地挂载方式加载最新 entrypoint/template）：`rstn / ztp-switch-102 / 192.168.100.102`。
+- ✅ `.26` reset saved-configuration + reboot 后，94s 等到 `.102` SSH 恢复。
+- ✅ `ztp-server` 日志确认：V9850 DHCP 临时拿到 `.160`，从 `.254` TFTP 拉取 `autocfg.cfg`，随后 DHCP release。
+- ✅ `.102` 验证通过：SSH 22 通、NETCONF 830 通、current/saved 均含 `sysname ztp-switch-102`、`M-GigabitEthernet0/0/0`、`ip address 192.168.100.102/24`、`line vty 0 4`、`line vty 5 63`、`local-user python`。
+- ✅ 二次 reboot 持久性验证通过：`.102` 先掉线，再 72s 恢复，配置仍保留在 current/saved。
+
+**证据文件**：
+- `captures/ztp-test/reboot_wait_26_to_102_retry_20260718.log`
+- `captures/ztp-test/ztp_server_logs_after_26_20260718.log`
+- `captures/ztp-test/check_host_102_after_ztp_20260718.log`
+- `captures/ztp-test/check_netconf_102_after_ztp_20260718.log`
+- `captures/ztp-test/config_102_after_ztp_20260718.log`
+- `captures/ztp-test/reboot_wait_102_persistence_20260718.log`
+- `captures/ztp-test/config_102_after_persistence_reboot_20260718.log`
+
+**当前策略**：T10 已完成完整 RSTN 空配置验证；`.26` 当前保持在 `.102 / ztp-switch-102` 验证态。
 
 ### RSA/旧 SSH 栈兼容规则
 

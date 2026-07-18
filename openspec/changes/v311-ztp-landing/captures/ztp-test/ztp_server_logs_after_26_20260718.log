@@ -1,0 +1,73 @@
+=== 渲染 dnsmasq.conf ===
+=== 渲染 autocfg.cfg ===
+=== dnsmasq 启动 ===
+  Platform:    rstn (V9850 V9850-256H/R7643P02)
+  HCL T7064P15: false
+  DHCP range:  192.168.100.151 - 192.168.100.190
+  TFTP server: 192.168.100.254
+  TFTP root:   /var/tftp
+  autocfg.cfg sysname:  ztp-switch-102
+  autocfg.cfg mgmt IP:  192.168.100.102
+  autocfg.cfg 平台分支: 物理 OOB 口 + 凭据（python/Admin123!@#）
+
+=== autocfg.cfg 渲染前 10 行 ===
+#
+# H3C V7 自动配置 - autocfg.cfg
+# 平台: rstn (V9850 V9850-256H/R7643P02)
+# 生成时间: 2026-07-18
+# 用途: 新设备首次上线基础配置（sysname + 物理 OOB 口 static IP + SSH + NETCONF + 凭据）
+# IP 映射: offset 50 跨池（DHCP .151-.190 ↔ static .101-.140，gap .141-.150）
+# 凭据: python / Admin123!@#（项目主账密统一，user 2026-07-18 拍板）
+# 模板版本: v3.1.1（zinja2 通用 + 2 平台条件分支 + HCL 子分支）
+#
+
+...
+dnsmasq[1]: started, version 2.90 DNS disabled
+dnsmasq[1]: compile time options: IPv6 GNU-getopt no-DBus no-UBus no-i18n no-IDN DHCP DHCPv6 no-Lua TFTP no-conntrack ipset no-nftset auth no-cryptohash no-DNSSEC loop-detect inotify dumpfile
+dnsmasq-dhcp[1]: DHCP, IP range 192.168.100.151 -- 192.168.100.190, lease time 12h
+dnsmasq-tftp[1]: TFTP root is /var/tftp  
+dnsmasq-dhcp[1]: 4290789195 available DHCP range: 192.168.100.151 -- 192.168.100.190
+dnsmasq-dhcp[1]: 4290789195 vendor class: H3C. H3C V9850-256H
+dnsmasq-dhcp[1]: 4290789195 DHCPDISCOVER(ens34) 50:00:00:01:00:00 
+dnsmasq-dhcp[1]: 4290789195 tags: ens34
+dnsmasq-dhcp[1]: 4290789195 DHCPOFFER(ens34) 192.168.100.160 50:00:00:01:00:00 
+dnsmasq-dhcp[1]: 4290789195 requested options: 1:netmask, 121:classless-static-route, 3:router, 
+dnsmasq-dhcp[1]: 4290789195 requested options: 6:dns-server, 12:hostname, 15:domain-name, 
+dnsmasq-dhcp[1]: 4290789195 requested options: 33:static-route, 43:vendor-encap, 66:tftp-server, 
+dnsmasq-dhcp[1]: 4290789195 requested options: 67:bootfile-name, 138, 150:tftp-server-address
+dnsmasq-dhcp[1]: 4290789195 next server: 192.168.100.254
+dnsmasq-dhcp[1]: 4290789195 broadcast response
+dnsmasq-dhcp[1]: 4290789195 sent size:  1 option: 53 message-type  2
+dnsmasq-dhcp[1]: 4290789195 sent size:  4 option: 54 server-identifier  192.168.100.254
+dnsmasq-dhcp[1]: 4290789195 sent size:  4 option: 51 lease-time  12h
+dnsmasq-dhcp[1]: 4290789195 sent size:  4 option: 58 T1  6h
+dnsmasq-dhcp[1]: 4290789195 sent size:  4 option: 59 T2  10h30m
+dnsmasq-dhcp[1]: 4290789195 sent size:  4 option:  1 netmask  255.255.255.0
+dnsmasq-dhcp[1]: 4290789195 sent size:  4 option: 28 broadcast  192.168.100.255
+dnsmasq-dhcp[1]: 4290789195 sent size:  4 option:  3 router  192.168.100.254
+dnsmasq-dhcp[1]: 4290789195 sent size: 12 option: 67 bootfile-name  autocfg.cfg
+dnsmasq-dhcp[1]: 4290789195 sent size: 16 option: 66 tftp-server  192.168.100.254
+dnsmasq-dhcp[1]: 4290789195 available DHCP range: 192.168.100.151 -- 192.168.100.190
+dnsmasq-dhcp[1]: 4290789195 vendor class: H3C. H3C V9850-256H
+dnsmasq-dhcp[1]: 4290789195 DHCPREQUEST(ens34) 192.168.100.160 50:00:00:01:00:00 
+dnsmasq-dhcp[1]: 4290789195 tags: ens34
+dnsmasq-dhcp[1]: 4290789195 DHCPACK(ens34) 192.168.100.160 50:00:00:01:00:00 
+dnsmasq-dhcp[1]: 4290789195 requested options: 1:netmask, 121:classless-static-route, 3:router, 
+dnsmasq-dhcp[1]: 4290789195 requested options: 6:dns-server, 12:hostname, 15:domain-name, 
+dnsmasq-dhcp[1]: 4290789195 requested options: 33:static-route, 43:vendor-encap, 66:tftp-server, 
+dnsmasq-dhcp[1]: 4290789195 requested options: 67:bootfile-name, 138, 150:tftp-server-address
+dnsmasq-dhcp[1]: 4290789195 next server: 192.168.100.254
+dnsmasq-dhcp[1]: 4290789195 broadcast response
+dnsmasq-dhcp[1]: 4290789195 sent size:  1 option: 53 message-type  5
+dnsmasq-dhcp[1]: 4290789195 sent size:  4 option: 54 server-identifier  192.168.100.254
+dnsmasq-dhcp[1]: 4290789195 sent size:  4 option: 51 lease-time  12h
+dnsmasq-dhcp[1]: 4290789195 sent size:  4 option: 58 T1  6h
+dnsmasq-dhcp[1]: 4290789195 sent size:  4 option: 59 T2  10h30m
+dnsmasq-dhcp[1]: 4290789195 sent size:  4 option:  1 netmask  255.255.255.0
+dnsmasq-dhcp[1]: 4290789195 sent size:  4 option: 28 broadcast  192.168.100.255
+dnsmasq-dhcp[1]: 4290789195 sent size:  4 option:  3 router  192.168.100.254
+dnsmasq-dhcp[1]: 4290789195 sent size: 12 option: 67 bootfile-name  autocfg.cfg
+dnsmasq-dhcp[1]: 4290789195 sent size: 16 option: 66 tftp-server  192.168.100.254
+dnsmasq-tftp[1]: sent /var/tftp/autocfg.cfg to 192.168.100.160
+dnsmasq-dhcp[1]: 4290789195 available DHCP range: 192.168.100.151 -- 192.168.100.190
+dnsmasq-dhcp[1]: 4290789195 DHCPRELEASE(ens34) 192.168.100.160 50:00:00:01:00:00 

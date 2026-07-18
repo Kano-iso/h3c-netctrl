@@ -1,0 +1,23 @@
+=== connect: 192.168.100.102 ===
+=== reboot ===
+  answer save-current: N
+  answer continue: Y
+=== wait SSH: 192.168.100.102 (timeout=300s) ===
+=== wait SSH drop ===
+  still reachable, waiting for reboot to take effect...
+  SSH is down; start recovery wait
+  wait... 1 (TimeoutError: timed out)
+  wait... 2 (TimeoutError: timed out)
+  wait... 3 (TimeoutError: timed out)
+  wait... 4 (TimeoutError: timed out)
+  wait... 5 (TimeoutError: timed out)
+  wait... 6 (TimeoutError: timed out)
+  wait... 7 (TimeoutError: timed out)
+  wait... 8 (TimeoutError: timed out)
+  wait... 9 (TimeoutError: timed out)
+OK: SSH is ready after 72s (attempt 10)
+
+── 文档 ─────────────────────────────────
+📖 用法:        /opt/docs/ops-toolkit.md#reboot-wait
+📖 凭据来源:    /opt/docs/ops-toolkit.md#凭据来源
+─────────────────────────────────────────

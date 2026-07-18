@@ -252,12 +252,12 @@
 - [x] 10.1 备份 .26 startup.cfg（开启 SCP 后通过 `capture-config.sh` 拉取：`startup_26_scp_20260718.cfg`）
 - [x] 10.2 切换 `ZTP_PLATFORM=rstn` + 重启 ztp-server 容器（中途因 RSTN 模板风险由 user 中断）
 - [x] 10.3 验证 ztp-server 渲染的 autocfg.cfg 含现网探测到的 V9850 physical OOB 口（修正为完整 `M-GigabitEthernet0/0/0`）
-- [ ] 10.4 reset saved-configuration + reboot .26（暂停，不继续 reset）
+- [x] 10.4 reset saved-configuration + reboot .26（`reboot_wait_26_to_102_retry_20260718.log`）
 - [x] 10.5 SSH 22 + NETCONF 830 验证通（恢复后 `check-host .26` / `check-netconf .26` 通过）
-- [ ] 10.6 120s 后验证配置含 autocfg.cfg 内容（暂停，待 RSTN 独立模板补测）
-- [ ] 10.7 reboot 再次重启 → 设备 IP 仍是 static .102（暂停）
+- [x] 10.6 120s 后验证配置含 autocfg.cfg 内容（`config_102_after_ztp_20260718.log`）
+- [x] 10.7 reboot 再次重启 → 设备 IP 仍是 static .102（`reboot_wait_102_persistence_20260718.log`）
 - [x] 10.8 restore_original_state 恢复 .26（user 手工恢复，Codex 验证 .26 SSH/NETCONF 正常）
-- [ ] 10.9 **commit**: `test(ztp): T10 .26 V9850 真机 ZTP 链路验证（jinja2 RSTN 分支 + M-GigabitEthernet0/0/0 物理 OOB 口）`（不在 v3.1.1 主发版阻塞项内）
+- [ ] 10.9 **commit**: `test(ztp): T10 .26 V9850 真机 ZTP 链路验证（jinja2 RSTN 分支 + M-GigabitEthernet0/0/0 物理 OOB 口）`
 
 **T10 验收**：
 - .26 完整 ZTP 链路通过
