@@ -34,6 +34,7 @@ def test_ztp_recovery_override_write_read_clear(client, monkeypatch, tmp_path):
     state = json.loads(state_file.read_text(encoding="utf-8"))
     assert state["mgmt_ip"] == "192.168.100.2"
     assert state["mode"] == "recovery"
+    assert state["collect_asset"] is False
 
     current = client.get("/api/ztp/recovery-override").json()["data"]
     assert current["active"] is True

@@ -56,7 +56,8 @@ def write_recovery_override(body: ZtpRecoveryOverrideRequest) -> dict:
         "username": body.username,
         "password": body.password,
         "netconf_port": body.netconf_port,
-        "collect_asset": body.collect_asset,
+        # Recovery is a bypass path for already-known devices: restore OOB/SSH/NETCONF only.
+        "collect_asset": False,
         "updated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
     }
     path = _override_path()

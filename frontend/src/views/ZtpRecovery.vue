@@ -56,7 +56,7 @@ function payload() {
     username: String(form.value.username || '').trim(),
     password: form.value.password,
     netconf_port: 830,
-    collect_asset: true,
+    collect_asset: false,
   }
 }
 

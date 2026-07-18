@@ -140,7 +140,7 @@ class ZtpRecoveryOverrideRequest(BaseModel):
     username: str = Field(default="python", min_length=1)
     password: str = Field(default="Admin123!@#", min_length=1)
     netconf_port: int = Field(default=830, ge=1, le=65535)
-    collect_asset: bool = True
+    collect_asset: bool = False
 
 
 # ── v3.0 SDN/VPC Schema ──

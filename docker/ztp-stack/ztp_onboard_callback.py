@@ -73,6 +73,17 @@ def current_payload(netconf_port: int) -> dict:
     }
 
 
+def should_callback_backend(payload: dict) -> bool:
+    override = load_override()
+    if override.get("mode") == "recovery" and override.get("collect_asset") is False:
+        print(
+            "[ztp-onboard] recovery override is probe-only; skip backend onboard callback",
+            flush=True,
+        )
+        return False
+    return True
+
+
 def main() -> int:
     api_url = os.getenv("ZTP_ONBOARD_API_URL", "http://127.0.0.1:8001/api/ztp/onboard")
     timeout = getenv_int("ZTP_ONBOARD_TIMEOUT", 300)
@@ -96,6 +107,8 @@ def main() -> int:
         netconf_ok = tcp_open(host, port)
         print(f"[ztp-onboard] probe host={host} ssh22={ssh_ok} netconf{port}={netconf_ok}", flush=True)
         if ssh_ok and netconf_ok:
+            if not should_callback_backend(payload):
+                return 0
             try:
                 resp = post_json(api_url, payload)
                 print(f"[ztp-onboard] callback response: {json.dumps(resp, ensure_ascii=False)}", flush=True)

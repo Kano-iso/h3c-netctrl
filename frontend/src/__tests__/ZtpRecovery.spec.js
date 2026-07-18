@@ -69,7 +69,7 @@ describe('ZtpRecovery.vue', () => {
       platform: 'lstn',
       username: 'python',
       netconf_port: 830,
-      collect_asset: true,
+      collect_asset: false,
     }))
     expect(wrapper.text()).toContain('LSTN（S6850 / HCL）')
     expect(wrapper.text()).not.toContain('NETCONF 端口')
