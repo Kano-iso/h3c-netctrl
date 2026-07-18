@@ -20,8 +20,6 @@ const form = ref({
   hcl_t7064p15: false,
   username: 'python',
   password: 'Admin123!@#',
-  netconf_port: 830,
-  collect_asset: true,
 })
 
 const activeOverride = computed(() => status.value?.override || null)
@@ -34,8 +32,6 @@ function loadOverrideToForm(data) {
   form.value.hcl_t7064p15 = !!data.hcl_t7064p15
   form.value.username = data.username || 'python'
   form.value.password = data.password || 'Admin123!@#'
-  form.value.netconf_port = data.netconf_port || 830
-  form.value.collect_asset = data.collect_asset !== false
 }
 
 async function loadStatus() {
@@ -59,8 +55,8 @@ function payload() {
     hcl_t7064p15: !!form.value.hcl_t7064p15,
     username: String(form.value.username || '').trim(),
     password: form.value.password,
-    netconf_port: Number(form.value.netconf_port || 830),
-    collect_asset: !!form.value.collect_asset,
+    netconf_port: 830,
+    collect_asset: true,
   }
 }
 
@@ -132,26 +128,27 @@ onMounted(loadStatus)
               <input v-model="form.name" class="input mt-1.5 font-mono" placeholder="ztp-switch-2" />
             </label>
 
-            <div>
+            <div class="md:col-span-2">
               <span class="text-xs font-medium text-ink-600">{{ t('ztp.platform') }}</span>
-              <div class="mt-1.5 grid grid-cols-2 rounded-xl bg-canvas-200 p-1">
+              <div class="mt-1.5 grid grid-cols-1 md:grid-cols-2 gap-2">
                 <button
                   type="button"
-                  :class="['rounded-lg px-3 py-2 text-sm font-medium transition', form.platform === 'lstn' ? 'bg-white shadow-sm text-ink-900' : 'text-ink-600']"
+                  :class="['text-left rounded-xl px-3 py-3 ring-1 transition', form.platform === 'lstn' ? 'bg-white shadow-sm text-ink-900 ring-accent/30' : 'bg-canvas-100 text-ink-600 ring-canvas-300 hover:bg-canvas-200']"
                   @click="form.platform = 'lstn'"
-                >LSTN</button>
+                >
+                  <div class="text-sm font-semibold">{{ t('ztp.platform_lstn') }}</div>
+                  <div class="text-xs text-ink-500 mt-0.5">{{ t('ztp.platform_lstn_desc') }}</div>
+                </button>
                 <button
                   type="button"
-                  :class="['rounded-lg px-3 py-2 text-sm font-medium transition', form.platform === 'rstn' ? 'bg-white shadow-sm text-ink-900' : 'text-ink-600']"
+                  :class="['text-left rounded-xl px-3 py-3 ring-1 transition', form.platform === 'rstn' ? 'bg-white shadow-sm text-ink-900 ring-accent/30' : 'bg-canvas-100 text-ink-600 ring-canvas-300 hover:bg-canvas-200']"
                   @click="form.platform = 'rstn'"
-                >RSTN</button>
+                >
+                  <div class="text-sm font-semibold">{{ t('ztp.platform_rstn') }}</div>
+                  <div class="text-xs text-ink-500 mt-0.5">{{ t('ztp.platform_rstn_desc') }}</div>
+                </button>
               </div>
             </div>
-
-            <label class="block">
-              <span class="text-xs font-medium text-ink-600">{{ t('ztp.netconf_port') }}</span>
-              <input v-model.number="form.netconf_port" type="number" min="1" max="65535" class="input mt-1.5 font-mono" />
-            </label>
 
             <label class="block">
               <span class="text-xs font-medium text-ink-600">{{ t('ztp.username') }}</span>
@@ -167,10 +164,6 @@ onMounted(loadStatus)
             <label class="inline-flex items-center gap-2 text-sm text-ink-700">
               <input v-model="form.hcl_t7064p15" type="checkbox" class="size-4 rounded border-canvas-400 text-accent focus:ring-accent/30" />
               <span>{{ t('ztp.hcl') }}</span>
-            </label>
-            <label class="inline-flex items-center gap-2 text-sm text-ink-700">
-              <input v-model="form.collect_asset" type="checkbox" class="size-4 rounded border-canvas-400 text-accent focus:ring-accent/30" />
-              <span>{{ t('ztp.collect_asset') }}</span>
             </label>
           </div>
 
