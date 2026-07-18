@@ -1,6 +1,6 @@
 # ztp-stack 容器 + H3C V7 ZTP 真机验证 SOP
 
-> **变更**：v3.1 ZTP 调研 T3-T4 基建 + v3.1.1 ZTP 落地（[active change](../openspec/changes/v311-ztp-landing/proposal.md)）
+> **变更**：v3.1 ZTP 调研 T3-T4 基建 + v3.1.1 ZTP 落地（[archive](../openspec/changes/archive/2026-07-18-v311-ztp-landing/)）
 > **创建时间**：2026-07-17
 > **更新**：2026-07-18
 > **目标**：在受控局域网内，对 H3C V7 设备做 Zero Touch Provisioning / autocfg 自动配置验证
@@ -50,15 +50,16 @@ ztp-server:
 
 **原因**：H3C V7 设备的 DHCP discover 是 **L2 广播**，不能跨网段。ops-toolkit 容器在 docker bridge network（172.x.x.x），不在 .177 物理网段（192.168.100.0/24），广播不通。`host network` 模式下，容器直接绑定宿主机网络接口，能接收物理网段的 L2 广播。
 
-### 3.2 DHCP 范围设计（v3.1.1 当前口径）
+### 3.2 DHCP 临时池与 static 管理池（v3.1.1 当前口径）
 
 ```conf
 dhcp-range=192.168.100.151,192.168.100.190,12h
 ```
 
 - DHCP 池：`.151-.190`，只作为新设备首启临时地址
-- Static 池：`.101-.140`，由 `autocfg.cfg` 写入 physical OOB 口
-- 映射：`static = dhcp - 50`，例如 `.151 → .101`
+- Static 池：`.101-.140`，由 `ZTP_MGMT_IP` 渲染进 `autocfg.cfg` 并写入 physical OOB 口
+- v3.1.1 已验证：`.177 → .101`、`.26 → .102`
+- v3.1.2 再接入 controller 自动递增/自动分配；本轮不从 dnsmasq lease 自动反推 static 地址
 - Gap：`.141-.150` 空出 10 个地址，避免误配时 DHCP/static 池贴边
 - 不做 `dhcp-host=MAC,IP,infinite`，不做 `dhcp-leasefile` 持久化
 
@@ -70,7 +71,7 @@ dhcp-range=192.168.100.151,192.168.100.190,12h
 - ❌ 不做配置联动：ZTP 完成后由 controller 继续推业务配置
 - ✅ v3.1.1 起由 `autocfg.cfg` 写 physical OOB 口 static IP
 - ✅ LSTN 当前 OOB 口：`M-GigabitEthernet0/0/0`
-- ✅ RSTN `.26` 当前 OOB 口：`MGE0/0/0`；不要把接口名写成绝对规则，后续以现网探测到的 physical OOB 口为准
+- ✅ RSTN `.26` 当前 OOB 口：配置文件全名 `M-GigabitEthernet0/0/0`，display brief 简写 `MGE0/0/0`；不要把接口名写成绝对规则，后续以现网探测到的 physical OOB 口为准
 
 ### 3.4 凭据走 env vars
 
@@ -84,7 +85,7 @@ dhcp-range=192.168.100.151,192.168.100.190,12h
 | 顺序 | 设备 | 目的 |
 |---|---|---|
 | 1 | `.177` S6850/T7064P15-hcl | 完整 ZTP 主验证：空配置 → DHCP → TFTP → autocfg → static `.101` → save → 重启持久 |
-| 2 | `.26` V9850/R7643P02 | EVE-NG 借用 RSTN 设备的适配性验证：OOB 口、模板、user-role、NETCONF、save |
+| 2 | `.26` V9850/R7643P02 | EVE-NG 借用 RSTN 设备的适配性验证：空配置 → DHCP → TFTP → autocfg → static `.102` → save → 重启持久 |
 | - | `.5` S6850/T7064P15-prod | 不跑完整 ZTP；仅保留已完成的 OOB/static 命令探针作为 LSTN 佐证 |
 
 `.26` 的背景：它是 v3.0 起用于 RSTN/schema NETCONF 路径验证的 EVE-NG 借用测试设备。v3.1.1 继续让它承担 RSTN 平台适配验证；v3.2 会把这条思路扩展为 EVENG 平台迁移和完整数据面验证。
@@ -110,6 +111,7 @@ ZTP_PLATFORM=lstn
 ZTP_HCL_T7064P15=false
 # 留空时按 ZTP_MGMT_IP 自动生成, 例如 .101 -> ztp-switch-101
 ZTP_SYSNAME=
+# 本次要写入设备 OOB 口的 static 管理地址；验证下一台设备前手动/由控制器递增
 ZTP_MGMT_IP=192.168.100.101
 ZTP_ADMIN_USER=python
 ZTP_ADMIN_PASS=Admin123!@#
@@ -157,10 +159,20 @@ docker compose -f docker-compose.dev.yml --profile ops down ztp-server
 
 ---
 
-## 5. T4 真机验证 SOP
+## 5. v3.1.1 真机验证结果
 
-> **风险等级**：⚠️ **中高**（设备 reset + reboot）
-> **前提**：.177 设备物理可达（console 线 + 串口）
+| 设备 | 平台 | ZTP static IP | 结果 | 证据 |
+|---|---|---:|---|---|
+| `.177` | S6850 / T7064P15-hcl / LSTN | `.101` | ✅ DHCP 临时地址 → TFTP → static `.101` → SSH/NETCONF → 二次 reboot 持久 | `openspec/changes/archive/2026-07-18-v311-ztp-landing/captures/ztp-test/config_101_after_ztp_20260718.log` |
+| `.26` | V9850-256H / R7643P02 / RSTN | `.102` | ✅ DHCP 临时地址 → TFTP → static `.102` → SSH/NETCONF → 二次 reboot 持久 | `openspec/changes/archive/2026-07-18-v311-ztp-landing/captures/ztp-test/config_102_after_ztp_20260718.log` |
+| `.5` | S6850 / T7064P15-prod / LSTN | 不做完整 ZTP | ✅ 仅保留 OOB/static 命令探针佐证 | 记录随 v3.1.1 archive 进入 release notes |
+
+> 说明：`.177` 的证据来自动态 sysname 逻辑调整前，日志中仍是 `ztp-device`；当前模板已按 `ZTP_MGMT_IP` 派生 `ztp-switch-101` / `ztp-switch-102`，`.26` 已验证 `ztp-switch-102`。
+
+## 6. 真机验证 SOP
+
+> **风险等级**：中高（设备 reset + reboot）
+> **前提**：设备物理可达，且已有 startup/current 配置备份或 console 兜底。
 
 ### 5.1 准备阶段
 
@@ -181,32 +193,7 @@ docker compose -f docker-compose.dev.yml --profile ops run --rm ops-toolkit /scr
 优先用 ops-toolkit 的 `capture-config.sh`。v3.1.1 起脚本已补齐 H3C V7 `ssh-rsa` 兼容参数；如果设备未启用 SCP server，先在设备上执行 `scp server enable`。
 
 ```bash
-# 进 ops-toolkit 容器交互式 paramiko
-docker compose -f docker-compose.dev.yml --profile ops run --rm ops-toolkit python3 <<'EOF'
-import paramiko
-import os
-from datetime import datetime
-
-# 凭据从 .env 注入（DEVICE_USERNAME/DEVICE_PASSWORD）
-user = os.environ['DEVICE_USERNAME']
-passwd = os.environ['DEVICE_PASSWORD']
-
-ssh = paramiko.SSHClient()
-ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-ssh.connect('192.168.100.177', port=22, username=user, password=passwd, timeout=10)
-
-# 用 'more startup.cfg' 拉内容（与 backup 一致的实现）
-stdin, stdout, stderr = ssh.exec_command('more startup.cfg')
-content = stdout.read().decode('utf-8', errors='replace')
-
-# 保存到 /captures 目录
-ts = datetime.now().strftime('%Y%m%dT%H%M%S')
-out = f'/captures/192.168.100.177_{ts}_startup.cfg.bak'
-with open(out, 'w') as f:
-    f.write(content)
-print(f'✅ 备份到 {out}, 大小: {len(content)} bytes')
-ssh.close()
-EOF
+docker compose -f docker-compose.dev.yml --profile ops run --rm ops-toolkit /scripts/capture-config.sh --device 192.168.100.177
 ```
 
 #### 步骤 3：启动 ztp-server 容器
@@ -230,31 +217,11 @@ docker logs -f h3c-netctrl-ztp-server
 **必须**在 ztp-server 容器运行后执行，否则设备会失联。
 
 ```bash
-# 进 ops-toolkit 交互式 paramiko
-docker compose -f docker-compose.dev.yml --profile ops run --rm ops-toolkit python3 <<'EOF'
-import paramiko
-import os
-
-user = os.environ['DEVICE_USERNAME']
-passwd = os.environ['DEVICE_PASSWORD']
-
-ssh = paramiko.SSHClient()
-ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-ssh.connect('192.168.100.177', port=22, username=user, password=passwd, timeout=10)
-
-# 清空 startup.cfg + reboot
-commands = [
-    'system-view',
-    'reset saved-configuration',
-    'reboot',
-]
-for cmd in commands:
-    print(f'>>> {cmd}')
-    stdin, stdout, stderr = ssh.exec_command(cmd)
-    print(stdout.read().decode('utf-8', errors='replace'))
-
-ssh.close()
-EOF
+docker compose -f docker-compose.dev.yml --profile ops run --rm ops-toolkit /scripts/reboot-wait.sh \
+  --device 192.168.100.177 \
+  --reset-saved \
+  --wait-ip 192.168.100.101 \
+  --timeout 300
 ```
 
 #### 步骤 5：观察 .177 启动行为
@@ -272,20 +239,19 @@ EOF
 #### 步骤 6：验证 SSH + NETCONF
 
 ```bash
-# 60s 后检查
 docker compose -f docker-compose.dev.yml --profile ops run --rm ops-toolkit /scripts/check-host.sh --device ztp-177
-# 预期: SSH 22 + NETCONF 830 通
+docker compose -f docker-compose.dev.yml --profile ops run --rm ops-toolkit /scripts/check-netconf.sh --device ztp-177
 
 # 验证 autocfg.cfg 内容已应用
 docker compose -f docker-compose.dev.yml --profile ops run --rm ops-toolkit paramiko-batch-exec.sh --device ztp-177 --command "display current-configuration | include sysname"
-# 预期: sysname ztp-177
+# 预期: sysname / OOB static IP / ssh server enable / netconf ssh server enable 均存在
 ```
 
-### 5.3 兜底阶段（T4 失败时）
+### 6.3 兜底阶段（验证失败时）
 
 #### 步骤 7：失败恢复
 
-如果 T4 失败（60s 内 SSH 22 没起），立即恢复 .177 备份：
+如果验证失败（超时内 SSH 22 没起），立即恢复设备备份：
 
 ```bash
 # 1. 停止 ztp-server（避免重复干扰）
@@ -296,12 +262,12 @@ docker compose -f docker-compose.dev.yml --profile ops down ztp-server
 # 4. save force + reboot
 ```
 
-### 5.4 收尾阶段
+### 6.4 收尾阶段
 
-#### 步骤 8：T4 结果记录 + 决策
+#### 步骤 8：结果记录 + 决策
 
-- **成功** → T5 决策 B（投入 ZTP，v3.1.1 实现）
-- **失败** → T5 决策 C（不投入 ZTP，留作 v3.x 远期）
+- **成功** → 记录真机证据，进入 OpenSpec archive
+- **失败** → 记录失败平台和命令，回 Spec 重新对齐
 
 #### 步骤 9：环境清理
 
@@ -312,18 +278,19 @@ docker compose -f docker-compose.dev.yml --profile ops down ztp-server
 
 ---
 
-## 6. 已知风险
+## 7. 已知风险
 
 | 风险 | 影响 | 缓解 |
 |---|---|---|
-| DHCP 干扰现有网络 | 可能冲突 | 范围仅 `.200-.250`，12h 租约，容器停止即清空 |
+| DHCP 干扰现有网络 | 可能冲突 | 范围仅 `.151-.190`，12h 租约，容器停止即清空；仅受控局域网启用 |
 | autocfg.cfg 含明文密码 | TFTP 协议明文传输 | 短期方案，ZTP 完成后 controller 立即 SSH 推 password hash |
-| 设备 reset 失联 | .177 不可达 | 备份 startup.cfg + console 线兜底 |
+| 设备 reset 失联 | 设备不可达 | 备份 startup.cfg + console 线兜底；重启动作走 ops-toolkit `reboot-wait.sh` |
 | host network 容器异常 | 影响宿主机网络 | 容器自带 restart: "no"，异常退出不会重启 |
+| 构建镜像受外部仓库影响 | 当前环境曾遇到 alpine 镜像代理 401 | 代码逻辑已验证；必要时复用本地镜像或修复镜像源后再 build |
 
 ---
 
-## 7. 相关文档
+## 8. 相关文档
 
 - [v31-ztp-research/proposal.md](../../openspec/changes/v31-ztp-research/proposal.md) — 调研立项
 - [v31-ztp-research/design.md §2.5](../../openspec/changes/v31-ztp-research/design.md) — ztp-server 容器设计

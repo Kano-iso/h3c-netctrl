@@ -29,7 +29,7 @@
 | **v2.6.2 回滚预检 + 失败 UX** | ⏳ 2026-07-08 (待 tag v2.6.2) | 1 个 change：H3C V7 S6850 回滚无反应修复（probe + 端点 422 + paramiko 详细日志 + 前端 toast + 面板失败高亮 + `device.status.restore_unsupported` 字段）+ 1 review 反思 | [RELEASE-NOTES-v2.6.2.md](RELEASE-NOTES-v2.6.2.md) + [REVIEW-v262-bugfix-round-real-device-validation.md](docs/REVIEW-v262-bugfix-round-real-device-validation.md) |
 | **v3.0 VPC 骨架** | ✅ 2026-07-18 (tag: v3.0.0) | SDN 业务下发通道（按 device.platform 路由 LSTN→SSH / RSTN→NETCONF）+ 双套 payload 模板（5 unit × 4 字段）+ 跨平台 .5/.26 真机验证。**v3.0 PRD 7 个子能力按新规划拆到 v3.1.1 / v3.2 / v3.3 / v3.4**（详见 [PRD-V3.0.md](PRD-V3.0.md) 补充说明）| [PRD-V3.0.md](PRD-V3.0.md) + [RELEASE-NOTES-v3.0.0.md](RELEASE-NOTES-v3.0.0.md) + [archive/2026-07-16-sdn-vpc-netconf-schema-xml](openspec/changes/archive/2026-07-16-sdn-vpc-netconf-schema-xml/) |
 | **v3.1.0 ZTP 调研** | ✅ 2026-07-18 (tag: v3.1.0) | H3C V7 ZTP 可行性调研 + 决策 B（精简 ZTP）+ 独立 ztp-server 容器（alpine + dnsmasq 二合一）+ autocfg.cfg 模板（T7064P15 验证通过）| [RELEASE-NOTES-v3.1.0.md](RELEASE-NOTES-v3.1.0.md) + [archive/2026-07-18-v31-ztp-research](openspec/changes/archive/2026-07-18-v31-ztp-research/) |
-| **v3.1.1 ZTP 落地** | ⏳ 2026-07-18 (待启动) | autocfg.cfg 多平台适配（.5 R6555 / .26 R7643P02 / .177 T7064P15 各一份模板）+ 1:1 静态 IP 池子方案（DHCP 拿 IP 即绑定静态 IP）| [PRD-V3.1.md](PRD-V3.1.md) §3 |
+| **v3.1.1 ZTP 落地** | ✅ 2026-07-18 (tag: v3.1.1) | ztp-server jinja2 多平台模板 + DHCP 临时池 `.151-.190` + `ZTP_MGMT_IP` static OOB 写入 + `.177/.26` 真机完整 ZTP 验证 + ops-toolkit reboot/capture 加固 | [RELEASE-NOTES-v3.1.1.md](RELEASE-NOTES-v3.1.1.md) + [archive/2026-07-18-v311-ztp-landing](openspec/changes/archive/2026-07-18-v311-ztp-landing/) |
 | **v3.1.2 自动纳管** | ⏳ 2026-07-18 (待启动) | controller 监听 DHCP lease → 主动 SSH 纳管 → 推业务 IP → 同步资产 | [PRD-V3.1.md](PRD-V3.1.md) §4 |
 | **v3.1.3 资产可见** | ⏳ 2026-07-18 (待启动) | 前端实时刷新（Devices.vue / CMDB.vue / Dashboard）+ 新设备上线通知 | [PRD-V3.1.md](PRD-V3.1.md) §5 |
 | **v3.2 加固切换 + 大迁移** | ⏳ 2026-07-18 (待启动) | ① 架构切 EVENG 平台（独立容器 + 2-3 H3C V7 镜像）② 全 QA 覆盖 SDN 后端已有能力（≥ 200 unit + 集成 + e2e + 压测）③ VPC 全能力验证（prd-and-model / foundation / port-binding / l3vni-validation 4 个子能力）| [PRD-V3.2.md](PRD-V3.2.md) |
@@ -328,7 +328,7 @@ save force
 
 | Change | 范围 | 状态 |
 |---|---|---|
-| v3.1.1 ztp-landing | autocfg.cfg 模板适配多平台（.5 R6555 / .26 R7643P02 / .177 T7064P15）+ 容器稳定性测试 | ⏳ 待 user 启动 |
+| v3.1.1 ztp-landing | autocfg.cfg 模板适配多平台 + `.177/.26` 完整 ZTP 真机验证 + ops-toolkit reboot/capture 加固 | ✅ 已完成 |
 | v3.1.2 ztp-auto-onboard | controller 监听 DHCP lease → 主动 SSH 纳管 + 推业务 IP + 同步资产 | ⏳ 待 user 启动 |
 | v3.1.3 ztp-asset-sync | 资产自动可见（前端可查，无需手动 `POST /api/devices`）| ⏳ 待 user 启动 |
 
@@ -341,20 +341,41 @@ save force
 
 ---
 
-### v3.1.1 ZTP 落地（⏳ 2026-07-18 待启动）
+### v3.1.1 ZTP 落地（✅ 2026-07-18 tag: v3.1.1）
 
-**目标**：解决 v3.1.0 留下的 2 个未解决问题：① IP 不持久（DHCP lease 12h 后过期）② 多平台模板未适配。
+**目标**：解决 v3.1.0 留下的 2 个未解决问题：① 设备管理 IP 不持久 ② 多平台 autocfg 模板未适配。
 
-**PRD**：[PRD-V3.1.md §3](PRD-V3.1.md)
+**OpenSpec**：[archive/2026-07-18-v311-ztp-landing](openspec/changes/archive/2026-07-18-v311-ztp-landing/)
+**Release Notes**：[RELEASE-NOTES-v3.1.1.md](RELEASE-NOTES-v3.1.1.md)
 
-**范围**：
-- **1:1 静态 IP 池子方案**：DHCP 池（`.200-.250`）+ 静态 IP 池（**1:1 映射**）。设备首次 DHCP 拿 .250 → controller 立即 SSH 推 .250 静态 IP 配置 + 持久化
-- **autocfg.cfg 多平台适配**：.5 R6555 / .26 R7643P02 / .177 T7064P15 各一份模板（按 sysname 路由）
-- **关闭首次登录改密**：autocfg.cfg 模板加 `password-control login-password-change disable`（v3.1.0 已加）
+**完成范围**：
+- **DHCP 临时池 + static OOB 写入**：DHCP 池 `.151-.190` 只用于首启拉配置；设备最终管理地址由 `ZTP_MGMT_IP` 渲染进 autocfg.cfg 并写入 physical OOB 口。
+- **autocfg.cfg 多平台适配**：1 份 `autocfg.cfg.j2`，按 `ZTP_PLATFORM=lstn|rstn` 生成 LSTN/S6850 与 RSTN/V9850 配置；HCL T7064P15 通过 `ZTP_HCL_T7064P15=true` 打开独有改密规避命令。
+- **sysname 动态派生**：`ZTP_SYSNAME` 留空或保持旧默认 `ztp-device` 时，按 `ZTP_MGMT_IP` 生成 `ztp-switch-101` / `ztp-switch-102`。
+- **ops-toolkit 加固**：`reboot-wait.sh` 支持 reset saved-configuration + reboot + 等待目标 IP；`capture-config.sh` 补齐 H3C V7 低版本 RSA/SCP 兼容参数。
 
-**依赖**：v3.1.0 基建（ztp-server 容器 + autocfg.cfg 模板）
+**真机验证**：
 
-**回退**：v3.1.1 真机验证失败（多平台不兼容）→ 决策 C 重新评估
+| 设备 | 平台 | 结果 |
+|---|---|---|
+| `.177` | S6850 / T7064P15-hcl / LSTN | 完整 ZTP 链路通过，最终 static `.101`，SSH 22 + NETCONF 830 通，二次 reboot 持久 |
+| `.26` | V9850-256H / R7643P02 / RSTN | 完整 ZTP 链路通过，最终 static `.102`，sysname `ztp-switch-102`，SSH 22 + NETCONF 830 通，二次 reboot 持久 |
+| `.5` | S6850 / T7064P15-prod / LSTN | 不跑完整 ZTP，仅保留 OOB/static 命令探针佐证 |
+
+**关键边界**：
+- v3.1.1 不做 controller 自动纳管、不入库、不前端可见；这些进入 v3.1.2/v3.1.3。
+- v3.1.1 不从 dnsmasq lease 自动计算 static IP；当前由 `ZTP_MGMT_IP` 指定，v3.1.2 再做自动递增/自动分配。
+- ZTP 阶段只写基础配置：SSH 22、NETCONF 830、项目统一账号、physical OOB static IP，不写 VPC/业务 VLAN/路由协议。
+
+**关键 commit 序列**：
+- `8551310 test(ztp): T7 容器层 CI 验证`
+- `8a7aa03 chore(ztp): T8 qa-backend 回归 N/A`
+- `0bc0592 docs(ztp): sync v3.1.1 handoff scope`
+- `40257b7 test(ztp): T9 .177 ZTP链路验证与RSTN模板纠偏`
+- `bd80e79 fix(ztp): 按管理IP派生sysname并收紧RSTN模板`
+- `4472e35 test(ztp): T10 .26 RSTN完整ZTP链路验证`
+
+**已知注意点**：当前环境重建 ztp-server 镜像时曾遇到外部 alpine 镜像代理 401；真机验证使用已有镜像并挂载当前模板/entrypoint 完成。修复镜像源后可重新 build。
 
 ---
 

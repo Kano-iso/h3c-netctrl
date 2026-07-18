@@ -1,6 +1,6 @@
 # ztp-landing Specification
 
-> **新能力**（v3.1.1 引入）：ZTP 落地能力 — 1:1 静态 IP 池子（offset 50 跨池，autocfg 内嵌物理 OOB 口）+ autocfg.cfg 多平台适配（jinja2 + 2 平台条件分支）
+> **新能力**（v3.1.1 引入）：ZTP 落地能力 — DHCP 临时池 + static OOB 管理地址写入 + autocfg.cfg 多平台适配（jinja2 + 2 平台条件分支）
 > **范围**：仅 `ztp-server` 容器（`docker/ztp-stack/`），**零业务代码改动**
 > **依赖**：v3.1.0（ztp-server 容器基建 + autocfg.cfg T7064P15 模板）
 > **后续**：v3.1.2（自动纳管）/ v3.1.3（资产可见）依赖本 spec
@@ -11,7 +11,7 @@
 
 ### 4 条核心方向
 
-1. **1:1 映射 = offset 50 跨池**（用户原话"250 映射到 150"）：DHCP 给的 IP X → autocfg.cfg 写 `X - 50`（DHCP 池 `.151-.190` ↔ static 池 `.101-.140`）。**绝对不能自映射**（X → X），否则设备永久占住 DHCP 池地址，lease 续约冲突。
+1. **静态地址池与 DHCP 临时池隔离**：DHCP 给新设备的地址只用于首次拉取 autocfg.cfg，最终管理地址由 `ZTP_MGMT_IP` 写入 physical OOB 口。v3.1.1 已验证 `.177 → .101`、`.26 → .102`；后续 v3.1.2 再把“DHCP 临时租约 → static 地址”的自动分配逻辑接入 controller。
 2. **autocfg.cfg 推 static IP 写物理 OOB 口**（用户原话"我们只在第 1 步刚上线的时候获取的时候用动态壁纸而已"）：S6850 当前实测 = `M-GigabitEthernet0/0/0`；V9850 当前 `.26` 现网实测 = `MGE0/0/0`（不是旧 PRD 写的 `MEth0/0/0`）。后续不把接口名写成跨设备绝对规则，但 MUST 确保命中的是真实 physical OOB 口。**不**走 Vlan-interface1（v3.1.0 失败路径）。
 3. **jinja2 通用模板 + 2 平台条件分支**：`lstn`（S6850 平台 = .5 T7064P15-prod + .177 T7064P15-hcl）/ `rstn`（V9850 平台 = .26 R7643P02）。
 4. **明确不做**（user 2026-07-18 拍板反对）：
@@ -20,32 +20,33 @@
    - Vlan-interface1 路径
    - VRF 绑定（autocfg.cfg 阶段简化）
 
-### T1 实测发现（2026-07-18 探针记录于 [notes.md](../notes.md) §T1）
+### T1 实测发现（2026-07-18 探针记录于 release notes 与 captures）
 
 | 设备 | 实际型号 | 实际软件 | 物理 OOB 口 | user-role 命令 | 首次改密 |
 |------|---------|---------|-----------|----------------|---------|
 | .5 | S6850 | T7064P15-**prod** | `M-GigabitEthernet0/0/0` | `network-admin` ✅ | `change-password first-login enable` (no-op) |
-| .26 | V9850-256H | R7643P02 | 当前现网实测 `MGE0/0/0` | `network-admin` ✅（`level-15` 也支持）| 同 prod |
+| .26 | V9850-256H | R7643P02 | 配置文件全名 `M-GigabitEthernet0/0/0`，display brief 简写 `MGE0/0/0` | `network-admin` ✅（`level-15` 也支持）| 同 prod |
 | .177 | S6850 | T7064P15-**hcl** | `M-GigabitEthernet0/0/0` | `network-admin` ✅ | **`login-password-change disable`**（HCL 独有） |
 
 ---
 
 ## ADDED Requirements
 
-### Requirement: 1:1 静态 IP 池子（offset 50 跨池）
+### Requirement: 静态 IP 池子与 DHCP 临时池隔离
 
-ztp-server 容器 MUST 支持 1:1 静态 IP 池子映射，DHCP 池与 static 池**完全分离**避免冲突：
+ztp-server 容器 MUST 支持 DHCP 临时池与 static 管理池**完全分离**，避免设备最终管理地址与租约地址冲突：
 - DHCP 池：`192.168.100.151-.190`（40 IP，autocfg 机制临时分配）
 - Static 池：`192.168.100.101-.140`（40 IP，autocfg.cfg 内嵌物理 OOB 口静态 IP）
-- 1:1 映射：DHCP `.151+X` ↔ static `.101+X`（X=0..39，offset 50）
+- v3.1.1：static 地址由 `ZTP_MGMT_IP` 指定（`.101` / `.102` 已真机验证）
+- v3.1.2：controller 监听上线事件后再实现自动递增/自动分配
 - gap：`.141-.150` 10 IP 闲置作安全余量
 
 #### Scenario: .177 真机 PoC 验证
 
 - **WHEN** .177 S6850 T7064P15-hcl reset saved-configuration + reboot（空配置启动）
-- **AND** 启动后 autocfg 机制从 DHCP 获取 `.151`（offset 50 映射 = static `.101`）
+- **AND** 启动后 autocfg 机制从 DHCP 临时池获取地址
 - **AND** TFTP 拉取 `autocfg.cfg` 模板（含 `interface M-GigabitEthernet0/0/0 + ip address 192.168.100.101 255.255.255.0`）
-- **THEN** 设备应用配置后 **物理 OOB 口 IP = .101**（**不**是 DHCP 给的 .151）
+- **THEN** 设备应用配置后 **物理 OOB 口 IP = .101**（**不**保留 DHCP 临时地址）
 - **AND** 设备 `save force` 持久化
 - **AND** 重启后设备 IP 仍是 **.101**（DHCP lease 12h 过期后仍 .101，static IP 生效）
 - **AND** SSH 22 + NETCONF 830 验证通过
@@ -63,13 +64,13 @@ ztp-server 容器 MUST 支持 1:1 静态 IP 池子映射，DHCP 池与 static �
 - **THEN** autocfg.cfg 渲染仍正常（gap 10 IP 不参与映射，但不被 dnsmasq 分配）
 - **AND** docs/ztp-stack.md 明确标注 `.141-.150` 是安全余量
 
-#### Scenario: 跨池映射公式验证
+#### Scenario: 静态地址输入变量验证
 
-- **WHEN** 设备 DHCP 给 `.152`（= `.151 + 1`）
-- **THEN** autocfg.cfg 静态 IP 写 `.102`（= `.152 - 50`）
-- **WHEN** 设备 DHCP 给 `.190`（= `.151 + 39`，末 IP）
-- **THEN** autocfg.cfg 静态 IP 写 `.140`（= `.190 - 50`）
-- **NOTE**：v3.1.1 阶段 autocfg.cfg **硬编码** `.101`（PoC 验证单设备），公式化映射由 v3.1.2 接入多设备时实现
+- **WHEN** `.env` 设置 `ZTP_MGMT_IP=192.168.100.101`
+- **THEN** autocfg.cfg 静态 IP 写 `.101`
+- **WHEN** `.env` 设置 `ZTP_MGMT_IP=192.168.100.102`
+- **THEN** autocfg.cfg 静态 IP 写 `.102`
+- **NOTE**：v3.1.1 阶段不从 dnsmasq lease 自动反推 static 地址；该自动化留给 v3.1.2。
 
 ### Requirement: autocfg.cfg jinja2 通用模板 + 2 平台条件分支
 
@@ -92,7 +93,7 @@ ztp-server 容器 MUST 使用 jinja2 通用模板 + 2 平台条件分支（`lstn
 #### Scenario: jinja2 模板渲染 RSTN 分支
 
 - **WHEN** 容器启动并设置 `ZTP_PLATFORM=rstn`（.26 R7643P02 用）
-- **THEN** 渲染后 autocfg.cfg 内容含现网探测到的 V9850 physical OOB 口（当前 `.26` 为 `MGE0/0/0`）+ `ip address 192.168.100.101 255.255.255.0`
+- **THEN** 渲染后 autocfg.cfg 内容含现网探测到的 V9850 physical OOB 口（当前 `.26` 真机配置全名为 `M-GigabitEthernet0/0/0`，display brief 简写为 `MGE0/0/0`）+ `ip address {{ ZTP_MGMT_IP }} 255.255.255.0`
 - **AND** 渲染后 autocfg.cfg 内容含 `netconf ssh server enable`（V9850 默认 disabled，显式 enable）
 - **AND** 渲染后 autocfg.cfg 内容含 `authorization-attribute user-role {network-admin|level-15}`（T1 探针决定）
 - **AND** 渲染后 autocfg.cfg 内容含 `password-control change-password first-login enable`（no-op 安全）
@@ -125,7 +126,7 @@ v3.1.1 MUST 在 T1 阶段通过 ops-toolkit `paramiko-batch-exec.sh` 探针以�
 
 - **WHEN** 走 ops-toolkit `paramiko-batch-exec.sh --device .5 --command "interface M-GigabitEthernet0/0/0; ip address 192.168.100.50 255.255.255.0; quit; display this; undo ip address"`
 - **THEN** 记录命令执行结果（成功 / Unrecognized / 错误）
-- **AND** 写入 `notes.md §T1.1.5`
+- **AND** 写入 release notes / captures 证据
 - **AND** 至少 1 条核心探针覆盖（物理 OOB 静态 IP）
 
 #### Scenario: .26 R7643P02 命令探针
@@ -138,7 +139,7 @@ v3.1.1 MUST 在 T1 阶段通过 ops-toolkit `paramiko-batch-exec.sh` 探针以�
 - **AND** 探针 #5：`authorization-attribute user-role level-15`（V9850 数字等级）
 - **AND** 探针 #6：`authorization-attribute user-role network-admin`（V9850 字符串角色）
 - **AND** 探针 #7：`save force`（V9850 持久化）
-- **AND** 写入 `notes.md §T1.2.26`
+- **AND** 写入 release notes / captures 证据
 
 #### Scenario: .177 T7064P15-hcl 命令探针（回归）
 
@@ -150,7 +151,7 @@ v3.1.1 MUST 在 T1 阶段通过 ops-toolkit `paramiko-batch-exec.sh` 探针以�
 #### Scenario: T1 探针失败处理
 
 - **WHEN** 任一平台核心命令探针失败（Unrecognized 或语法错误）
-- **THEN** 文档 `notes.md` 记录失败原因
+- **THEN** 文档或 release notes 记录失败原因
 - **AND** 对应 jinja2 平台条件分支用备选命令或标 skip
 - **AND** 不阻塞 v3.1.1 发版（已知限制，记录于 docs/ztp-stack.md）
 
@@ -173,8 +174,8 @@ v3.1.1 MUST 在 .177 上验证完整 ZTP 链路（autocfg 机制）：空配置�
 #### Scenario: 真机集成 restore_original_state
 
 - **WHEN** T9 真机验证完成（无论成功/失败）
-- **THEN** .177 设备最终恢复测试前状态（restore 备份 startup.cfg）
-- **AND** 不允许只测 happy path 不还原
+- **THEN** .177 设备最终恢复测试前状态，或经 user 明确同意后保留验证态并保存恢复材料
+- **AND** 不允许只测 happy path 且不留下恢复路径
 
 #### Scenario: reboot 类验证等待
 
@@ -199,14 +200,14 @@ v3.1.1 MUST 在 `.177` 主验证通过后，在 `.26` RSTN/V9850 平台做真机
 #### Scenario: 平台不可达处理
 
 - **WHEN** T1 探针发现 .26 平台 SSH / NETCONF 不可达
-- **THEN** 文档 `notes.md` 记录不可达原因
+- **THEN** 文档或 release notes 记录不可达原因
 - **AND** VERSION-ROADMAP 标注 v3.1.1 "部分平台待商用升级后验证"
 - **AND** 不阻塞 v3.1.1 发版（已知限制）
 
 ### Requirement: 文档同步
 
 v3.1.1 MUST 同步 3 处 A 类文档 + 1 处 B 类文档：
-- `docs/ztp-stack.md` 多平台验证 SOP + 1:1 映射说明
+- `docs/ztp-stack.md` 多平台验证 SOP + DHCP 临时池/static 管理池说明
 - `VERSION-ROADMAP.md` v3.1.1 行状态更新
 - `README.md` v3.1.1 行状态更新
 - `RELEASE-NOTES-v3.1.1.md` 新建（commit 序列 + 测试统计 + 真机示例）
@@ -214,7 +215,7 @@ v3.1.1 MUST 同步 3 处 A 类文档 + 1 处 B 类文档：
 #### Scenario: docs/ztp-stack.md 更新
 
 - **WHEN** v3.1.1 archive 阶段
-- **THEN** `docs/ztp-stack.md` 新增 "1:1 静态 IP 池子（offset 50 跨池映射）" 章节（含原理图）
+- **THEN** `docs/ztp-stack.md` 新增 "DHCP 临时池与 static 管理池" 章节
 - **AND** 新增 "autocfg.cfg 多平台适配（LSTN/RSTN + HCL 子分支）" 章节
 - **AND** 新增 "3 平台真机验证 SOP" 章节
 - **AND** **删**"DHCP lease 持久化"章节（v3.1.1 不做）
@@ -231,7 +232,7 @@ v3.1.1 MUST 同步 3 处 A 类文档 + 1 处 B 类文档：
 
 - **WHEN** v3.1.1 archive 阶段
 - **THEN** `README.md` 顶部版本表 v3.1.1 行更新
-- **AND** "当前架构"章节 v3.1.1 增量能力说明（offset 50 + 物理 OOB 口 + 2 平台分支）
+- **AND** "当前架构"章节 v3.1.1 增量能力说明（DHCP 临时池 + static OOB 管理地址 + 2 平台分支）
 
 ## MODIFIED Requirements
 

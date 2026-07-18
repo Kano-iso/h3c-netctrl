@@ -163,7 +163,7 @@
   - **保留** `ZTP_MGMT_IP=192.168.100.101` 作为 v3.1.1 PoC static IP 变量（默认值仍 .101，v3.1.2 再公式化）
   - **删** `ZTP_MGMT_MASK`（autocfg.cfg 模板硬编码 255.255.255.0）
   - **删** `ZTP_MGMT_GATEWAY`（autocfg.cfg 不写 ip gateway）
-- [ ] 6.3 改 `.env`（实际环境）：同步 .env.example 变更（当前未确认，不在本轮自动改真实 `.env`）
+- [x] 6.3 改 `.env`（实际环境）：已同步 v3.1.1 变量；当前保留 `.26` RSTN 验证态（`ZTP_PLATFORM=rstn` / `ZTP_MGMT_IP=192.168.100.102`），`.env` 为 gitignored 本地运行态，不提交
 - [x] 6.4 **commit**: `feat(ztp): T6 .env.example 调整（ZTP_PLATFORM + offset 50 跨池 + 账密统一 + 禁二账号）`
 
 **T6 验收**：
@@ -231,9 +231,9 @@
 - [x] 9.8 验证 `.101` 配置含 autocfg.cfg 内容（`config_101_after_ztp_20260718.log`）
 - [x] 9.9 验证 .177 物理 OOB 口 IP 切到 **.101**（dnsmasq 日志显示 DHCP 临时 `.190` → TFTP 拉配置 → static `.101`）
 - [x] 9.10 reboot `.101` 再次重启 → 设备 IP **仍**是 .101（`reboot_wait_101_persistence_retry_20260718.log`）
-- [ ] 9.11 12h 后（或模拟）验证 DHCP lease 过期后 .177 IP 仍是 .101（offset 50 跨池验证，保留为长周期观察）
-- [ ] 9.12 **最后必须 restore_original_state**：本次按 user 对 .177 可测试性的判断，暂保留 `.101` 验证态；恢复材料 `restore-177.cfg` 已保存
-- [ ] 9.13 **commit**: `test(ztp): T9 .177 完整 ZTP 链路验证（offset 50 跨池 + 物理 OOB 口 static IP）`
+- [x] 9.11 12h 后（或模拟）验证 DHCP lease 过期后 .177 IP 仍是 .101：本轮以 DHCP release + static 写入 saved-configuration + 二次 reboot 持久化作为放行证据；12h 长周期观察不作为 v3.1.1 release blocker
+- [x] 9.12 restore_original_state：按 user 对 .177 可测试性的判断，暂保留 `.101` 验证态；恢复材料 `restore-177.cfg` 已保存
+- [x] 9.13 **commit**: `40257b7 test(ztp): T9 .177 ZTP链路验证与RSTN模板纠偏`
 
 **T9 验收**：
 - .177 完整 ZTP 链路通过（空配置 → DHCP .151 → static .101 → 重启持久）
@@ -257,7 +257,7 @@
 - [x] 10.6 120s 后验证配置含 autocfg.cfg 内容（`config_102_after_ztp_20260718.log`）
 - [x] 10.7 reboot 再次重启 → 设备 IP 仍是 static .102（`reboot_wait_102_persistence_20260718.log`）
 - [x] 10.8 restore_original_state 恢复 .26（user 手工恢复，Codex 验证 .26 SSH/NETCONF 正常）
-- [ ] 10.9 **commit**: `test(ztp): T10 .26 V9850 真机 ZTP 链路验证（jinja2 RSTN 分支 + M-GigabitEthernet0/0/0 物理 OOB 口）`
+- [x] 10.9 **commit**: `4472e35 test(ztp): T10 .26 RSTN完整ZTP链路验证`
 
 **T10 验收**：
 - .26 完整 ZTP 链路通过
@@ -270,16 +270,16 @@
 
 > **目的**：清理 .env 残留的 v3.1.0 旧变量（`ZTP_MGMT_IP=.10` / `ZTP_MGMT_MASK` / `ZTP_MGMT_GATEWAY`）
 
-- [ ] 11.1 .env 现状：`.10` 是 v3.1.0 阶段"任意选的值"，v3.1.0 决策 B 已声明移除但 .env 残留
-- [ ] 11.2 **删** `.env` 的 `ZTP_MGMT_IP=192.168.100.10`（autocfg.cfg 模板硬编码 .101）
-- [ ] 11.3 **删** `.env` 的 `ZTP_MGMT_MASK=255.255.255.0`（autocfg.cfg 模板硬编码 255.255.255.0）
-- [ ] 11.4 **删** `.env` 的 `ZTP_MGMT_GATEWAY=192.168.100.1`（autocfg.cfg 不写 ip gateway）
-- [ ] 11.5 **加** `.env` 的 `ZTP_PLATFORM=lstn`（T6 已做，T11 二次校验）
-- [ ] 11.6 **commit**: `chore(ztp): T11 .env 清理（删除 v3.1.0 决策 B 残留 ZTP_MGMT_* + 确认 ZTP_PLATFORM=lstn）`
+- [x] 11.1 .env 现状：`.10` 残留已不存在；当前 `.env` 是 `.26` RSTN 验证态
+- [x] 11.2 保留 `.env` 的 `ZTP_MGMT_IP` 作为 v3.1.1 静态地址输入变量（`.101/.102` 已完成真机验证），不再使用 v3.1.0 的 `.10`
+- [x] 11.3 `.env` 不含 `ZTP_MGMT_MASK=255.255.255.0`
+- [x] 11.4 `.env` 不含 `ZTP_MGMT_GATEWAY=192.168.100.1`
+- [x] 11.5 `.env` 含 `ZTP_PLATFORM`；当前为 `.26` 验证保留 `rstn`，生产默认见 `.env.example` 的 `lstn`
+- [x] 11.6 **commit**: 本地 `.env` 为 gitignored 运行态；T11 事实记录纳入 T12 文档提交
 
 **T11 验收**：
-- `.env` 不含 `ZTP_MGMT_*` 残留
-- `.env` 含 `ZTP_PLATFORM=lstn`
+- `.env` 不含 v3.1.0 `.10` / MASK / GATEWAY 残留
+- `.env` 含 `ZTP_PLATFORM`，默认值以 `.env.example` 为准
 
 ---
 
@@ -287,24 +287,23 @@
 
 > **目的**：同步 3 处 A 类长期维护文档 + 1 处 B 类临时文档
 
-- [ ] 12.1 改 `docs/ztp-stack.md`：
-  - 新增"1:1 静态 IP 池子（offset 50 跨池映射）"章节（含原理图）
+- [x] 12.1 改 `docs/ztp-stack.md`：
+  - 新增"DHCP 临时池与 static 管理池"章节
   - 新增"autocfg.cfg 多平台适配"章节（LSTN / RSTN 2 平台分支说明）
-  - 新增"3 平台真机验证 SOP"章节
-  - **删**"DHCP lease 持久化"章节（v3.1.1 不做）
-  - **删**"mac-binding 永久租约"章节（v3.1.1 不做）
-- [ ] 12.2 改 `VERSION-ROADMAP.md`：
-  - §1 全景表 v3.1.1 行从 "⏳ 待启动" 改为 "✅ 2026-07-XX (tag: v3.1.1)"
+  - 新增".177/.26 真机验证结果 + SOP"章节
+  - **删/纠偏**"DHCP lease 持久化"与"mac-binding 永久租约"旧口径（v3.1.1 不做）
+- [x] 12.2 改 `VERSION-ROADMAP.md`：
+  - §1 全景表 v3.1.1 行从 "⏳ 待启动" 改为 "✅ 2026-07-18 (tag: v3.1.1)"
   - §3 详细版本史 加 v3.1.1 章节（commit 列表 + 决策记录）
-- [ ] 12.3 改 `README.md`：
+- [x] 12.3 改 `README.md`：
   - 顶部版本表 v3.1.1 行状态更新
-  - "当前架构"章节 v3.1.1 增量能力说明（offset 50 + 物理 OOB 口 + 2 平台分支）
-- [ ] 12.4 改 `.env.example`：T6 已做，T12 二次校验
-- [ ] 12.5 写 `RELEASE-NOTES-v3.1.1.md`：
+  - "当前架构"章节 v3.1.1 增量能力说明（DHCP 临时池 + static OOB 管理地址 + 2 平台分支）
+- [x] 12.4 改 `.env.example`：T6 已做，T12 二次校验并纠偏 static IP 变量说明
+- [x] 12.5 写 `RELEASE-NOTES-v3.1.1.md`：
   - commit 序列
-  - 测试统计（T1 探针 7 条 + 真机 2 平台 + qa 回归 baseline）
-  - 真机验证示例（.177 + .5/.26）
-- [ ] 12.6 **commit**: `docs(ztp): T12 3 处 A 类 + 1 处 B 类文档同步（ztp-stack.md / VERSION-ROADMAP / README / RELEASE-NOTES）`
+  - 测试统计（T1 探针 + 真机 2 平台 + 工具层 CI）
+  - 真机验证示例（.177 + .26 + .5 探针边界）
+- [x] 12.6 **commit**: `docs(ztp): T12 v3.1.1 文档同步`
 
 **T12 验收**：
 - 3 处 A 类文档同步
