@@ -288,7 +288,7 @@ python3 -c "import paramiko; c = paramiko.SSHClient(); c.set_missing_host_key_po
 
 ### 红线配套规范
 
-1. **探针前必 backup**（走 `backup-config.sh`，**不走 `capture-config.sh`**，因为 capture-config 走系统 scp + OpenSSH 10 ssh-rsa 不兼容）
+1. **探针前必 backup**（优先走 `capture-config.sh`；v3.1.1 起已补齐 OpenSSH `ssh-rsa` 兼容参数。若设备 SCP server 未启用，先显式开启或退回 paramiko 文本备份）
 2. **探针后必 verify**（`display this` / `display current-configuration` 确认状态）
 3. **`undo` 类操作前先 `display`**（看清楚当前状态再 undo）
 4. **`save force` 前先 `display saved-configuration`**（确认要保存的内容）
@@ -476,6 +476,8 @@ python3 -c "import paramiko; c = paramiko.SSHClient(); c.set_missing_host_key_po
 - ✅ 按 user 建议开启 `.26` SCP server：`system-view -> scp server enable`，`display ssh server status` 确认 `SCP server: Enable`。
 - ✅ `capture-config.sh` 增加 H3C V7 兼容参数（`scp -O` + `HostKeyAlgorithms=+ssh-rsa`）后，成功拉取 `.26 startup.cfg`。
 - ✅ 证据文件：`captures/ztp-test/startup_26_scp_20260718.cfg`（894 行，16692 bytes）。
+- ✅ 删除隔壁临时脚本：`docker/ztp-stack/reset-reboot-177.py` / `tmp-reboot.py` / `ztp-rotate-ip.py`，避免错误路径继续误导。
+- ✅ sysname 改为随 static IP 自动派生：`ZTP_MGMT_IP=.101 -> ztp-switch-101`，`.102 -> ztp-switch-102`。如显式设置 `ZTP_SYSNAME` 且不是旧默认 `ztp-device`，则尊重显式值。
 
 从 `.26 startup.cfg` 反推 RSTN 模板结构：
 
@@ -504,3 +506,11 @@ netconf ssh server enable
 ```
 
 **当前策略**：T10 不继续 reset/reboot，先沉淀 RSTN 独立模板差异；v3.1.1 可基于 T9 `.177` 主链路先发版，`.26` 完整 RSTN 空配置验证作为后续补测/patch。
+
+### RSA/旧 SSH 栈兼容规则
+
+- H3C V7 旧版本常只提供 `ssh-rsa` host key，系统 OpenSSH/scp 默认会拒绝，典型报错：`no matching host key type found. Their offer: ssh-rsa`。
+- 已知覆盖：
+  - backend `SSHExecutor` / `NetconfClient` 已处理旧 KEX/算法兼容。
+  - ops-toolkit `capture-config.sh` 已补 `scp -O`、`HostKeyAlgorithms=+ssh-rsa`、`PubkeyAcceptedAlgorithms=+ssh-rsa`。
+- 后续任何新增 SSH/SCP/NETCONF 工具，都必须先复用既有兼容封装；不要在每次连接失败时重新怀疑业务命令或设备能力。

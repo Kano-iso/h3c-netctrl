@@ -108,7 +108,8 @@ ZTP_DHCP_LEASE=12h
 # 设备自动配置（autocfg.cfg 渲染变量）
 ZTP_PLATFORM=lstn
 ZTP_HCL_T7064P15=false
-ZTP_SYSNAME=ztp-device
+# 留空时按 ZTP_MGMT_IP 自动生成, 例如 .101 -> ztp-switch-101
+ZTP_SYSNAME=
 ZTP_MGMT_IP=192.168.100.101
 ZTP_ADMIN_USER=python
 ZTP_ADMIN_PASS=Admin123!@#
@@ -177,7 +178,7 @@ docker compose -f docker-compose.dev.yml --profile ops run --rm ops-toolkit /scr
 
 #### 步骤 2：备份 .177 当前 startup.cfg
 
-**不能**用 ops-toolkit 的 capture-config.sh（系统 scp 客户端不兼容 H3C V7 ssh-rsa host key）—— 用 paramiko 备份：
+优先用 ops-toolkit 的 `capture-config.sh`。v3.1.1 起脚本已补齐 H3C V7 `ssh-rsa` 兼容参数；如果设备未启用 SCP server，先在设备上执行 `scp server enable`。
 
 ```bash
 # 进 ops-toolkit 容器交互式 paramiko

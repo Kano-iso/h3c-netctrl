@@ -21,7 +21,11 @@ ZTP_HCL_T7064P15="${ZTP_HCL_T7064P15:-false}"               # true | false（HCL
 ZTP_MGMT_IP="${ZTP_MGMT_IP:-192.168.100.101}"               # autocfg.cfg 推的 static IP（v3.1.1 硬编码 .101，v3.1.2 公式化）
 
 # ZTP 通用变量
-ZTP_SYSNAME="${ZTP_SYSNAME:-ztp-device}"
+ZTP_MGMT_LAST_OCTET="${ZTP_MGMT_IP##*.}"
+ZTP_SYSNAME="${ZTP_SYSNAME:-ztp-switch-${ZTP_MGMT_LAST_OCTET}}"
+if [ "$ZTP_SYSNAME" = "ztp-device" ]; then
+    ZTP_SYSNAME="ztp-switch-${ZTP_MGMT_LAST_OCTET}"
+fi
 ZTP_ADMIN_USER="${ZTP_ADMIN_USER:-python}"
 ZTP_ADMIN_PASS="${ZTP_ADMIN_PASS:-Admin123!@#}"
 

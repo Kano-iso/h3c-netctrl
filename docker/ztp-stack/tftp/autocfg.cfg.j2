@@ -49,10 +49,21 @@ local-user {{ admin_user }} class manage
 quit
 
 # === VTY 配置（SSH only，禁用 telnet）===
+{% if platform == 'rstn' %}
+line vty 0 4
+ authentication-mode scheme
+ user-role network-operator
+ protocol inbound ssh
+quit
+line vty 5 63
+ user-role network-operator
+quit
+{% else %}
 user-interface vty 0 15
  authentication-mode scheme
  protocol inbound ssh
 quit
+{% endif %}
 
 # === NETCONF 服务 ===
 # S6850（.5 prod + .177 hcl）默认已 enable，no-op 安全

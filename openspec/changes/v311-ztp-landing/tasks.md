@@ -81,7 +81,7 @@
 > **路径**：`docker/ztp-stack/tftp/autocfg.cfg.j2`
 
 - [x] 2.1 创建 `docker/ztp-stack/tftp/autocfg.cfg.j2`（jinja2 模板，**完整**结构见 [design.md Decision 4](design.md)）
-- [x] 2.2 模板变量：`platform`（lstn/rstn）/ `mgmt_ip`（默认 `.101`）/ `sysname`（默认 `ztp-device`）/ `admin_user`（默认 `python`）/ `admin_pass`（默认项目主账密）/ `ztp_date`
+- [x] 2.2 模板变量：`platform`（lstn/rstn）/ `mgmt_ip`（默认 `.101`）/ `sysname`（默认随 IP 派生：`ztp-switch-101`）/ `admin_user`（默认 `python`）/ `admin_pass`（默认项目主账密）/ `ztp_date`
 - [x] 2.3 LSTN 分支：`interface M-GigabitEthernet0/0/0 + ip address {{ mgmt_ip }} 255.255.255.0`
 - [x] 2.4 RSTN 分支：按 T1 现网探测结果使用 `interface MGE0/0/0 + ip address {{ mgmt_ip }} 255.255.255.0`
 - [x] 2.5 LSTN 分支 NETCONF：`netconf ssh server enable`
