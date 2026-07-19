@@ -31,7 +31,7 @@ context 必须包含:
 
 | # | Unit | 范围 | undo 范围 |
 |---|---|---|---|
-| 1 | vsi-l2 | VSI 实例 + VXLAN + gateway vsi-interface | undo vsi + undo interface |
+| 1 | vsi-l2 | VSI 实例 + VXLAN + gateway vsi-interface | undo vsi |
 | 2 | evpn | evpn encapsulation + route-distinguisher | undo evpn + undo RD |
 | 3 | l3vpn | ip vpn-instance l3vpn + RD + address-family evpn | （共享，不删）|
 | 4 | vsi-l3 | Vsi-interface + IP + MAC + l3-vni + vpn binding | undo interface |
@@ -498,10 +498,10 @@ class H3cV7VpcCreateTemplate(VPCConfigTemplate):
 class H3cV7VpcDeleteTemplate(VPCConfigTemplate):
     """H3C V7 VPC 删除双套 payload 模板（v3.0 sdn-vpc-netconf-schema-xml T3）
 
-    输出 3 个 TemplateUnit（删除 VSI / EVPN / Vsi-interface，**共享 l3vpn 保留**）
-    - 1: vsi-l2  undo → 删 vsi + vsi-interface
-    - 2: evpn   undo → 清 evpn encapsulation RD
-    - 3: vsi-l3 undo → 删 Vsi-interface
+    输出 3 个 TemplateUnit（删除 EVPN / Vsi-interface / VSI，**共享 l3vpn 保留**）
+    - 1: evpn   undo → 清 evpn encapsulation RD（必须在 VSI 删除前执行）
+    - 2: vsi-l3 undo → 删 Vsi-interface
+    - 3: vsi-l2 undo → 删 VSI
     - 不含 l3vpn / global（共享，保留）
 
     Note:
@@ -519,32 +519,29 @@ class H3cV7VpcDeleteTemplate(VPCConfigTemplate):
         vsi_iface_name = f"Vsi-interface{vsi_iface_id}"
 
         return [
-            self._vsi_l2_undo_unit(vsi_name, vpc.vni, vsi_iface_id),
             self._evpn_undo_unit(vsi_name, vpc_rd),
             self._vsi_l3_undo_unit(vsi_iface_name),
+            self._vsi_l2_undo_unit(vsi_name, vpc.vni, vsi_iface_id),
         ]
 
     def _vsi_l2_undo_unit(
         self, vsi_name: str, vxlan_id: int, vsi_iface_id: int
     ) -> TemplateUnit:
-        """vsi-l2 单元的 undo（删除 VSI + VsiInterface 子树）"""
-        vsi_iface_name = f"Vsi-interface{vsi_iface_id}"
+        """vsi-l2 单元的 undo（删除 VSI）
+
+        真机验证（.5 / 2026-07-19）：如果先 `undo vsi`，后续 EVPN undo 再进入
+        `vsi <name>` 会把空壳 VSI 重新创建出来。因此 delete unit 顺序必须是
+        EVPN → Vsi-interface → VSI，且 VSI 删除单元只负责最后的 `undo vsi`。
+        """
         cli = [
             f"undo vsi {vsi_name}",
-            f"undo interface {vsi_iface_name}",
         ]
         xml = [
             _wrap_rstn_xml(
                 f"<L2VPN><VSIs><VSI>"
                 f"<VsiName>{vsi_name}</VsiName>"
-                f"<VxlanID>{vxlan_id}</VxlanID>"
+                f"<VXLAN><VxlanID>{vxlan_id}</VxlanID></VXLAN>"
                 f"</VSI></VSIs></L2VPN>",
-                operation=H3C_V7_OP_DELETE,
-            ),
-            _wrap_rstn_xml(
-                f"<VsiInterfaces><VsiInterface>"
-                f"<ID>{vsi_iface_id}</ID>"
-                f"</VsiInterface></VsiInterfaces>",
                 operation=H3C_V7_OP_DELETE,
             ),
         ]

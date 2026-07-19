@@ -28,14 +28,11 @@ def upgrade() -> None:
         return
 
     if not _has_column(insp, "sdn_deployments", "port_binding_id"):
+        # SQLite ALTER TABLE ADD COLUMN 对 inline FOREIGN KEY 兼容性较差。
+        # 与 008 parent_deployment_id 保持一致：DDL 只加列/索引，应用层维护引用语义。
         op.add_column(
             "sdn_deployments",
-            sa.Column(
-                "port_binding_id",
-                sa.Integer(),
-                sa.ForeignKey("sdn_port_bindings.id", ondelete="SET NULL"),
-                nullable=True,
-            ),
+            sa.Column("port_binding_id", sa.Integer(), nullable=True),
         )
         op.create_index(
             "ix_sdn_deployments_port_binding_id",

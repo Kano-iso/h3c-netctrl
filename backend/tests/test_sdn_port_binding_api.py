@@ -130,3 +130,40 @@ def test_gateway_undeploy_only_contains_vsi_l3_unit(client, db):
     units = json.loads(deployment["planned_config"])
     assert [u["name"] for u in units] == ["vsi-l3"]
 
+
+def test_gateway_deploy_only_contains_vsi_l3_unit(client, db):
+    """三层网关加回只包含 Vsi-interface unit，不带 L2 VSI/EVPN。"""
+    tenant = _create_tenant(client)
+    vpc = _create_vpc(client, tenant["id"])
+    dev = _create_device(db)
+
+    resp = client.post(f"/api/sdn/vpcs/{vpc['id']}/devices/{dev.id}/gateway/deploy?auto_apply=false")
+    data = resp.json()
+    assert data["success"] is True
+    deployment = data["data"]["deployment"]
+    assert deployment["action"] == "create"
+    assert deployment["unit"] == "vsi-l3"
+    assert deployment["status"] == "pending"
+    units = json.loads(deployment["planned_config"])
+    assert [u["name"] for u in units] == ["vsi-l3"]
+    text = "\n".join(units[0]["cli_commands"])
+    assert "interface Vsi-interface" in text
+    assert "gateway vsi-interface" in text
+    assert "evpn encapsulation vxlan" not in text
+
+
+def test_vpc_redeploy_creates_full_vpc_deployment(client, db):
+    """单 Leaf 补回 VPC 生成完整 VPC create deployment。"""
+    tenant = _create_tenant(client)
+    vpc = _create_vpc(client, tenant["id"])
+    dev = _create_device(db)
+
+    resp = client.post(f"/api/sdn/vpcs/{vpc['id']}/devices/{dev.id}/redeploy?auto_apply=false")
+    data = resp.json()
+    assert data["success"] is True
+    deployment = data["data"]["deployment"]
+    assert deployment["action"] == "create"
+    assert deployment["unit"] == "vpc-create-all"
+    assert deployment["status"] == "pending"
+    units = json.loads(deployment["planned_config"])
+    assert [u["name"] for u in units] == ["vsi-l2", "evpn", "l3vpn", "vsi-l3", "global"]

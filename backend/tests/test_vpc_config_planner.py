@@ -128,12 +128,15 @@ def test_plan_vpc_create_dry_run_equivalent(planner, vpc, tenant):
 # ======================== plan_vpc_delete ========================
 
 def test_plan_vpc_delete_returns_3_units(planner, vpc):
-    """plan_vpc_delete 返 3 个 TemplateUnit（vsi-l2/evpn/vsi-l3，保留 l3vpn/global）"""
+    """plan_vpc_delete 返 3 个 TemplateUnit（evpn/vsi-l3/vsi-l2，保留 l3vpn/global）"""
     units = planner.plan_vpc_delete(vpc, dry_run=True)
     assert len(units) == 3
+    assert [u.name for u in units] == [UNIT_EVPN, UNIT_VSI_L3, UNIT_VSI_L2]
     text = _cli_text(units)
     assert "undo vsi vpc0001" in text
     assert "undo interface Vsi-interface1" in text
+    commands = [cmd for unit in units for cmd in unit.cli_commands]
+    assert commands.index("vsi vpc0001") < commands.index("undo vsi vpc0001")
     # 关键: 不应包含 l3vpn 删除
     assert "undo ip vpn-instance" not in text
 

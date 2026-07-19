@@ -220,7 +220,7 @@ class TestVpcCreateTemplate:
 
 class TestVpcDeleteTemplate:
     def test_render_returns_3_units(self, vpc, tenant):
-        """render 返 3 unit（VSI-L2-undo / EVPN-undo / VSI-L3-undo）"""
+        """render 返 3 unit（EVPN-undo / VSI-L3-undo / VSI-L2-undo）"""
         tpl = H3cV7VpcDeleteTemplate()
         units = tpl.render({"vpc": vpc, "tenant": tenant})
         assert len(units) == 3
@@ -230,7 +230,7 @@ class TestVpcDeleteTemplate:
         tpl = H3cV7VpcDeleteTemplate()
         units = tpl.render({"vpc": vpc, "tenant": tenant})
         names = [u.name for u in units]
-        assert names == [UNIT_VSI_L2, UNIT_EVPN, UNIT_VSI_L3]
+        assert names == [UNIT_EVPN, UNIT_VSI_L3, UNIT_VSI_L2]
 
     def test_delete_does_not_include_l3vpn(self, vpc, tenant):
         """delete 不删 l3vpn（共享）"""
@@ -244,10 +244,17 @@ class TestVpcDeleteTemplate:
         """VSI-L2 undo CLI 含 undo vsi + undo interface"""
         tpl = H3cV7VpcDeleteTemplate()
         units = tpl.render({"vpc": vpc, "tenant": tenant})
-        vsi_l2 = units[0]
+        vsi_l2 = units[2]
         text = "\n".join(vsi_l2.cli_commands)
         assert "undo vsi vpc0001" in text
-        assert "undo interface Vsi-interface1" in text
+        assert "undo interface Vsi-interface1" not in text
+
+    def test_delete_order_prevents_empty_vsi_recreate(self, vpc, tenant):
+        """EVPN 清理必须先于 undo vsi，避免设备把空壳 VSI 重新创建出来。"""
+        tpl = H3cV7VpcDeleteTemplate()
+        units = tpl.render({"vpc": vpc, "tenant": tenant})
+        commands = [cmd for unit in units for cmd in unit.cli_commands]
+        assert commands.index("vsi vpc0001") < commands.index("undo vsi vpc0001")
 
     def test_delete_undo_have_no_undo(self, vpc, tenant):
         """delete 操作的 unit 不需要 undo（再 delete 就完事了）"""

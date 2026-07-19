@@ -3,11 +3,23 @@
 - [x] 更新 v3.3 PRD，明确 VPC/EVPN 生命周期闭环范围。
 - [x] 扩展 deployment 数据模型，关联端口绑定审计。
 - [x] 新增端口绑定 CRUD 与绑定/解绑 deployment API。
+- [x] 新增已有 VPC 接入口扩容 API：开始扩容进入 `expanding`，完成验证后转 `active/degraded`。
+- [x] 新增单 Leaf VPC 补回 API，复用完整 VPC create 模板。
+- [x] 新增三层网关加回 API，只补回 `vsi-l3` unit。
 - [x] 支持 VPC delete、port bind/unbind、gateway-only delete 执行器动作。
 - [x] 增加后端单测覆盖用户动作和状态回写。
 - [x] 运行 QA 容器内后端测试。
-- [ ] 定义并实现 Fabric 级 VPC 编排：创建 VPC 时默认面向所有 Leaf 生成有序 deployment 集合。
-- [ ] 定义 Leaf 设备选择逻辑：默认全 Leaf，可扩展为用户选择部分 Leaf。
-- [ ] 增加 VPC 级下发/撤回 API，屏蔽单 deployment 细节。
-- [ ] 在真机上使用隔离测试资源验证 create/delete/port-bind/port-unbind/gateway-delete。
-- [ ] 增加 display 状态采集与二次校验闭环。
+- [x] 定义并实现 Fabric 级 VPC 编排：创建 VPC 时默认面向所有 Leaf 生成有序 deployment 集合。
+- [x] 定义 Leaf 设备选择逻辑：默认全 Leaf，可扩展为用户选择部分 Leaf。
+- [x] 增加 VPC 级下发/撤回 API，屏蔽单 deployment 细节。
+- [x] 在真机上使用隔离测试资源验证 create/delete/port-bind/port-unbind/gateway-delete。
+  - [x] .5 / Leaf-04：验证 VPC create 可下发，VPC delete 可撤回并清理 VSI / Vsi-interface 残留。
+  - [x] .5 / Leaf-04：验证 port-bind / port-unbind，使用 `GigabitEthernet1/0/10` + `service-instance 3310`，测后接口恢复默认配置。
+  - [x] .5 / Leaf-04：验证 gateway-delete，只撤回 `Vsi-interface1001`，保留 L2 VSI / EVPN。
+  - [x] .5 / Leaf-04：BGP EVPN 已恢复后验证本地 Type-3 IMET 路由生成，并确认向 `1.1.1.1` advertised-routes。
+  - [x] .5 / Leaf-04：使用 `GigabitEthernet1/0/2` 下联 `192.168.2.2` 验证本地网关 ping、MAC/ARP 学习、Type-2 路由生成，并确认 Type-2/Type-3 向 `1.1.1.1` advertised-routes。
+- [ ] 受实验条件限制，远端同 VNI 参与者验证转后续：验证远端 Type-2 回灌与跨 Leaf 主机互通。
+- [x] 增加 display 状态采集与二次校验闭环。
+  - [x] 提供手动同步 API，默认 600 秒内复用最近快照，避免高频 SSH。
+  - [x] 提供 latest API，只读最近快照，不触发设备访问。
+  - [x] 校验 BGP EVPN peer、VSI/Vsi-interface、AC、MAC、ARP、Type-2/Type-3，并写入 `sdn_validation_snapshots`。

@@ -252,6 +252,36 @@ class SdnPortBindingResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class SdnVpcFabricOperationRequest(BaseModel):
+    """VPC 级 Fabric 编排请求。
+
+    device_ids 不传时按默认 Leaf 候选选择；auto_apply 默认 false，先生成计划，人工确认后再 apply。
+    """
+    device_ids: Optional[List[int]] = None
+    auto_apply: bool = False
+    include_port_bindings: bool = True
+
+
+class SdnVpcExpansionRequest(BaseModel):
+    """已有 VPC 扩容接入口请求。
+
+    扩容继承 VPC 的 CIDR/网关；expected_host_ip 仅用于扩容完成时的 ping 校验。
+    """
+    device_id: int = Field(..., ge=1)
+    if_index: int = Field(..., ge=1)
+    interface_name: str = Field(..., min_length=1, max_length=100)
+    access_vlan: Optional[int] = Field(default=None, ge=1, le=4094)
+    service_instance: Optional[int] = Field(default=None, ge=1, le=4094)
+    expected_host_ip: Optional[str] = Field(default=None, min_length=7, max_length=45)
+    auto_apply: bool = True
+
+
+class SdnVpcExpansionCompleteRequest(BaseModel):
+    """已有 VPC 扩容完成校验请求。"""
+    expected_host_ip: Optional[str] = Field(default=None, min_length=7, max_length=45)
+    force_validation: bool = True
+
+
 # ── v3.0 SDN/VPC Deployment Schema（sdn-vpc-deployment-api）──
 
 class SdnDeploymentCreate(BaseModel):
