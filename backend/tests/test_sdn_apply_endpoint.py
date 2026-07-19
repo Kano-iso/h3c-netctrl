@@ -6,7 +6,7 @@
 - 404：deployment_id 不存在
 - 409：deployment.status ≠ pending
 - 422：device 不在白名单（.2/.3/.177）
-- 422：action=delete（本 change 仅 create）
+- 支持 delete / port_bind / port_unbind / gateway_delete 等撤回动作
 
 依赖：mock NetconfClient（避免连真设备）
 """
@@ -186,14 +186,17 @@ def test_apply_422_device_readonly_test(client, db):
     assert data["error_key"] == "sdn.device_not_writable"
 
 
-def test_apply_422_action_delete_not_supported(client, db):
-    """action=delete → 422 SDN_DEPLOYMENT_ACTION_NOT_SUPPORTED（本 change 仅 create）"""
-    d, _, _, _ = _create_tenant_vpc_device(db, action="delete")
+def test_apply_delete_action_success(client, db):
+    """action=delete 可执行，成功后返回 deployment success。"""
+    d, v, _, _ = _create_tenant_vpc_device(db, action="delete", vpc_status_value="active")
 
-    resp = client.post(f"/api/sdn/deployments/{d.id}/apply")
+    with _patch_netconf_success():
+        resp = client.post(f"/api/sdn/deployments/{d.id}/apply")
     data = resp.json()
-    assert data["success"] is False
-    assert data["error_key"] == "sdn.deployment_action_not_supported"
+    assert data["success"] is True
+    assert data["data"]["status"] == "success"
+    db.refresh(v)
+    assert v.status == "withdrawn"
 
 
 def test_apply_500_planned_config_invalid(client, db):

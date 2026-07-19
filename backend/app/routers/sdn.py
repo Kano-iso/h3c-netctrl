@@ -15,6 +15,7 @@
 - PATCH  /api/sdn/deployments/{id}         更新 status / error（补偿 / 排错用，业务下发走 apply）
 - POST   /api/sdn/deployments/{id}/apply   业务配置下发（NETCONF，替代 ops-toolkit vpc-apply.sh）
 """
+import json
 import logging
 from typing import List, Optional
 
@@ -24,12 +25,15 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Device, SdnDeployment, SdnTenant, SdnVpc
+from app.models import Device, SdnDeployment, SdnPortBinding, SdnTenant, SdnVpc
 from app.schemas import (
     APIResponse,
     SdnDeploymentCreate,
     SdnDeploymentResponse,
     SdnDeploymentUpdate,
+    SdnPortBindingCreate,
+    SdnPortBindingDeployRequest,
+    SdnPortBindingResponse,
     SdnTenantCreate,
     SdnTenantResponse,
     SdnTenantUpdate,
@@ -38,7 +42,7 @@ from app.schemas import (
 )
 from app.i18n_keys import err, error_response
 from app.services.sdn_deployment_executor import SdnDeploymentError, SdnDeploymentExecutor
-from app.services.sdn_device_adapter import H3cV7Adapter
+from app.services.sdn_device_adapter import H3cV7Adapter, UNIT_VSI_L3
 from app.services.vpc_config_planner import VPCConfigPlanner
 from app.utils.sdn_allocator import SdnAllocator
 
@@ -85,6 +89,70 @@ def _vpc_to_response(vpc: SdnVpc, tenant: SdnTenant, binding_count: int = 0) -> 
         created_at=vpc.created_at,
         updated_at=vpc.updated_at,
     )
+
+
+def _binding_to_response(
+    binding: SdnPortBinding,
+    vpc: Optional[SdnVpc] = None,
+    tenant: Optional[SdnTenant] = None,
+) -> SdnPortBindingResponse:
+    """SdnPortBinding ORM → SdnPortBindingResponse。"""
+    vpc = vpc or binding.vpc
+    tenant = tenant or (vpc.tenant if vpc else None)
+    return SdnPortBindingResponse(
+        id=binding.id,
+        device_id=binding.device_id,
+        tenant_id=binding.tenant_id,
+        tenant_name=tenant.name if tenant else "",
+        vpc_id=binding.vpc_id,
+        vpc_name=vpc.name if vpc else "",
+        if_index=binding.if_index,
+        interface_name=binding.interface_name,
+        access_vlan=binding.access_vlan,
+        service_instance=binding.service_instance,
+        status=binding.status,
+        created_at=binding.created_at,
+        updated_at=binding.updated_at,
+    )
+
+
+def _parse_protected_interfaces(device: Device) -> set[int]:
+    """解析 Device.protected_interfaces JSON，失败时按空集合处理。"""
+    try:
+        parsed = json.loads(device.protected_interfaces or "[]")
+    except (TypeError, json.JSONDecodeError):
+        return set()
+    if not isinstance(parsed, list):
+        return set()
+    return {int(x) for x in parsed if str(x).lstrip("-").isdigit()}
+
+
+def _create_sdn_deployment(
+    db: Session,
+    *,
+    vpc_id: int,
+    device_id: int,
+    action: str,
+    planned_config: str,
+    unit: str = "vpc-create-all",
+    parent_deployment_id: Optional[int] = None,
+    port_binding_id: Optional[int] = None,
+) -> SdnDeployment:
+    """创建 deployment 记录，统一补齐 v3.3 新字段。"""
+    deployment = SdnDeployment(
+        vpc_id=vpc_id,
+        device_id=device_id,
+        action=action,
+        unit=unit,
+        parent_deployment_id=parent_deployment_id,
+        port_binding_id=port_binding_id,
+        planned_config=planned_config,
+        status="pending",
+    )
+    db.add(deployment)
+    db.commit()
+    db.refresh(deployment)
+    return deployment
 
 
 # ─────────── 租户 ───────────
@@ -288,6 +356,9 @@ def _deployment_to_response(d: SdnDeployment) -> SdnDeploymentResponse:
         vpc_id=d.vpc_id,
         device_id=d.device_id,
         action=d.action,
+        unit=d.unit,
+        parent_deployment_id=d.parent_deployment_id,
+        port_binding_id=d.port_binding_id,
         planned_config=d.planned_config,
         status=d.status,
         error=d.error,
@@ -355,16 +426,16 @@ def create_deployment(body: SdnDeploymentCreate, db: Session = Depends(get_db)):
     # 序列化为 JSON 字符串
     planned_json = VPCConfigPlanner.serialize(commands)
 
-    deployment = SdnDeployment(
+    deployment = _create_sdn_deployment(
+        db,
         vpc_id=body.vpc_id,
         device_id=body.device_id,
         action=body.action,
         planned_config=planned_json,
-        status="pending",
+        unit=body.unit or "vpc-create-all",
+        parent_deployment_id=body.parent_deployment_id,
+        port_binding_id=body.port_binding_id,
     )
-    db.add(deployment)
-    db.commit()
-    db.refresh(deployment)
     return APIResponse(success=True, data=_deployment_to_response(deployment).model_dump(mode="json"))
 
 
@@ -372,7 +443,7 @@ def create_deployment(body: SdnDeploymentCreate, db: Session = Depends(get_db)):
 def list_deployments(
     vpc_id: Optional[int] = Query(default=None, ge=1),
     device_id: Optional[int] = Query(default=None, ge=1),
-    action: Optional[str] = Query(default=None, pattern="^(create|delete)$"),
+    action: Optional[str] = Query(default=None, pattern="^(create|delete|port_bind|port_unbind|gateway_delete)$"),
     db: Session = Depends(get_db),
 ):
     """Deployment 列表，支持按 vpc_id / device_id / action 过滤。"""
@@ -395,6 +466,180 @@ def get_deployment(deployment_id: int, db: Session = Depends(get_db)):
     if not d:
         return error_response(err.SDN_DEPLOYMENT_NOT_FOUND, params={"id": deployment_id})
     return APIResponse(success=True, data=_deployment_to_response(d).model_dump(mode="json"))
+
+
+# ── v3.3 SDN/VPC Port Binding 与细粒度撤回端点 ──
+
+@router.post("/port-bindings", response_model=APIResponse)
+def create_port_binding(payload: SdnPortBindingCreate, db: Session = Depends(get_db)):
+    """创建端口绑定关系（仅入库，不立即下发）。"""
+    vpc = db.query(SdnVpc).filter(SdnVpc.id == payload.vpc_id).first()
+    if not vpc:
+        return error_response(err.SDN_VPC_NOT_FOUND, params={"id": payload.vpc_id})
+    tenant = db.query(SdnTenant).filter(SdnTenant.id == vpc.tenant_id).first()
+    device = db.query(Device).filter(Device.id == payload.device_id).first()
+    if not device:
+        return error_response(err.SDN_DEVICE_NOT_FOUND, params={"id": payload.device_id})
+    if payload.if_index in _parse_protected_interfaces(device):
+        return error_response(err.INTERFACE_PROTECTED_BLOCKED)
+
+    conflict = (
+        db.query(SdnPortBinding)
+        .filter(
+            SdnPortBinding.device_id == payload.device_id,
+            SdnPortBinding.if_index == payload.if_index,
+            SdnPortBinding.status != "unbound",
+        )
+        .first()
+    )
+    if conflict:
+        return error_response(
+            err.SDN_PORT_BINDING_CONFLICT,
+            params={"device_id": payload.device_id, "interface_name": payload.interface_name},
+        )
+
+    access_vlan = payload.access_vlan
+    service_instance = payload.service_instance
+    if access_vlan is None and service_instance is None:
+        access_vlan = vpc.vlan_id
+
+    binding = SdnPortBinding(
+        device_id=payload.device_id,
+        tenant_id=vpc.tenant_id,
+        vpc_id=vpc.id,
+        if_index=payload.if_index,
+        interface_name=payload.interface_name,
+        access_vlan=access_vlan,
+        service_instance=service_instance,
+        status="planned",
+    )
+    db.add(binding)
+    db.commit()
+    db.refresh(binding)
+    return APIResponse(success=True, data=_binding_to_response(binding, vpc, tenant).model_dump(mode="json"))
+
+
+@router.get("/port-bindings", response_model=APIResponse)
+def list_port_bindings(
+    vpc_id: Optional[int] = Query(default=None, ge=1),
+    device_id: Optional[int] = Query(default=None, ge=1),
+    db: Session = Depends(get_db),
+):
+    """端口绑定列表，支持按 VPC / 设备过滤。"""
+    q = db.query(SdnPortBinding)
+    if vpc_id is not None:
+        q = q.filter(SdnPortBinding.vpc_id == vpc_id)
+    if device_id is not None:
+        q = q.filter(SdnPortBinding.device_id == device_id)
+    bindings = q.order_by(SdnPortBinding.id.desc()).all()
+    items = [_binding_to_response(b).model_dump(mode="json") for b in bindings]
+    return APIResponse(success=True, data={"total": len(items), "port_bindings": items})
+
+
+@router.get("/port-bindings/{binding_id}", response_model=APIResponse)
+def get_port_binding(binding_id: int, db: Session = Depends(get_db)):
+    """端口绑定详情。"""
+    binding = db.query(SdnPortBinding).filter(SdnPortBinding.id == binding_id).first()
+    if not binding:
+        return error_response(err.SDN_PORT_BINDING_NOT_FOUND, params={"id": binding_id})
+    return APIResponse(success=True, data=_binding_to_response(binding).model_dump(mode="json"))
+
+
+@router.delete("/port-bindings/{binding_id}", response_model=APIResponse)
+def delete_port_binding(binding_id: int, db: Session = Depends(get_db)):
+    """删除未激活或已解绑的端口绑定；active 绑定需先生成解绑 deployment。"""
+    binding = db.query(SdnPortBinding).filter(SdnPortBinding.id == binding_id).first()
+    if not binding:
+        return error_response(err.SDN_PORT_BINDING_NOT_FOUND, params={"id": binding_id})
+    if binding.status == "active":
+        return error_response(err.OPERATION_FAILED, params={"error": "active binding must be undeployed first"})
+    db.delete(binding)
+    db.commit()
+    return APIResponse(success=True, data={"deleted": binding_id})
+
+
+@router.post("/port-bindings/{binding_id}/deploy", response_model=APIResponse)
+def deploy_port_binding(
+    binding_id: int,
+    payload: SdnPortBindingDeployRequest = SdnPortBindingDeployRequest(),
+    db: Session = Depends(get_db),
+):
+    """为端口绑定生成下发 deployment。"""
+    binding = db.query(SdnPortBinding).filter(SdnPortBinding.id == binding_id).first()
+    if not binding:
+        return error_response(err.SDN_PORT_BINDING_NOT_FOUND, params={"id": binding_id})
+    vpc = db.query(SdnVpc).filter(SdnVpc.id == binding.vpc_id).first()
+    if not vpc:
+        return error_response(err.SDN_VPC_NOT_FOUND, params={"id": binding.vpc_id})
+    device_err = _check_device_exists(binding.device_id)
+    if device_err is not None:
+        return device_err
+
+    planner = VPCConfigPlanner(H3cV7Adapter())
+    units = planner.plan_port_bind(binding, vpc, mode=payload.mode, dry_run=True)
+    deployment = _create_sdn_deployment(
+        db,
+        vpc_id=binding.vpc_id,
+        device_id=binding.device_id,
+        action="port_bind",
+        unit="port-bind",
+        port_binding_id=binding.id,
+        planned_config=VPCConfigPlanner.serialize(units),
+    )
+    binding.status = "pending"
+    db.commit()
+    db.refresh(deployment)
+    return APIResponse(success=True, data=_deployment_to_response(deployment).model_dump(mode="json"))
+
+
+@router.post("/port-bindings/{binding_id}/undeploy", response_model=APIResponse)
+def undeploy_port_binding(binding_id: int, db: Session = Depends(get_db)):
+    """为端口绑定生成解绑 deployment。"""
+    binding = db.query(SdnPortBinding).filter(SdnPortBinding.id == binding_id).first()
+    if not binding:
+        return error_response(err.SDN_PORT_BINDING_NOT_FOUND, params={"id": binding_id})
+    vpc = db.query(SdnVpc).filter(SdnVpc.id == binding.vpc_id).first()
+    if not vpc:
+        return error_response(err.SDN_VPC_NOT_FOUND, params={"id": binding.vpc_id})
+    device_err = _check_device_exists(binding.device_id)
+    if device_err is not None:
+        return device_err
+
+    planner = VPCConfigPlanner(H3cV7Adapter())
+    units = planner.plan_port_unbind(binding, vpc, dry_run=True)
+    deployment = _create_sdn_deployment(
+        db,
+        vpc_id=binding.vpc_id,
+        device_id=binding.device_id,
+        action="port_unbind",
+        unit="port-unbind",
+        port_binding_id=binding.id,
+        planned_config=VPCConfigPlanner.serialize(units),
+    )
+    return APIResponse(success=True, data=_deployment_to_response(deployment).model_dump(mode="json"))
+
+
+@router.post("/vpcs/{vpc_id}/devices/{device_id}/gateway/undeploy", response_model=APIResponse)
+def undeploy_vpc_gateway(vpc_id: int, device_id: int, db: Session = Depends(get_db)):
+    """生成 VPC 三层网关撤回 deployment，仅删除 Vsi-interface，不删除 L2 VSI/EVPN。"""
+    vpc = db.query(SdnVpc).filter(SdnVpc.id == vpc_id).first()
+    if not vpc:
+        return error_response(err.SDN_VPC_NOT_FOUND, params={"id": vpc_id})
+    device_err = _check_device_exists(device_id)
+    if device_err is not None:
+        return device_err
+
+    planner = VPCConfigPlanner(H3cV7Adapter())
+    units = [u for u in planner.plan_vpc_delete(vpc, dry_run=True) if u.name == UNIT_VSI_L3]
+    deployment = _create_sdn_deployment(
+        db,
+        vpc_id=vpc_id,
+        device_id=device_id,
+        action="gateway_delete",
+        unit=UNIT_VSI_L3,
+        planned_config=VPCConfigPlanner.serialize(units),
+    )
+    return APIResponse(success=True, data=_deployment_to_response(deployment).model_dump(mode="json"))
 
 
 @router.patch("/deployments/{deployment_id}", response_model=APIResponse)

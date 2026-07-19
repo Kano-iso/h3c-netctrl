@@ -10,7 +10,7 @@ import json
 import pytest
 from unittest.mock import MagicMock, patch
 
-from app.models import Device, SdnDeployment, SdnTenant, SdnVpc
+from app.models import Device, SdnDeployment, SdnPortBinding, SdnTenant, SdnVpc
 from app.services.sdn_deployment_executor import (
     SdnDeploymentError,
     SdnDeploymentExecutor,
@@ -77,13 +77,14 @@ def _create_device(db, name="Leaf-04", ip="192.168.100.5"):
     return dev
 
 
-def _create_deployment(db, vpc, device, action="create", planned=None, status="pending"):
+def _create_deployment(db, vpc, device, action="create", planned=None, status="pending", binding=None):
     if planned is None:
         planned = json.dumps([{"mode": "merge", "command": "vsi vpc0001"}])
     d = SdnDeployment(
         vpc_id=vpc.id,
         device_id=device.id,
         action=action,
+        port_binding_id=binding.id if binding is not None else None,
         planned_config=planned,
         status=status,
     )
@@ -91,6 +92,23 @@ def _create_deployment(db, vpc, device, action="create", planned=None, status="p
     db.commit()
     db.refresh(d)
     return d
+
+
+def _create_binding(db, vpc, device):
+    b = SdnPortBinding(
+        device_id=device.id,
+        tenant_id=vpc.tenant_id,
+        vpc_id=vpc.id,
+        if_index=14,
+        interface_name="GigabitEthernet1/0/14",
+        access_vlan=vpc.vlan_id,
+        service_instance=None,
+        status="pending",
+    )
+    db.add(b)
+    db.commit()
+    db.refresh(b)
+    return b
 
 
 # ======================== 校验类 ========================
@@ -118,12 +136,12 @@ def test_execute_rejects_not_pending(db):
     assert exc.value.status_code == 409
 
 
-def test_execute_rejects_delete_action(db):
-    """action=delete → SDN_DEPLOYMENT_ACTION_NOT_SUPPORTED (422, 本 change 仅 create)"""
+def test_execute_rejects_unknown_action(db):
+    """未知 action → SDN_DEPLOYMENT_ACTION_NOT_SUPPORTED (422)"""
     tenant = _create_tenant(db)
     vpc = _create_vpc(db, tenant)
     dev = _create_device(db)
-    d = _create_deployment(db, vpc, dev, action="delete")
+    d = _create_deployment(db, vpc, dev, action="invalid-action")
 
     executor = SdnDeploymentExecutor()
     with pytest.raises(SdnDeploymentError) as exc:
@@ -238,6 +256,8 @@ def test_execute_success(db):
 
     assert result.status == "success"
     assert result.error is None
+    db.refresh(vpc)
+    assert vpc.status == "active"
     # RSTN 走 xml_payloads，每个 unit 3 条 xml = 3 次 edit_config
     assert mock_client.edit_config.call_count == 3
 
@@ -275,6 +295,80 @@ def test_execute_lstn_ssh_success(db):
     assert result.error is None
     # 1 unit，3 cli_commands + system-view + return = 5 条命令一次 SSH 连接
     assert mock_ssh.execute_commands.call_count == 1
+
+
+def test_execute_delete_success_marks_vpc_withdrawn(db):
+    """action=delete 成功后 VPC 状态回写 withdrawn。"""
+    tenant = _create_tenant(db)
+    vpc = _create_vpc(db, tenant)
+    vpc.status = "active"
+    dev = _create_device(db)
+    planned = json.dumps([{
+        "name": "vsi-l3",
+        "description": "delete vsi interface",
+        "cli_commands": ["undo interface Vsi-interface1000"],
+        "xml_payloads": [],
+        "undo_cli": [],
+        "undo_xml": [],
+    }])
+    d = _create_deployment(db, vpc, dev, action="delete", planned=planned)
+    dev.platform = "LSTN"
+    db.commit()
+
+    mock_ssh = MagicMock()
+    mock_ssh.execute_commands.return_value = [
+        {"success": True, "cmd": "system-view", "output": "", "error": None},
+        {"success": True, "cmd": "undo interface Vsi-interface1000", "output": "", "error": None},
+        {"success": True, "cmd": "return", "output": "", "error": None},
+    ]
+
+    with patch("app.utils.ssh_executor.SSHExecutor", return_value=mock_ssh):
+        result = SdnDeploymentExecutor().execute(db, deployment_id=d.id)
+
+    assert result.status == "success"
+    db.refresh(vpc)
+    assert vpc.status == "withdrawn"
+
+
+def test_execute_port_bind_and_unbind_update_binding_status(db):
+    """port_bind / port_unbind 成功后回写端口绑定状态。"""
+    tenant = _create_tenant(db)
+    vpc = _create_vpc(db, tenant)
+    dev = _create_device(db)
+    binding = _create_binding(db, vpc, dev)
+    dev.platform = "LSTN"
+    planned = json.dumps([{
+        "name": "port-bind",
+        "description": "bind port",
+        "cli_commands": ["interface GigabitEthernet1/0/14", "port access vlan 2000"],
+        "xml_payloads": [],
+        "undo_cli": [],
+        "undo_xml": [],
+    }])
+    bind_deployment = _create_deployment(
+        db, vpc, dev, action="port_bind", planned=planned, binding=binding
+    )
+    db.commit()
+
+    mock_ssh = MagicMock()
+    mock_ssh.execute_commands.return_value = [
+        {"success": True, "cmd": "system-view", "output": "", "error": None},
+        {"success": True, "cmd": "interface GigabitEthernet1/0/14", "output": "", "error": None},
+        {"success": True, "cmd": "port access vlan 2000", "output": "", "error": None},
+        {"success": True, "cmd": "return", "output": "", "error": None},
+    ]
+    with patch("app.utils.ssh_executor.SSHExecutor", return_value=mock_ssh):
+        SdnDeploymentExecutor().execute(db, deployment_id=bind_deployment.id)
+    db.refresh(binding)
+    assert binding.status == "active"
+
+    unbind_deployment = _create_deployment(
+        db, vpc, dev, action="port_unbind", planned=planned, binding=binding
+    )
+    with patch("app.utils.ssh_executor.SSHExecutor", return_value=mock_ssh):
+        SdnDeploymentExecutor().execute(db, deployment_id=unbind_deployment.id)
+    db.refresh(binding)
+    assert binding.status == "unbound"
 
 
 def test_execute_lstn_ssh_failure_marks_failed(db):

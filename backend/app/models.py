@@ -232,13 +232,16 @@ class SdnPortBinding(Base):
 
     # 关联
     vpc: Mapped["SdnVpc"] = relationship("SdnVpc", back_populates="port_bindings")
+    deployments: Mapped[list["SdnDeployment"]] = relationship(
+        "SdnDeployment", back_populates="port_binding"
+    )
 
 
 class SdnDeployment(Base):
     """配置下发记录（v3.0 SDN/VPC）
 
     记录每次 VPC 配置下发的计划、状态和错误信息。
-    - action: "create" | "delete" | "gateway_fallback" | "gateway_restore"
+    - action: "create" | "delete" | "port_bind" | "port_unbind" | "gateway_delete"
     - planned_config: JSON 格式的计划配置命令序列
     - unit: v3.0 unit 拆分（"vsi-l2" | "port-bind" | "l3vpn" | "vsi-l3"
             | "global" | "port-unbind" | "vpc-create-all"）
@@ -262,6 +265,9 @@ class SdnDeployment(Base):
     parent_deployment_id: Mapped[Optional[int]] = mapped_column(
         Integer, ForeignKey("sdn_deployments.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    port_binding_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("sdn_port_bindings.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     planned_config: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)
     error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -272,6 +278,9 @@ class SdnDeployment(Base):
 
     # 关联
     vpc: Mapped["SdnVpc"] = relationship("SdnVpc", back_populates="deployments")
+    port_binding: Mapped[Optional["SdnPortBinding"]] = relationship(
+        "SdnPortBinding", back_populates="deployments"
+    )
     # 自关联：unit 间依赖（vsi-l2 → vsi-l3 等）
     parent: Mapped[Optional["SdnDeployment"]] = relationship(
         "SdnDeployment", remote_side="SdnDeployment.id", foreign_keys=[parent_deployment_id]

@@ -214,13 +214,51 @@ class SdnVpcResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+# ── v3.3 SDN/VPC Port Binding Schema ──
+
+class SdnPortBindingCreate(BaseModel):
+    """创建端口绑定请求。
+
+    service_instance 优先；不传时默认走 access_vlan fallback（取 VPC 自动分配 VLAN）。
+    """
+    device_id: int = Field(..., ge=1)
+    vpc_id: int = Field(..., ge=1)
+    if_index: int = Field(..., ge=1)
+    interface_name: str = Field(..., min_length=1, max_length=100)
+    access_vlan: Optional[int] = Field(default=None, ge=1, le=4094)
+    service_instance: Optional[int] = Field(default=None, ge=1, le=4094)
+
+
+class SdnPortBindingDeployRequest(BaseModel):
+    """端口绑定下发请求。"""
+    mode: str = Field(default="auto", pattern="^(auto|service_instance|access_vlan)$")
+
+
+class SdnPortBindingResponse(BaseModel):
+    id: int
+    device_id: int
+    tenant_id: int
+    tenant_name: str
+    vpc_id: int
+    vpc_name: str
+    if_index: int
+    interface_name: str
+    access_vlan: Optional[int] = None
+    service_instance: Optional[int] = None
+    status: str
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 # ── v3.0 SDN/VPC Deployment Schema（sdn-vpc-deployment-api）──
 
 class SdnDeploymentCreate(BaseModel):
     """创建 deployment 请求。
 
     系统会调 VPCConfigPlanner 根据 vpc_id 自动生成 planned_config。
-    action: "create" | "delete"（仅这 2 个值，gateway_* 后续 change 加）
+    action: "create" | "delete"
     unit: 可选；v3.0 unit 拆分（"vsi-l2" | "port-bind" | "l3vpn" | "vsi-l3"
           | "global" | "port-unbind" | "vpc-create-all"）；默认 "vpc-create-all"
           兼容老数据（全量下发）
@@ -235,6 +273,7 @@ class SdnDeploymentCreate(BaseModel):
         pattern="^(vsi-l2|port-bind|l3vpn|vsi-l3|global|port-unbind|vpc-create-all)$",
     )
     parent_deployment_id: Optional[int] = Field(default=None, ge=1)
+    port_binding_id: Optional[int] = Field(default=None, ge=1)
 
 
 class SdnDeploymentResponse(BaseModel):
@@ -245,6 +284,7 @@ class SdnDeploymentResponse(BaseModel):
     action: str
     unit: str = "vpc-create-all"
     parent_deployment_id: Optional[int] = None
+    port_binding_id: Optional[int] = None
     planned_config: Optional[str] = None  # JSON 字符串
     status: str
     error: Optional[str] = None

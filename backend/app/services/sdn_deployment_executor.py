@@ -40,6 +40,7 @@
 
 ## 失败处理
 
+- 支持 create / delete / port_bind / port_unbind / gateway_delete
 - 失败立即停（不重试、不自动回滚）
 - error 字段记录：失败 unit + payload 索引 + 原始 NETCONF 错误
 - 人工决定是否手动 undo（VPC 创建无 transaction 概念）
@@ -105,7 +106,7 @@ class SdnDeploymentExecutor:
         """执行 deployment 下发（v3.0 T3 路由版）
 
         流程：
-        1. 查 deployment + 校验（status == 'pending'、action == 'create'）
+        1. 查 deployment + 校验（status == 'pending'、action 在允许集合内）
         2. 查 device + 解密密码 + 校验 host 白名单
         3. 解析 planned_config 为 List[TemplateUnit]（用 deserialize_template_units）
         4. 解析 device.platform（device.platform 优先，fallback 调 get_platform_for_model）
@@ -142,8 +143,8 @@ class SdnDeploymentExecutor:
                 status_code=409,
             )
 
-        # 3. 校验 action（本 change 仅支持 create）
-        if deployment.action != "create":
+        # 3. 校验 action
+        if deployment.action not in {"create", "delete", "port_bind", "port_unbind", "gateway_delete"}:
             raise SdnDeploymentError(
                 "SDN_DEPLOYMENT_ACTION_NOT_SUPPORTED",
                 params={"action": deployment.action},
@@ -245,10 +246,28 @@ class SdnDeploymentExecutor:
         # 9. 成功
         deployment.status = "success"
         deployment.error = None
+        self._mark_resource_success(deployment)
         db.commit()
         db.refresh(deployment)
         logger.info(f"sdn deploy: deployment {deployment_id} 成功下发 {len(units)} 个 unit (platform={platform})")
         return deployment
+
+    @staticmethod
+    def _mark_resource_success(deployment: SdnDeployment) -> None:
+        """deployment 成功后回写资源状态。
+
+        资源状态是前端用户视角入口；deployment 仍保留完整审计。
+        """
+        if deployment.action == "create" and deployment.vpc is not None:
+            deployment.vpc.status = "active"
+        elif deployment.action == "delete" and deployment.vpc is not None:
+            deployment.vpc.status = "withdrawn"
+        elif deployment.action == "gateway_delete" and deployment.vpc is not None:
+            deployment.vpc.status = "degraded"
+        elif deployment.action == "port_bind" and deployment.port_binding is not None:
+            deployment.port_binding.status = "active"
+        elif deployment.action == "port_unbind" and deployment.port_binding is not None:
+            deployment.port_binding.status = "unbound"
 
     @staticmethod
     def _is_writable_host(host: str) -> bool:

@@ -188,6 +188,9 @@ class SDN:
     DEPLOY_EXECUTE_FAILED = I18nKey("sdn.deploy_execute_failed")      # 配置下发失败: id={id}, command_index={command_index}, error={error}
     # v3.0 sdn-vpc-netconf-schema-xml T3: 设备 platform 路由
     DEVICE_PLATFORM_UNKNOWN = I18nKey("sdn.device_platform_unknown")  # 设备 platform 未知: model={model}, 既不在 LSTN 也不在 RSTN 白名单
+    # v3.3 VPC/EVPN 配置闭环
+    PORT_BINDING_NOT_FOUND = I18nKey("sdn.port_binding_not_found")    # 端口绑定不存在: id={id}
+    PORT_BINDING_CONFLICT = I18nKey("sdn.port_binding_conflict")      # 端口已绑定到其他 VPC: device_id={device_id}, interface={interface_name}
 
 
 # ===== 集中导出（便于 import，支持 err.X 点访问） =====
@@ -302,6 +305,8 @@ err = SimpleNamespace(
     SDN_DEPLOYMENT_SSH_FAILED=I18nKey("sdn.deployment_ssh_failed"),
     # v3.0 sdn-vpc-netconf-schema-xml T6 A 方案: RSTN→NETCONF schema XML 通道失败
     SDN_DEPLOYMENT_NETCONF_FAILED=I18nKey("sdn.deployment_netconf_failed"),
+    SDN_PORT_BINDING_NOT_FOUND=SDN.PORT_BINDING_NOT_FOUND,
+    SDN_PORT_BINDING_CONFLICT=SDN.PORT_BINDING_CONFLICT,
 )
 
 
@@ -427,6 +432,8 @@ FALLBACK_MESSAGES = {
     SDN.DEVICE_PLATFORM_UNKNOWN: "设备 platform 未知: platform={platform}, 既不在 LSTN 也不在 RSTN 白名单",
     I18nKey("sdn.deployment_ssh_failed"): "SSH 22 业务下发失败: unit={unit}, cmd={cmd}, error={error}",
     I18nKey("sdn.deployment_netconf_failed"): "NETCONF schema XML 业务下发失败: unit={unit}, payload_idx={payload_idx}, error={error}",
+    SDN.PORT_BINDING_NOT_FOUND: "端口绑定不存在: id={id}",
+    SDN.PORT_BINDING_CONFLICT: "端口已绑定到其他 VPC: device_id={device_id}, interface={interface_name}",
 }
 
 

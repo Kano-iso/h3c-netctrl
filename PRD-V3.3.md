@@ -1,8 +1,9 @@
-# H3C NetCtrl V3.3 PRD：剩余 VPC 能力
+# H3C NetCtrl V3.3 PRD：VPC/EVPN 配置闭环
 
 | 版本 | 日期 | 作者 | 说明 |
 |---|---|---|---|
-| V3.3 Draft | 2026-07-18 | 用户拍板 + Codex 共创 | V3.3 = v3.0 PRD 中未在 v3.2 验证的剩余 VPC 能力 |
+| V3.3 Draft | 2026-07-18 | 用户拍板 + Codex 共创 | 原定为集中式网关降级/恢复 |
+| V3.3 Revise | 2026-07-19 | 用户拍板 + Codex 共创 | v3.2 平台迁移暂缓后，v3.3 调整为 VPC/EVPN 创建、下发、撤回、局部撤回、端口绑定闭环 |
 
 ---
 
@@ -10,91 +11,111 @@
 
 ### 1.1 背景
 
-v3.0 PRD 列了 7 个子能力 change，其中：
-- 4 个已在 v3.2 验证（prd-and-model / foundation / port-binding / l3vni-validation）
-- 1 个推到 v3.4（visual-overview）
-- 1 个推到 v3.4（ops-toolkit-probes）
-- 1 个推到 v3.5 远期（etcd-coordination）
-- **1 个推到 v3.3**：**sdn-gateway-fallback**（集中式网关降级/恢复）
+v3.0 已完成 SDN/VPC 配置骨架：
+
+- 租户 / VPC / deployment 数据模型已存在；
+- VPC create/delete、port bind/unbind 的配置模板已有双套 payload；
+- LSTN 平台走 SSH CLI，RSTN 平台走 NETCONF/XML 的通道已定稿；
+- 但当前仍偏“工程骨架”，缺少面向用户的完整生命周期闭环。
+
+v3.2 原计划切换新平台后再做全量能力评级，但当前因 HCL/177 升级受限、EVE/V9850 二层广播不可信而暂缓。因此 v3.3 不再等待新平台，直接在现有可控平台上推进产品闭环。
 
 ### 1.2 目标
 
-完成 v3.0 PRD 剩余的 1 个子能力：**集中式网关降级/恢复**，使 v3.0 PRD 7 个子能力全部落地（除 v3.4 / v3.5 部分）。
+v3.3 的目标是让 VPC/EVPN 能力具备可用的后端闭环：
 
-## 2. V3.3 范围
+- 用户可以创建 VPC；
+- 用户可以选择设备下发 VPC；
+- 用户可以绑定端口到 VPC；
+- 已下发的配置可以按用户视角撤回；
+- 支持整 VPC 撤回、单设备撤回、端口解绑、VPC 三层网关局部撤回等不同粒度；
+- 后端记录“下发给了谁、下发了哪些单元、是否成功、能否撤回”。
 
-### 2.1 集中式网关降级/恢复
+底层允许混合通道：
 
-#### 2.1.1 目标
+- 能稳定走 NETCONF/XML 的能力继续走 NETCONF/XML；
+- HCL/老 S6850 不支持或不完整的 EVPN/VXLAN 能力，走模板化 CLI over SSH；
+- 产品目标是自动编排与自动校验，不把纯 XML 下发作为当前硬门槛。
 
-为单设备单 VPC 集中式网关场景提供**降级/恢复**能力，便于真实设备定位问题。
+## 2. 范围
 
-#### 2.1.2 业务背景
+### 2.1 VPC 生命周期
 
-v3.0 / v3.2 设计的 VPC 默认是**分布式网关**（每个 VPC 在每台 leaf 上都有 Vsi-interface，流量就近转发）。但某些场景需要**集中式网关**（VPC 只在 1 台 leaf 上配 Vsi-interface，其他 leaf 用 EVPN type-5 路由转发），例如：
-- 跨 VPC 互访需要统一出口
-- 特定 VPC 临时集中管控
-- 单设备故障时降级到其他设备
+- 创建租户与 VPC；
+- 自动分配 RD/RT/L3VNI/VNI/VSI/Vsi-interface/VLAN/gateway；
+- 生成 VPC create/delete 配置计划；
+- apply 后更新 deployment 与 VPC 状态；
+- delete 能真正走 executor 撤回设备侧配置。
 
-#### 2.1.3 范围
+### 2.2 端口绑定生命周期
 
-- **网关角色定义**：
-  - 分布式网关（默认）：每台 leaf 都是网关
-  - 集中式网关：1 台 leaf 是 active 网关，其他 leaf 是 transit
-- **网关切换**：
-  - 主动切换（admin 操作）：VPC 的 active 网关 leaf-A → leaf-B
-  - 被动切换（故障触发）：leaf-A down → 自动选 leaf-B 作为新 active
-- **配置生成**：
-  - active 网关：保留 Vsi-interface + IP
-  - transit 网关：删除 Vsi-interface + IP（仅保留 EVPN type-5 路由）
-- **状态采集**：
-  - 实时检测 active 网关状态
-  - 切换时记录 audit log
-- **排障工具**：
-  - ops-toolkit 加 `sdn-gateway-status` 脚本
-  - 显示当前 active / transit 网关 + EVPN 路由状态
+- 创建端口绑定关系；
+- 绑定模式支持 service-instance + xconnect VSI，保留 access VLAN fallback；
+- 生成 port-bind / port-unbind 配置计划；
+- apply 后更新 binding 状态；
+- 用户可从 VPC 视角看到端口属于哪个 VPC，而不是只看到交换机命令。
 
-#### 2.1.4 验收标准
+### 2.3 撤回粒度
 
-- [ ] 集中式网关创建 API（VPC + active leaf）
-- [ ] 网关主动切换 API（active leaf-A → leaf-B）
-- [ ] 网关被动切换（leaf-A down 触发）
-- [ ] 配置生成（active 保留 Vsi-interface，transit 删除 Vsi-interface）
-- [ ] 状态采集 5min 内完成
-- [ ] ops-toolkit `sdn-gateway-status` 脚本
-- [ ] 20 unit + 5 集成 + 3 e2e
+v3.3 P0 支持：
 
-#### 2.1.5 不做
+- **整 VPC / 单设备撤回**：撤回某个 VPC 在某台设备上的 VSI / EVPN / Vsi-interface 配置；
+- **端口解绑**：撤回某个端口绑定；
+- **VPC 三层网关撤回**：只撤回某台设备上某个 VPC 的 Vsi-interface / gateway 绑定，用于集中式网关、排障、降级验证。
 
-- ❌ 跨 VPC 集中式网关（v3.3 仅单 VPC 集中式）
-- ❌ 多 active 网关（v3.3 仅 1 active + N transit）
-- ❌ 自动重选 active 时的权重策略（v3.3 用 round-robin）
+v3.3 P1 可扩展：
 
-## 3. 走法（3 阶段）
+- 批量选择多个设备撤回同一个 VPC；
+- 批量选择多个端口解绑；
+- 将多个 deployment 编排成一个用户可读的“操作批次”。
 
-| 阶段 | 主题 | 输出 | 依赖 |
-|---|---|---|---|
-| **阶段 1** | 数据模型 + CRUD | VPC 网关角色字段 + API | v3.2 数据模型 |
-| **阶段 2** | 网关切换逻辑 | 主动/被动切换实现 | 阶段 1 |
-| **阶段 3** | ops-toolkit 工具 + 验证 | sdn-gateway-status 脚本 + 真机/EVENG 验证 | 阶段 2 |
+### 2.4 用户体验原则
 
-## 4. 不做（明确边界）
+后端 API 设计应优先体现用户动作：
 
-- ❌ **不做前端大屏**（v3.4）
-- ❌ **不做 etcd 协调**（v3.5 远期）
-- ❌ **不做多 VPC 集中式网关**（v3.3 仅单 VPC）
+- “给这个 VPC 下发到这些设备”；
+- “把这个 VPC 从这台设备撤回”；
+- “把这个端口加入/移出这个 VPC”；
+- “只撤回这台设备上的三层网关”。
 
-## 5. 依赖关系
+设备、命令、unit 仍要保留在 deployment 记录中，作为审计和排障细节，但不应成为主要用户入口。
 
-- 依赖 v3.2 数据模型（VPC / VSI / EVPN / L3VPN）
-- 依赖 v3.2 业务下发通道
-- 依赖 v3.2 状态采集
+## 3. 验证原则
+
+允许在生产机器上创建专用测试资源，但必须遵守：
+
+- 不动已有管理接口；
+- 不改已有业务接口；
+- 测试使用新建 VPC / 新 VNI / 新 Vsi-interface / 新 loopback 或明确测试端口；
+- 测完必须撤回并确认设备侧配置清理干净；
+- 所有真机 display 命令证据写入 change capture 或 release notes。
+
+## 4. 验收标准
+
+- [ ] VPC create deployment 可下发成功；
+- [ ] VPC delete deployment 可撤回成功；
+- [ ] port-bind deployment 可下发成功；
+- [ ] port-unbind deployment 可撤回成功；
+- [ ] gateway-only 撤回能只删除三层网关相关配置，不删除 L2VNI/VSI；
+- [ ] 后端 API 能返回 VPC 视角的 deployment/binding 状态；
+- [ ] 关键链路有单元测试；
+- [ ] 至少一轮真实设备测试资源创建与清理验证。
+
+## 5. 不做
+
+- 不做平台迁移，v3.2 保留为未来待办；
+- 不做 etcd 协调；
+- 不做 ACL；
+- 不做自动接管已有业务配置；
+- 不做大屏级拓扑展示，前端完整视觉化留后续版本。
 
 ## 6. 风险
 
-- **风险 1：网关切换时流量中断**：active 切换时短暂丢包
-  - 缓解：用 BFD + 预切换（先同步新 active，再切流量）
-- **风险 2：被动切换误判**：BFD 抖动导致频繁切换
-  - 缓解：增加 hold-down 时间（3 次失败才切）
-- **风险 3：配置生成跨平台差异**：LSTN / RSTN 网关配置命令不同
-  - 缓解：复用 v3.0 模板架构，加 gateway-fallback unit
+- **风险 1：撤回粒度过粗**：用户只想撤一个端口或一个网关，系统却撤整 VPC。
+  - 缓解：deployment 必须保留 unit 粒度，API 按用户动作生成最小计划。
+- **风险 2：设备侧配置半成功**：H3C V7 无跨 unit 事务，失败可能留下半状态。
+  - 缓解：失败即停，记录失败 unit / 命令 / payload；提供对应撤回计划。
+- **风险 3：混合通道增加维护成本**：LSTN/RSTN 行为不同。
+  - 缓解：planner 输出统一 TemplateUnit，executor 按 platform 路由，业务层不关心通道差异。
+- **风险 4：生产验证误动现有配置**：测试资源可能碰到历史配置。
+  - 缓解：编号自动避开前 1000，测试前 display 确认，测试后 delete/unbind 清理。
