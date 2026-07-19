@@ -13,11 +13,11 @@ v3.3 的目标是把已沉淀的 EVPN/VXLAN 模板能力接成可操作的后端
 - 新增 VPC 三层网关撤回 API：只生成 Vsi-interface 撤回 deployment，不删除 L2 VSI/EVPN。
 - deployment 成功执行后回写 VPC 或端口绑定状态，前端可以直接基于资源状态展示。
 - deployment 增加 `port_binding_id`，保留端口级审计链路。
+- 新增 display 手动同步与 latest 快照读取，围绕 `{vpc_id, device_id}` 校验 BGP EVPN peer、VSI/Vsi-interface、AC、MAC、ARP、Type-2/Type-3。
 
 ## Non-Goals
 
 - 不做前端大屏和完整产品化页面。
 - 不做批量作业编排器。
 - 不碰现有管理接口和已有业务配置。
-- 不引入实时设备采集闭环，本 change 只做部署/撤回动作闭环。
-
+- 不引入实时高频设备采集；本 change 只提供手动同步与 600 秒缓存的 display 校验闭环。

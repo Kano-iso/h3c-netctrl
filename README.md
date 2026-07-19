@@ -31,7 +31,7 @@
 | **v3.1.2 ZTP 联动纳管** | ✅ **2026-07-18 (tag: v3.1.2)** | ztp-server watcher 确认 static 管理地址 SSH 22 + NETCONF 830 上线后回调后端；后端幂等纳管入库、资产采集/partial 降级、Devices/CMDB/Dashboard 现有接口可见 | [**RELEASE-NOTES-v3.1.2.md**](RELEASE-NOTES-v3.1.2.md) · [archive/2026-07-18-v312-ztp-onboard-and-asset-sync](openspec/changes/archive/2026-07-18-v312-ztp-onboard-and-asset-sync/) |
 | **v3.1.3 ZTP 恢复上线** | ✅ **2026-07-18 (tag: v3.1.3)** | 运营管理新增 ZTP 恢复页面；后端写入一次性 recovery override；ztp-server 运行时重渲染 autocfg.cfg；OOB 口补齐 `mgt` VRF；备份回滚 future 标记移除 | [**RELEASE-NOTES-v3.1.3.md**](RELEASE-NOTES-v3.1.3.md) · [archive/2026-07-18-v313-ztp-recovery-override](openspec/changes/archive/2026-07-18-v313-ztp-recovery-override/) |
 | **v3.2 平台迁移待办** | 🧊 **2026-07-19 (暂缓)** | 新平台迁移与能力评级转为未来待办：HCL/177 无法升级官方 S6850 镜像，EVE/V9850 二层广播行为不可信；当前不阻塞 VPC/SDN 后续推进 | [PRD-V3.2.md](PRD-V3.2.md) |
-| **v3.3 VPC/EVPN 配置闭环** | ✅ **2026-07-19** | VPC 按 Leaf 下发/撤回、端口绑定/解绑、网关局部撤回/加回、已有 VPC 接入口扩容、display 状态手动同步 + 600s 缓存；`.5` 真机完成本地下联与 EVPN Type-2/Type-3 验证 | [PRD-V3.3.md](PRD-V3.3.md) · [v33-vpc-evpn-lifecycle-closure](openspec/changes/v33-vpc-evpn-lifecycle-closure/) |
+| **v3.3.0 VPC/EVPN 配置闭环** | ✅ **2026-07-19 (tag: v3.3.0)** | VPC 按 Leaf 下发/撤回、端口绑定/解绑、网关局部撤回/加回、已有 VPC 接入口扩容、display 状态手动同步 + 600s 缓存；`.5` 真机完成本地下联与 EVPN Type-2/Type-3 验证 | [**RELEASE-NOTES-v3.3.0.md**](RELEASE-NOTES-v3.3.0.md) · [PRD-V3.3.md](PRD-V3.3.md) |
 
 详细进度、约束、决策记录见 [VERSION-ROADMAP.md](VERSION-ROADMAP.md)。
 已归档 change 见 [openspec/changes/archive/](openspec/changes/archive/)。
@@ -335,4 +335,4 @@ docker compose -f docker-compose.dev.yml run --rm --entrypoint "pytest -m integr
 | V3.1.2 | **ZTP static 管理地址上线确认 + 后端幂等纳管 + 资产采集 partial 降级** | [**RELEASE-NOTES-v3.1.2.md**](RELEASE-NOTES-v3.1.2.md) |
 | V3.1.3 | **ZTP 恢复上线页面 + recovery override + OOB mgt VRF 标准配置** | [**RELEASE-NOTES-v3.1.3.md**](RELEASE-NOTES-v3.1.3.md) |
 | V3.2 | **平台迁移待办暂缓：沉淀 HCL/EVE/镜像升级限制与未来迁移方向** | [PRD-V3.2.md](PRD-V3.2.md) |
-| V3.3 | **VPC/EVPN 后端配置闭环：下发/撤回、绑定/解绑、网关局部操作、扩容校验、display 快照** | [PRD-V3.3.md](PRD-V3.3.md) |
+| V3.3.0 | **VPC/EVPN 后端配置闭环：下发/撤回、绑定/解绑、网关局部操作、扩容校验、display 快照** | [**RELEASE-NOTES-v3.3.0.md**](RELEASE-NOTES-v3.3.0.md) |

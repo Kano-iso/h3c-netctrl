@@ -3,9 +3,7 @@
 ## Purpose
 
 提供 v3.0 SDN/VPC 资源（tenant + VPC）的基础数据模型、编号自动分配、CRUD API 及对应单测，作为后续 v3.0 SDN 各层（端口绑定 / 设备配置模板 / 配置下发 / 状态采集 / 可视化校验）的数据骨架。
-
 ## Requirements
-
 ### Requirement: 5 张 SDN 数据表
 
 `backend/app/models.py` MUST 定义以下 5 张 ORM 模型：
@@ -132,6 +130,12 @@ CASCADE 行为：
 
 中英双语翻译文件 `frontend/src/i18n/zh-CN.js` 和 `en-US.js` MUST 各有对应条目。
 
+#### Scenario: SDN 错误码具备中英翻译
+
+- **WHEN** 后端返回 `SDN_VPC_NOT_FOUND`
+- **THEN** 前端 zh-CN 翻译文件中存在对应中文文案
+- **AND** 前端 en-US 翻译文件中存在对应英文文案
+
 ### Requirement: Alembic 迁移 007
 
 `backend/migrations/versions/007_add_sdn_tables.py` MUST：
@@ -153,6 +157,12 @@ CASCADE 行为：
 - allocator 边界（L2VNI 递增 / L3VNI 递增 / L2VNI 起点保护 / vlan 起点保护）
 
 跑通标准：19/19 通过。
+
+#### Scenario: SDN 单测全量通过
+
+- **WHEN** 运行 `backend/tests/test_sdn_api.py`
+- **THEN** tenant CRUD、vpc CRUD、allocator 边界测试全部通过
+- **AND** 不需要连接真实设备
 
 ### Requirement: split 容器兼容
 
@@ -176,9 +186,148 @@ CASCADE 行为：
 - `.env.example` 仅写变量名（不写明文值）
 - 真实凭据走 `env_file: - .env`（v2.6.1 规范）
 
+#### Scenario: 代码库不包含真实设备凭据
+
+- **WHEN** 检查 SDN change 相关代码、测试数据和提交内容
+- **THEN** 不存在真实 SSH 用户名或密码明文
+- **AND** `.env.example` 只暴露变量名和说明
+
 ### Requirement: 不依赖真机
 
 本 change MUST：
 - 不调用 `paramiko` / `NetconfClient` / `display *` 等设备交互 API
 - 单测全部 mock（mock NETCONF / mock DB）
 - 不跑 `pytest -m integration`（默认 skip，符合 v2.3+ 规范）
+
+#### Scenario: 默认测试不访问设备
+
+- **WHEN** 运行本 change 的默认单元测试
+- **THEN** 测试不建立 SSH 或 NETCONF 连接
+- **AND** 所有设备交互均由 mock 或 fixture 提供
+
+### Requirement: VPC Deployment Withdraw Actions
+
+The SDN backend MUST support user actions beyond initial VPC creation:
+
+- `delete`: withdraw one VPC from one device using the VPC delete template.
+- `redeploy`: restore one VPC to one Leaf using a VPC `create` deployment and the saved VPC definition.
+- `gateway_delete`: withdraw only the VPC L3 gateway from one device by deleting the Vsi-interface unit.
+- `gateway_deploy`: restore only the VPC L3 gateway on one device using a `create` deployment with the Vsi-interface unit from the saved VPC definition.
+- `port_bind`: bind one device interface to one VPC.
+- `port_unbind`: remove one device interface binding from one VPC.
+
+#### Scenario: Whole VPC withdraw is executable
+
+- **WHEN** a pending deployment has action `delete`
+- **AND** its planned config contains valid template units
+- **THEN** applying the deployment executes the units through the platform-specific channel
+- **AND** marks the deployment `success` when all units succeed
+- **AND** marks the VPC status `withdrawn`
+
+#### Scenario: Whole VPC withdraw does not recreate an empty VSI
+
+- **WHEN** a VPC withdraw plan is generated
+- **THEN** the EVPN/RD cleanup unit MUST run before the final VSI delete unit
+- **AND** the final VSI delete unit MUST NOT be followed by commands that enter the same `vsi <name>` view
+- **AND** post-withdraw device config MUST NOT retain an empty VSI shell for the withdrawn VPC
+
+#### Scenario: Gateway-only withdraw does not delete L2 units
+
+- **WHEN** a user requests gateway withdraw for one VPC on one device
+- **THEN** the backend creates a `gateway_delete` deployment
+- **AND** the planned config contains only the `vsi-l3` unit
+- **AND** no `vsi-l2` or `evpn` unit is included
+
+#### Scenario: Single Leaf VPC redeploy uses the saved VPC definition
+
+- **WHEN** a user requests redeploy for one VPC on one Leaf
+- **THEN** the backend creates a VPC `create` deployment
+- **AND** the planned config contains the full VPC create unit set
+- **AND** RD/VNI/gateway parameters are read from the saved VPC definition
+
+#### Scenario: Gateway-only deploy does not recreate L2 units
+
+- **WHEN** a user requests gateway deploy for one VPC on one Leaf
+- **THEN** the backend creates a `create` deployment with unit `vsi-l3`
+- **AND** the planned config contains only the `vsi-l3` unit
+- **AND** no `vsi-l2` or `evpn` unit is included
+
+### Requirement: Port Binding Lifecycle API
+
+The SDN backend MUST expose port binding operations from a VPC/user perspective:
+
+- Create a port binding record for `{device_id, vpc_id, if_index, interface_name}`.
+- List and read port bindings.
+- Generate a `port_bind` deployment for a binding.
+- Generate a `port_unbind` deployment for a binding.
+- Reject binding to a protected interface.
+- Reject duplicate active/planned bindings on the same device interface.
+
+#### Scenario: Port bind deployment references binding
+
+- **WHEN** a user creates a port binding and requests deploy
+- **THEN** the backend creates a deployment with action `port_bind`
+- **AND** the deployment references `port_binding_id`
+- **AND** successful apply marks the binding `active`
+
+#### Scenario: Port unbind deployment updates binding state
+
+- **WHEN** a user requests undeploy for an existing binding
+- **THEN** the backend creates a deployment with action `port_unbind`
+- **AND** successful apply marks the binding `unbound`
+
+### Requirement: Existing VPC Expansion Workflow
+
+The SDN backend MUST support adding a new access interface to an existing VPC from a user-oriented expansion workflow.
+
+- The expansion target MUST be a Leaf device.
+- The expansion MUST inherit the existing VPC CIDR, gateway, VNI, and VSI; the user MUST NOT provide a new subnet mask for the expansion.
+- The expansion MAY accept an expected host IP for completion validation.
+- Starting an expansion MUST create a port binding and a `port_bind` deployment.
+- If the deployment is applied successfully, the port binding and VPC MUST enter `expanding`.
+- Completing an expansion MUST optionally ping the expected host IP from the VPC gateway and MUST collect a display validation snapshot.
+- Successful completion MUST mark the port binding and VPC `active`.
+- Failed completion MUST mark the binding `failed` and the VPC `degraded`.
+
+#### Scenario: Start expansion only accepts Leaf targets
+
+- **WHEN** a user starts VPC expansion on a non-Leaf device
+- **THEN** the backend rejects the request
+- **AND** no port binding is created
+
+#### Scenario: Start expansion enters expanding after apply
+
+- **WHEN** a user starts VPC expansion on a Leaf device and the generated `port_bind` deployment succeeds
+- **THEN** the backend marks the port binding `expanding`
+- **AND** marks the VPC `expanding`
+
+#### Scenario: Complete expansion validates host reachability
+
+- **WHEN** a user completes VPC expansion with an expected host IP
+- **THEN** the backend pings that host from the VPC gateway
+- **AND** forces a display validation sync
+- **AND** marks the expansion active only when both checks pass
+
+### Requirement: Fabric Level VPC Operations
+
+The SDN backend MUST expose VPC-level deployment and withdraw operations that expand one user action into per-device deployment records.
+
+- `POST /api/sdn/vpcs/{vpc_id}/deploy` MUST create VPC `create` deployments for all target Leaf devices.
+- `POST /api/sdn/vpcs/{vpc_id}/withdraw` MUST create `port_unbind` deployments before VPC `delete` deployments when active bindings exist.
+- If `device_ids` is omitted, the backend MUST select default Leaf candidates.
+- If `device_ids` is provided, the backend MUST use the explicit target list.
+- `auto_apply` MUST default to `false`; the default behavior is plan generation, not device modification.
+
+#### Scenario: Default VPC deploy expands to all Leaf devices
+
+- **WHEN** a VPC deploy request omits `device_ids`
+- **AND** two Leaf candidates exist
+- **THEN** the backend creates one VPC `create` deployment per Leaf
+- **AND** includes planned/pending port bindings for matching devices after each VPC `create` deployment
+
+#### Scenario: VPC withdraw orders port unbind before delete
+
+- **WHEN** a VPC withdraw request targets one device with one active port binding
+- **THEN** the backend creates a `port_unbind` deployment first
+- **AND** creates the VPC `delete` deployment after it
+- **AND** records the delete deployment parent as the unbind deployment

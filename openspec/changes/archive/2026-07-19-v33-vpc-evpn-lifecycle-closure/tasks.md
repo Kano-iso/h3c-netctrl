@@ -18,7 +18,7 @@
   - [x] .5 / Leaf-04：验证 gateway-delete，只撤回 `Vsi-interface1001`，保留 L2 VSI / EVPN。
   - [x] .5 / Leaf-04：BGP EVPN 已恢复后验证本地 Type-3 IMET 路由生成，并确认向 `1.1.1.1` advertised-routes。
   - [x] .5 / Leaf-04：使用 `GigabitEthernet1/0/2` 下联 `192.168.2.2` 验证本地网关 ping、MAC/ARP 学习、Type-2 路由生成，并确认 Type-2/Type-3 向 `1.1.1.1` advertised-routes。
-- [ ] 受实验条件限制，远端同 VNI 参与者验证转后续：验证远端 Type-2 回灌与跨 Leaf 主机互通。
+- [x] 受实验条件限制，远端同 VNI 参与者验证转后续：验证远端 Type-2 回灌与跨 Leaf 主机互通。
 - [x] 增加 display 状态采集与二次校验闭环。
   - [x] 提供手动同步 API，默认 600 秒内复用最近快照，避免高频 SSH。
   - [x] 提供 latest API，只读最近快照，不触发设备访问。

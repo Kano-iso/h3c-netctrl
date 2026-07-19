@@ -33,7 +33,7 @@
 | **v3.1.2 ZTP 联动纳管** | ✅ 2026-07-18 (tag: v3.1.2) | ztp-server watcher 确认 static 管理地址 SSH 22 + NETCONF 830 上线后回调后端；后端幂等纳管入库 + 资产采集/partial 降级 + Devices/CMDB/Dashboard 现有接口可见；不走 DHCP lease 监听 | [RELEASE-NOTES-v3.1.2.md](RELEASE-NOTES-v3.1.2.md) + [archive/2026-07-18-v312-ztp-onboard-and-asset-sync](openspec/changes/archive/2026-07-18-v312-ztp-onboard-and-asset-sync/) |
 | **v3.1.3 ZTP 恢复上线** | ✅ 2026-07-18 (tag: v3.1.3) | 前端 ZTP 恢复页面 + recovery override API + ztp-server runtime 渲染 + OOB `mgt` VRF 标准配置；不联动备份回滚 | [RELEASE-NOTES-v3.1.3.md](RELEASE-NOTES-v3.1.3.md) + [archive/2026-07-18-v313-ztp-recovery-override](openspec/changes/archive/2026-07-18-v313-ztp-recovery-override/) |
 | **v3.2 平台迁移待办** | 🧊 2026-07-19 (暂缓) | 原计划新平台切换 + 能力评级；因 HCL/177 不能升级官方 S6850 镜像、EVE/V9850 二层广播不可信，当前转为未来迁移方案沉淀，不阻塞 v3.3 | [PRD-V3.2.md](PRD-V3.2.md) |
-| **v3.3 剩余 VPC 能力** | ⏳ 2026-07-19 (下一步) | 在现有平台上继续推进 VPC/SDN 产品能力；接受 NETCONF/XML + CLI over SSH 混合下发，优先完成前端功能与配置/校验闭环 | [PRD-V3.3.md](PRD-V3.3.md) |
+| **v3.3.0 VPC/EVPN 配置闭环** | ✅ 2026-07-19 (tag: v3.3.0) | VPC 按 Leaf 下发/撤回、端口绑定/解绑、网关局部撤回/加回、已有 VPC 接入口扩容、display 状态手动同步 + 600s 缓存；`.5` 真机完成本地下联与 EVPN Type-2/Type-3 验证 | [RELEASE-NOTES-v3.3.0.md](RELEASE-NOTES-v3.3.0.md) + [PRD-V3.3.md](PRD-V3.3.md) |
 | **v3.4 前端大屏 + UX** | ⏳ 2026-07-18 (待启动) | VPC 详情页 + 端口矩阵 + 网络拓扑 + UX 打磨（5 步 VPC 向导 / 批量操作 / 错误处理）+ ops-toolkit-probes（3 个脚本）| [PRD-V3.4.md](PRD-V3.4.md) |
 | **v3.5 etcd 协调** | ⏳ 远期 | 可选单节点 etcd / 轻量协调方案评估 | 暂未起 spec |
 | **monitor** | ⏳ 远期 | 监控 / 告警 / dashboard 独立化 | 暂未起 spec |
@@ -426,9 +426,9 @@ save force
 
 ---
 
-### v3.2 新平台切换 + 能力评级（⏳ 2026-07-19 待启动）
+### v3.2 平台迁移待办（🧊 2026-07-19 暂缓）
 
-**目标**：v3.2 分两步完成新平台迁移与能力评级：
+**目标**：v3.2 原计划分两步完成新平台迁移与能力评级，当前已转为未来迁移方案沉淀，不作为 v3.3 阻塞项：
 
 **PRD**：[PRD-V3.2.md](PRD-V3.2.md)
 
@@ -443,7 +443,7 @@ save force
 3. 维护窗口内调整旧平台 OOB 地址到备份段，避免管理地址冲突。
 4. 对照旧配置与新平台配置，迁移平台无关配置，适配物理接口/OOB/平台差异配置。
 5. 在新平台做管理面、备份回滚、ZTP、SDN/VPC 能力评级。
-6. 发版收尾（RELEASE-NOTES + tag + push）。
+6. 发版收尾（未来真正迁移时再生成 RELEASE-NOTES + tag + push）。
 
 **依赖**：v3.0 骨架 + v3.1 ZTP 全部完成
 
@@ -453,25 +453,25 @@ save force
 
 ---
 
-### v3.3 剩余 VPC 能力（⏳ 2026-07-18 待启动）
+### v3.3.0 VPC/EVPN 配置闭环（✅ 2026-07-19 tag: v3.3.0）
 
-**目标**：完成 v3.0 PRD 剩余的 1 个子能力：**集中式网关降级/恢复**（sdn-gateway-fallback）。
+**目标**：在 v3.2 平台迁移暂缓后，直接基于现有平台补齐 VPC/EVPN 后端生命周期闭环。
 
 **PRD**：[PRD-V3.3.md](PRD-V3.3.md)
+**Release Notes**：[RELEASE-NOTES-v3.3.0.md](RELEASE-NOTES-v3.3.0.md)
 
 **范围**：
-- **网关角色定义**：分布式网关（默认）vs 集中式网关（1 active + N transit）
-- **网关切换**：主动切换（admin 操作） + 被动切换（故障触发）
-- **配置生成**：active 保留 Vsi-interface + IP，transit 删除 Vsi-interface + IP
-- **状态采集**：实时检测 active 网关状态 + 切换 audit log
-- **排障工具**：ops-toolkit `sdn-gateway-status` 脚本
+- **VPC 级编排**：按 Leaf 下发 / 撤回 VPC，deployment 保留设备、unit、状态和错误信息。
+- **端口生命周期**：端口绑定 / 解绑，deployment 关联 `port_binding_id`。
+- **局部操作**：单设备 VPC 补回、三层网关撤回、三层网关加回。
+- **已有 VPC 接入口扩容**：开始扩容进入 `expanding`，完成时做网关 ping 与 display 校验。
+- **状态采集**：手动同步 + 600 秒缓存 + latest 快照，采集 BGP EVPN peer、VSI/Vsi-interface、AC、MAC、ARP、Type-2/Type-3。
+- **真机验证**：`.5 / Leaf-04 / 192.168.100.5` 完成本地下联 ping、MAC/ARP、Type-2/Type-3 advertised-routes 验证。
 
-**走法**（3 阶段）：
-1. 数据模型 + CRUD（VPC 网关角色字段 + API）
-2. 网关切换逻辑（主动/被动切换实现）
-3. ops-toolkit 工具 + 验证（`sdn-gateway-status` + 真机/EVENG 验证）
-
-**依赖**：v3.2 数据模型 + 业务下发通道 + 状态采集
+**边界**：
+- 不做前端大屏，留到 v3.4。
+- 不做高频自动采集。
+- 远端同 VNI 主机互通因实验环境不足转后续验证。
 
 ---
 
