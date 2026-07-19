@@ -30,15 +30,17 @@
 | **v3.1.1 ZTP 落地** | ✅ **2026-07-18 (tag: v3.1.1)** | ztp-server jinja2 多平台模板 + DHCP 临时池 `.151-.190` + `ZTP_MGMT_IP` static OOB 写入 + `.177/.26` 真机完整 ZTP 验证 + ops-toolkit reboot/capture 加固 | [**RELEASE-NOTES-v3.1.1.md**](RELEASE-NOTES-v3.1.1.md) · [archive/2026-07-18-v311-ztp-landing](openspec/changes/archive/2026-07-18-v311-ztp-landing/) |
 | **v3.1.2 ZTP 联动纳管** | ✅ **2026-07-18 (tag: v3.1.2)** | ztp-server watcher 确认 static 管理地址 SSH 22 + NETCONF 830 上线后回调后端；后端幂等纳管入库、资产采集/partial 降级、Devices/CMDB/Dashboard 现有接口可见 | [**RELEASE-NOTES-v3.1.2.md**](RELEASE-NOTES-v3.1.2.md) · [archive/2026-07-18-v312-ztp-onboard-and-asset-sync](openspec/changes/archive/2026-07-18-v312-ztp-onboard-and-asset-sync/) |
 | **v3.1.3 ZTP 恢复上线** | ✅ **2026-07-18 (tag: v3.1.3)** | 运营管理新增 ZTP 恢复页面；后端写入一次性 recovery override；ztp-server 运行时重渲染 autocfg.cfg；OOB 口补齐 `mgt` VRF；备份回滚 future 标记移除 | [**RELEASE-NOTES-v3.1.3.md**](RELEASE-NOTES-v3.1.3.md) · [archive/2026-07-18-v313-ztp-recovery-override](openspec/changes/archive/2026-07-18-v313-ztp-recovery-override/) |
+| **v3.2 平台迁移待办** | 🧊 **2026-07-19 (暂缓)** | 新平台迁移与能力评级转为未来待办：HCL/177 无法升级官方 S6850 镜像，EVE/V9850 二层广播行为不可信；当前不阻塞 VPC/SDN 后续推进 | [PRD-V3.2.md](PRD-V3.2.md) |
+| **v3.3 VPC/EVPN 配置闭环** | ✅ **2026-07-19** | VPC 按 Leaf 下发/撤回、端口绑定/解绑、网关局部撤回/加回、已有 VPC 接入口扩容、display 状态手动同步 + 600s 缓存；`.5` 真机完成本地下联与 EVPN Type-2/Type-3 验证 | [PRD-V3.3.md](PRD-V3.3.md) · [v33-vpc-evpn-lifecycle-closure](openspec/changes/v33-vpc-evpn-lifecycle-closure/) |
 
 详细进度、约束、决策记录见 [VERSION-ROADMAP.md](VERSION-ROADMAP.md)。
 已归档 change 见 [openspec/changes/archive/](openspec/changes/archive/)。
 主规格沉淀见 [openspec/specs/](openspec/specs/)。
-V3.0 产品蓝图见 [PRD-V3.0.md](PRD-V3.0.md)。
+V3.0 产品蓝图见 [PRD-V3.0.md](PRD-V3.0.md)，当前 VPC/EVPN 闭环见 [PRD-V3.3.md](PRD-V3.3.md)。
 
-## 当前架构（v3.0.0）
+## 当前架构（v3.3）
 
-> 详见 [VERSION-ROADMAP.md §v3.0 VPC 骨架](VERSION-ROADMAP.md)。v3.0.0 = **SDN 业务下发通道骨架**（按 device.platform 路由 + 双套 payload 模板 + 跨平台 .5/.26 真机验证），**v3.0 PRD 7 个子能力按新规划拆到 v3.1.1 / v3.2 / v3.3 / v3.4**（详见 [PRD-V3.0.md](PRD-V3.0.md) 补充说明）。v2.5 split 模式为默认，v2.6.0 i18n 上线，v2.6.1 修 6 类 bug，v2.6.2 集中修回滚链路 + 提升失败任务 UX。
+> 详见 [VERSION-ROADMAP.md](VERSION-ROADMAP.md)。v3.3 在 v3.0 SDN 业务下发通道骨架上，补齐 VPC/EVPN 后端生命周期：创建、按 Leaf 下发、撤回、端口绑定/解绑、网关局部操作、已有 VPC 接入口扩容，以及 display 状态采集闭环。当前继续接受 **NETCONF/XML + CLI over SSH 混合下发**，不再等待 v3.2 平台迁移。
 
 | 容器 | 职责 | 实施 | 状态 |
 |---|---|---|---|
@@ -48,7 +50,7 @@ V3.0 产品蓝图见 [PRD-V3.0.md](PRD-V3.0.md)。
 | **backend (monolith)** | ctrl + config + data 合并 | v2.4.1 双模式共存 | ✅ 兼容老调用，profile: core |
 | **qa-backend / qa-frontend** | pytest / lint / build / vitest / playwright | v2.4.2 加 lint+build 必跑 / v2.5 加 vitest+playwright 必跑 | ✅ Archive 必跑 |
 | **ops-toolkit** | **7 个排错脚本**（check-host / check-netconf / capture-config / reboot-wait / paramiko-batch-exec / **interface-config** / **task-monitor**） | v2.4.1 + v2.4.2.1 + v2.5.0 + v3.1.1 reboot/capture 加固 | ✅ 按需启动 |
-| **sdn (v3.0.0)** | **骨架**：业务下发通道（按 device.platform 路由）+ 双套 payload 模板（5 unit × 4 字段）+ 跨平台真机验证 | v3.0.0 骨架发版（sdn-vpc-netconf-schema-xml change 闭环）| ✅ **tag: v3.0.0**：业务下发通道打通（按 device.platform 路由：LSTN 走 SSH 22 / RSTN 走 NETCONF 830）+ .5/.26 跨平台真机验证 + 42 commits push。**v3.0 PRD 7 个子能力按规划拆到 v3.1.1 / v3.2 / v3.3 / v3.4** |
+| **sdn (v3.3)** | VPC/EVPN 编排：租户/VPC/端口绑定/deployment/validation 快照；按平台路由下发；支持局部撤回与补回 | v3.0.0 骨架 + v3.3 生命周期闭环 | ✅ `.5` 真机验证：本地下联主机 ping 通、MAC/ARP 学习、Type-2/Type-3 EVPN 路由生成并向对端通告；远端同 VNI 互通等待环境补齐后验证 |
 | **ztp-server (v3.1.3)** | DHCP + TFTP + autocfg.cfg 渲染 + static 管理地址上线确认回调 + recovery override | v3.1.0 基建 + v3.1.1 落地 + v3.1.2 联动纳管 + v3.1.3 恢复上线 | ✅ `.177` LSTN 与 `.26` RSTN 完整 ZTP 通过；支持前端临时指定已有设备 OOB 地址恢复上线 |
 | **monitor (未来)** | 实时指标 / 告警 / dashboard | 远期 | ⏳ v3.0+ 评估 |
 
@@ -94,6 +96,27 @@ V3.0 产品蓝图见 [PRD-V3.0.md](PRD-V3.0.md)。
   - 73 SDN 单测全过 / 全量 432 PASS / 3 pre-existing FAIL（与本 change 无关）
 - **42 commits 已 push**（origin/main e5b2e61..5690d60，含 T0-T9 全部 task）
 
+## v3.3 增量能力（VPC/EVPN 配置闭环）
+
+- **VPC 级编排入口**：
+  - 支持按用户选择的 Leaf 设备下发或撤回 VPC；
+  - 未显式选择设备时，后端按 Leaf 候选选择目标设备；
+  - deployment 记录保留 unit、设备、状态、错误信息，用于审计和排障。
+- **细粒度动作**：
+  - 端口绑定 / 端口解绑；
+  - 单设备 VPC 撤回 / 补回；
+  - 单设备三层网关撤回 / 加回；
+  - 已有 VPC 接入口扩容，支持填写期望主机 IP 并在完成时由网关发起 ping 校验。
+- **状态采集闭环**：
+  - `POST /api/sdn/vpcs/{vpc_id}/devices/{device_id}/validation/sync` 手动同步 display 状态；
+  - `GET /api/sdn/vpcs/{vpc_id}/devices/{device_id}/validation/latest` 读取最近快照；
+  - 默认 600 秒缓存，避免频繁 SSH 打设备。
+- **真机验证结果**：
+  - `.5 / Leaf-04 / 192.168.100.5` 已验证本地 Vsi-interface、VSI、AC、ARP、MAC、Type-2、Type-3 链路；
+  - `192.168.2.254 -> 192.168.2.2` 网关源地址 ping 5/5 成功；
+  - `GigabitEthernet1/0/3 + 192.168.1.3` 扩容演示配置当前保留，用于后续前端联调；
+  - 远端同 VNI 主机互通暂受实验环境限制，不作为 v3.3 当前收口阻塞项。
+
 ## 功能概览
 
 | 模块 | 说明 |
@@ -107,6 +130,8 @@ V3.0 产品蓝图见 [PRD-V3.0.md](PRD-V3.0.md)。
 | 批量操作 | 多设备勾选、批量执行命令、结果汇总 |
 | 操作日志 | 全操作自动记录、按类型/状态筛选 |
 | **备份 / 回滚**（v2.2 新增 / **v2.6.1 增强**） | **3 个入口**（全局 Backup 页 / 设备行 / CMDB 顶部）+ **1 个 Modal**，拉取 startup.cfg + running-config（SCP + SSH CLI），回滚（全文本 + SCP 文件级替换 + reboot + verify），每设备保留最新 5 份非锁定备份，**离线/未采集设备备份按钮 disabled + force 逃生 + `backups.forced` 审计字段** |
+| **ZTP 上线 / 恢复**（v3.1） | ztp-server 提供 DHCP + TFTP + autocfg.cfg 渲染；新设备上线后自动回调后端纳管；恢复模式支持一次性指定已有设备 OOB 地址，帮助清空配置后的设备重新接入平台 |
+| **SDN / VPC**（v3.0 / **v3.3 增强**） | VPC/EVPN 混合通道下发（LSTN→SSH CLI，RSTN→NETCONF XML）；支持 VPC 下发/撤回、端口绑定/解绑、网关局部撤回/补回、扩容完成校验、display 快照 |
 
 ## 快速启动
 
@@ -168,7 +193,12 @@ h3c-netctrl/
 │   │   │   ├── asset.py         # CMDB 资产管理
 │   │   │   ├── execute.py       # 命令执行
 │   │   │   ├── batch.py         # 批量操作
-│   │   │   └── interface.py     # 接口管理
+│   │   │   ├── interface.py     # 接口管理
+│   │   │   ├── sdn.py           # SDN/VPC 编排 API
+│   │   │   └── ztp.py           # ZTP 上线/恢复 API
+│   │   ├── services/
+│   │   │   ├── sdn_validation_collector.py # VPC display 状态采集
+│   │   │   └── templates/       # H3C V7 SDN 配置模板
 │   │   └── utils/
 │   │       ├── crypto.py        # Fernet 加密
 │   │       ├── logger.py        # 日志系统
@@ -189,6 +219,8 @@ h3c-netctrl/
 ├── docs/                        # 文档
 ├── PRD-V2.0.md                  # V2.0 产品需求文档
 ├── PRD-V3.0.md                  # V3.0 VPC/SDN 产品需求文档
+├── PRD-V3.2.md                  # V3.2 平台迁移待办
+├── PRD-V3.3.md                  # V3.3 VPC/EVPN 配置闭环
 └── docker-compose.dev.yml
 ```
 
@@ -214,6 +246,14 @@ h3c-netctrl/
 | PUT | /api/devices/{id}/interfaces/{name}/config | 接口配置 |
 | POST | /api/batch/execute | 批量执行命令 |
 | GET | /api/logs | 操作日志 |
+| POST | /api/sdn/vpcs/{vpc_id}/deploy | VPC 下发到 Leaf |
+| POST | /api/sdn/vpcs/{vpc_id}/withdraw | VPC 从 Leaf 撤回 |
+| POST | /api/sdn/vpcs/{vpc_id}/devices/{device_id}/gateway/withdraw | 撤回单设备 VPC 三层网关 |
+| POST | /api/sdn/vpcs/{vpc_id}/devices/{device_id}/gateway/restore | 加回单设备 VPC 三层网关 |
+| POST | /api/sdn/vpcs/{vpc_id}/expansions | 已有 VPC 接入口扩容 |
+| POST | /api/sdn/vpcs/{vpc_id}/expansions/{binding_id}/complete | 扩容完成校验 |
+| POST | /api/sdn/vpcs/{vpc_id}/devices/{device_id}/validation/sync | 手动同步 VPC display 状态 |
+| GET | /api/sdn/vpcs/{vpc_id}/devices/{device_id}/validation/latest | 读取最近 VPC display 快照 |
 
 ## 环境变量
 
@@ -223,6 +263,7 @@ h3c-netctrl/
 | DB_PATH | 否 | ./data/dev.db | SQLite 数据库路径 |
 | LOG_LEVEL | 否 | INFO | 日志级别（INFO/DEBUG） |
 | BACKEND_PORT | 否 | 8000 | 后端服务端口 |
+| ZTP_MGMT_IP | 否 | - | ZTP 模板渲染时指定 static OOB 管理地址 |
 
 ## 运维排查工具（ops-toolkit）
 
@@ -288,3 +329,10 @@ docker compose -f docker-compose.dev.yml run --rm --entrypoint "pytest -m integr
 | V2.2.0 | **备份前端（3 入口 + 1 Modal）、接口 VPN 联动 + L2/L3 + link type + IP 编辑能力、4 收尾 bug fix** | [**RELEASE-NOTES-v2.2.0.md**](RELEASE-NOTES-v2.2.0.md) |
 | V2.5.0 | **split 模式为默认（BREAKING）+ internal-api 5s TTL 缓存 + vitest 30 单元 + Playwright 37 e2e + ops-toolkit 第 8/9 脚本（interface-config + task-monitor）** | [**RELEASE-NOTES-v2.5.0.md**](RELEASE-NOTES-v2.5.0.md) |
 | V2.6.0 | **vue-i18n v9 + 顶导「中 \| EN」切换 + 400+ 翻译 key（zh-CN + en-US）+ 后端 `APIResponse.error_key` BREAKING schema 扩展 + 9 router 改造** | [**RELEASE-NOTES-v2.6.0.md**](RELEASE-NOTES-v2.6.0.md) |
+| V3.0.0 | **SDN/VPC 业务下发通道骨架 + LSTN/RSTN 平台路由 + 双套 payload 模板 + .5/.26 真机验证** | [**RELEASE-NOTES-v3.0.0.md**](RELEASE-NOTES-v3.0.0.md) |
+| V3.1.0 | **ZTP 可行性调研 + 精简 ZTP 方案 + ztp-server 容器骨架** | [**RELEASE-NOTES-v3.1.0.md**](RELEASE-NOTES-v3.1.0.md) |
+| V3.1.1 | **ZTP 多平台模板 + DHCP/TFTP 落地 + `.177/.26` 真机验证 + ops-toolkit reboot/capture 加固** | [**RELEASE-NOTES-v3.1.1.md**](RELEASE-NOTES-v3.1.1.md) |
+| V3.1.2 | **ZTP static 管理地址上线确认 + 后端幂等纳管 + 资产采集 partial 降级** | [**RELEASE-NOTES-v3.1.2.md**](RELEASE-NOTES-v3.1.2.md) |
+| V3.1.3 | **ZTP 恢复上线页面 + recovery override + OOB mgt VRF 标准配置** | [**RELEASE-NOTES-v3.1.3.md**](RELEASE-NOTES-v3.1.3.md) |
+| V3.2 | **平台迁移待办暂缓：沉淀 HCL/EVE/镜像升级限制与未来迁移方向** | [PRD-V3.2.md](PRD-V3.2.md) |
+| V3.3 | **VPC/EVPN 后端配置闭环：下发/撤回、绑定/解绑、网关局部操作、扩容校验、display 快照** | [PRD-V3.3.md](PRD-V3.3.md) |
