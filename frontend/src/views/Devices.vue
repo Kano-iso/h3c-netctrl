@@ -10,7 +10,7 @@ import DeviceFormModal from '../components/DeviceFormModal.vue'
 import AssetEditModal from '../components/AssetEditModal.vue'
 import BackupListModal from '../components/BackupListModal.vue'
 import ConfirmModal from '../components/ConfirmModal.vue'
-import { deviceApi, assetApi } from '../api/index.js'
+import { deviceApi, assetApi, backupApi } from '../api/index.js'
 import { getStatusChip, getStatusLabel } from '../utils/status.js'
 
 const { t } = useI18n()
