@@ -11,6 +11,7 @@ import OpsTerminal from './views/OpsTerminal.vue'
 import Interfaces from './views/Interfaces.vue'
 import CMDB from './views/CMDB.vue'
 import ZtpRecovery from './views/ZtpRecovery.vue'
+import SdnVpcWorkspace from './views/SdnVpcWorkspace.vue'
 import Logs from './views/Logs.vue'
 import Batch from './views/Batch.vue'
 import Topology from './views/Topology.vue'
@@ -26,6 +27,7 @@ const router = createRouter({
     { path: '/interfaces', component: Interfaces, name: 'interfaces' },
     { path: '/cmdb', component: CMDB, name: 'cmdb' },
     { path: '/ztp', component: ZtpRecovery, name: 'ztp' },
+    { path: '/sdn-vpc', component: SdnVpcWorkspace, name: 'sdn-vpc' },
     { path: '/logs', component: Logs, name: 'logs' },
     { path: '/batch', component: Batch, name: 'batch' },
     { path: '/topology', component: Topology, name: 'topology', meta: { future: true } },

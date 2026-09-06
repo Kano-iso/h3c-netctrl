@@ -50,11 +50,7 @@ from app.services.sdn_deployment_executor import SdnDeploymentError, SdnDeployme
 from app.services.sdn_validation_collector import SdnValidationCollector
 from app.services.sdn_device_adapter import (
     H3cV7Adapter,
-    PLATFORM_LSTN,
-    PLATFORM_RSTN,
-    PLATFORM_UNKNOWN,
     UNIT_VSI_L3,
-    get_platform_for_model,
 )
 from app.services.vpc_config_planner import VPCConfigPlanner
 from app.utils.device_access import get_device_with_password, get_devices_batch
@@ -171,18 +167,14 @@ def _create_sdn_deployment(
     return deployment
 
 
-def _is_leaf_candidate(device: Device) -> bool:
-    """默认 Leaf 选择规则。
+def _is_sdn_fabric_member(device: Device) -> bool:
+    """判断设备是否可作为 SDN/VPC 编排目标。
 
-    v3.3 先不新增设备角色表：优先 platform，其次设备名，再其次资产型号推断。
+    设备名和型号只能说明“像 Leaf”或“可能支持 EVPN”；platform 只能说明
+    下发通道是 LSTN/RSTN，也不能证明它已经接入当前 EVPN fabric。v3.4 起
+    只信独立业务角色 sdn_role，避免把接入交换机误卷入 VPC 下发。
     """
-    if device.platform in (PLATFORM_LSTN, PLATFORM_RSTN):
-        return True
-    if "leaf" in (device.name or "").lower():
-        return True
-    asset = getattr(device, "asset", None)
-    model = asset.model if asset is not None else None
-    return get_platform_for_model(model) != PLATFORM_UNKNOWN
+    return (getattr(device, "sdn_role", None) or "").lower() == "evpn_leaf"
 
 
 def _resolve_fabric_targets(
@@ -191,7 +183,7 @@ def _resolve_fabric_targets(
 ) -> tuple[list[Device], Optional[APIResponse]]:
     """解析 VPC 级编排目标设备。
 
-    device_ids 为空时选择默认 Leaf 候选；显式传入时逐个校验存在。
+    device_ids 为空时选择默认 EVPN Fabric 成员；显式传入时逐个校验存在和准入。
     """
     if device_ids:
         seen = set()
@@ -206,6 +198,12 @@ def _resolve_fabric_targets(
         if missing:
             return [], error_response(err.SDN_DEVICE_NOT_FOUND, params={"id": missing[0]})
         targets = [found[device_id] for device_id in ordered_ids]
+        invalid = [device for device in targets if not _is_sdn_fabric_member(device)]
+        if invalid:
+            return [], error_response(
+                err.OPERATION_FAILED,
+                params={"error": f"device {invalid[0].id} is not an EVPN fabric member"},
+            )
         return targets, None
 
     try:
@@ -222,9 +220,9 @@ def _resolve_fabric_targets(
         except Exception as api_error:
             logger.error(f"Fabric 目标选择内部 API 失败: {api_error}")
             return [], error_response(err.OPERATION_FAILED, params={"error": str(api_error)})
-    targets = [d for d in devices if _is_leaf_candidate(d)]
+    targets = [d for d in devices if _is_sdn_fabric_member(d)]
     if not targets:
-        return [], error_response(err.OPERATION_FAILED, params={"error": "no leaf target devices found"})
+        return [], error_response(err.OPERATION_FAILED, params={"error": "no EVPN fabric target devices found"})
     return targets, None
 
 
@@ -268,13 +266,13 @@ def _apply_if_requested(
     return applied
 
 
-def _get_leaf_or_error(db: Session, device_id: int) -> tuple[Optional[object], Optional[APIResponse]]:
-    """获取 Leaf 设备元数据并校验只能选择 Leaf。"""
+def _get_sdn_fabric_device_or_error(db: Session, device_id: int) -> tuple[Optional[object], Optional[APIResponse]]:
+    """获取设备元数据并校验只能选择 EVPN Fabric 成员。"""
     device, device_error = _get_device_metadata(db, device_id)
     if device_error is not None:
         return None, device_error
-    if not _is_leaf_candidate(device):
-        return None, error_response(err.OPERATION_FAILED, params={"error": "only leaf devices can be selected"})
+    if not _is_sdn_fabric_member(device):
+        return None, error_response(err.OPERATION_FAILED, params={"error": "only EVPN fabric devices can be selected"})
     return device, None
 
 
@@ -485,7 +483,19 @@ def list_vpcs(
         for t in db.query(SdnTenant).filter(SdnTenant.id.in_(tenant_ids)).all()
     } if tenant_ids else {}
 
-    items = [_vpc_to_response(v, tenants.get(v.tenant_id)).model_dump(mode="json") for v in vpcs]
+    vpc_ids = [v.id for v in vpcs]
+    binding_counts = {
+        vpc_id: count
+        for vpc_id, count in db.query(SdnPortBinding.vpc_id, func.count(SdnPortBinding.id))
+        .filter(SdnPortBinding.vpc_id.in_(vpc_ids))
+        .group_by(SdnPortBinding.vpc_id)
+        .all()
+    } if vpc_ids else {}
+
+    items = [
+        _vpc_to_response(v, tenants.get(v.tenant_id), binding_count=binding_counts.get(v.id, 0)).model_dump(mode="json")
+        for v in vpcs
+    ]
     return APIResponse(success=True, data={"total": total, "vpcs": items})
 
 
@@ -496,7 +506,8 @@ def get_vpc(vpc_id: int, db: Session = Depends(get_db)):
     if not vpc:
         return error_response(err.SDN_VPC_NOT_FOUND, params={"id": vpc_id})
     tenant = db.query(SdnTenant).filter(SdnTenant.id == vpc.tenant_id).first()
-    return APIResponse(success=True, data=_vpc_to_response(vpc, tenant).model_dump(mode="json"))
+    binding_count = db.query(func.count(SdnPortBinding.id)).filter(SdnPortBinding.vpc_id == vpc.id).scalar() or 0
+    return APIResponse(success=True, data=_vpc_to_response(vpc, tenant, binding_count=binding_count).model_dump(mode="json"))
 
 
 # ─────────── VPC 级 Fabric 编排 ───────────
@@ -507,7 +518,7 @@ def deploy_vpc_to_fabric(
     payload: SdnVpcFabricOperationRequest = SdnVpcFabricOperationRequest(),
     db: Session = Depends(get_db),
 ):
-    """VPC 级部署编排：把一个用户动作展开为多台 Leaf 的 create/port-bind deployments。"""
+    """VPC 级部署编排：把一个用户动作展开为多台 EVPN 节点的 create/port-bind deployments。"""
     vpc = db.query(SdnVpc).filter(SdnVpc.id == vpc_id).first()
     if not vpc:
         return error_response(err.SDN_VPC_NOT_FOUND, params={"id": vpc_id})
@@ -669,9 +680,9 @@ def redeploy_vpc_on_device(
     auto_apply: bool = Query(default=True),
     db: Session = Depends(get_db),
 ):
-    """补回某台 Leaf 上的完整 VPC 配置。
+    """补回某台 EVPN 节点上的完整 VPC 配置。
 
-    对应单 Leaf VPC 撤回的反向动作。所有参数来自 VPC 定义，不允许调用方
+    对应单节点 VPC 撤回的反向动作。所有参数来自 VPC 定义，不允许调用方
     重新填写 RD/VNI/网关，避免同一个 VPC 在不同设备上的标准配置漂移。
     """
     vpc = db.query(SdnVpc).filter(SdnVpc.id == vpc_id).first()
@@ -680,7 +691,7 @@ def redeploy_vpc_on_device(
     tenant = db.query(SdnTenant).filter(SdnTenant.id == vpc.tenant_id).first()
     if not tenant:
         return error_response(err.SDN_VPC_TENANT_NOT_FOUND, params={"tenant_id": vpc.tenant_id})
-    _, device_error = _get_leaf_or_error(db, device_id)
+    _, device_error = _get_sdn_fabric_device_or_error(db, device_id)
     if device_error is not None:
         return device_error
 
@@ -776,9 +787,9 @@ def create_deployment(body: SdnDeploymentCreate, db: Session = Depends(get_db)):
     tenant = db.query(SdnTenant).filter(SdnTenant.id == vpc.tenant_id).first()
     if not tenant:
         return error_response(err.SDN_VPC_TENANT_NOT_FOUND, params={"tenant_id": vpc.tenant_id})
-    device_err = _check_device_exists(body.device_id)
-    if device_err is not None:
-        return device_err
+    _, device_error = _get_sdn_fabric_device_or_error(db, body.device_id)
+    if device_error is not None:
+        return device_error
 
     # 调 planner 生成命令
     planner = VPCConfigPlanner(H3cV7Adapter())
@@ -841,7 +852,7 @@ def create_port_binding(payload: SdnPortBindingCreate, db: Session = Depends(get
     if not vpc:
         return error_response(err.SDN_VPC_NOT_FOUND, params={"id": payload.vpc_id})
     tenant = db.query(SdnTenant).filter(SdnTenant.id == vpc.tenant_id).first()
-    device, device_error = _get_device_metadata(db, payload.device_id)
+    device, device_error = _get_sdn_fabric_device_or_error(db, payload.device_id)
     if device_error is not None:
         return device_error
     if payload.if_index in _parse_protected_interfaces(device):
@@ -935,9 +946,9 @@ def deploy_port_binding(
     vpc = db.query(SdnVpc).filter(SdnVpc.id == binding.vpc_id).first()
     if not vpc:
         return error_response(err.SDN_VPC_NOT_FOUND, params={"id": binding.vpc_id})
-    device_err = _check_device_exists(binding.device_id)
-    if device_err is not None:
-        return device_err
+    _, device_error = _get_sdn_fabric_device_or_error(db, binding.device_id)
+    if device_error is not None:
+        return device_error
 
     planner = VPCConfigPlanner(H3cV7Adapter())
     units = planner.plan_port_bind(binding, vpc, mode=payload.mode, dry_run=True)
@@ -965,9 +976,9 @@ def undeploy_port_binding(binding_id: int, db: Session = Depends(get_db)):
     vpc = db.query(SdnVpc).filter(SdnVpc.id == binding.vpc_id).first()
     if not vpc:
         return error_response(err.SDN_VPC_NOT_FOUND, params={"id": binding.vpc_id})
-    device_err = _check_device_exists(binding.device_id)
-    if device_err is not None:
-        return device_err
+    _, device_error = _get_sdn_fabric_device_or_error(db, binding.device_id)
+    if device_error is not None:
+        return device_error
 
     planner = VPCConfigPlanner(H3cV7Adapter())
     units = planner.plan_port_unbind(binding, vpc, dry_run=True)
@@ -987,18 +998,16 @@ def undeploy_port_binding(binding_id: int, db: Session = Depends(get_db)):
 def start_vpc_expansion(vpc_id: int, payload: SdnVpcExpansionRequest, db: Session = Depends(get_db)):
     """已有 VPC 扩容接入口。
 
-    用户选择 Leaf + 接口后，平台创建端口绑定并生成 port_bind deployment。
+    用户选择 EVPN 节点 + 接口后，平台创建端口绑定并生成 port_bind deployment。
     auto_apply=true 时立即下发，成功后进入 expanding，等待用户接线和配置主机 IP。
     """
     vpc = db.query(SdnVpc).filter(SdnVpc.id == vpc_id).first()
     if not vpc:
         return error_response(err.SDN_VPC_NOT_FOUND, params={"id": vpc_id})
     tenant = db.query(SdnTenant).filter(SdnTenant.id == vpc.tenant_id).first()
-    device, device_error = _get_device_metadata(db, payload.device_id)
+    device, device_error = _get_sdn_fabric_device_or_error(db, payload.device_id)
     if device_error is not None:
         return device_error
-    if not _is_leaf_candidate(device):
-        return error_response(err.OPERATION_FAILED, params={"error": "only leaf devices can be selected"})
     if payload.if_index in _parse_protected_interfaces(device):
         return error_response(err.INTERFACE_PROTECTED_BLOCKED)
 
@@ -1141,7 +1150,7 @@ def deploy_vpc_gateway(
     auto_apply: bool = Query(default=True),
     db: Session = Depends(get_db),
 ):
-    """加回某台 Leaf 上某个 VPC 的三层网关。
+    """加回某台 EVPN 节点上某个 VPC 的三层网关。
 
     对应 gateway undeploy 的反向动作。只下发 Vsi-interface/L3VNI/VPN binding
     与 `gateway vsi-interface` 绑定，不重新创建 L2 VSI/EVPN。
@@ -1152,7 +1161,7 @@ def deploy_vpc_gateway(
     tenant = db.query(SdnTenant).filter(SdnTenant.id == vpc.tenant_id).first()
     if not tenant:
         return error_response(err.SDN_VPC_TENANT_NOT_FOUND, params={"tenant_id": vpc.tenant_id})
-    _, device_error = _get_leaf_or_error(db, device_id)
+    _, device_error = _get_sdn_fabric_device_or_error(db, device_id)
     if device_error is not None:
         return device_error
 
@@ -1189,9 +1198,9 @@ def undeploy_vpc_gateway(vpc_id: int, device_id: int, db: Session = Depends(get_
     vpc = db.query(SdnVpc).filter(SdnVpc.id == vpc_id).first()
     if not vpc:
         return error_response(err.SDN_VPC_NOT_FOUND, params={"id": vpc_id})
-    device_err = _check_device_exists(device_id)
-    if device_err is not None:
-        return device_err
+    _, device_error = _get_sdn_fabric_device_or_error(db, device_id)
+    if device_error is not None:
+        return device_error
 
     planner = VPCConfigPlanner(H3cV7Adapter())
     units = [u for u in planner.plan_vpc_delete(vpc, dry_run=True) if u.name == UNIT_VSI_L3]

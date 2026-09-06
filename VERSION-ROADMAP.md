@@ -5,6 +5,8 @@
 > 单个 change 的细节见 [openspec/changes/](openspec/changes/) 与 [openspec/changes/archive/](openspec/changes/archive/)。
 > 单个版本的开发节奏见 `openspec/changes/<change-id>/tasks.md`。
 
+> **产品方向草案（2026-09-06）**：[PRD-VNEXT.md](PRD-VNEXT.md) 定义下一代业务工作台、分层分析与意图保障的阶段路线，文末单列一期范围。NEXT 不绑定正式版本号；草案待用户评审，不替代下方既有版本计划，也不表示未来能力已经实现。文档讨论见 [next-product-blueprint](openspec/changes/next-product-blueprint/proposal.md)。
+
 ---
 
 ## 1. 版本全景
@@ -34,7 +36,7 @@
 | **v3.1.3 ZTP 恢复上线** | ✅ 2026-07-18 (tag: v3.1.3) | 前端 ZTP 恢复页面 + recovery override API + ztp-server runtime 渲染 + OOB `mgt` VRF 标准配置；不联动备份回滚 | [RELEASE-NOTES-v3.1.3.md](RELEASE-NOTES-v3.1.3.md) + [archive/2026-07-18-v313-ztp-recovery-override](openspec/changes/archive/2026-07-18-v313-ztp-recovery-override/) |
 | **v3.2 平台迁移待办** | 🧊 2026-07-19 (暂缓) | 原计划新平台切换 + 能力评级；因 HCL/177 不能升级官方 S6850 镜像、EVE/V9850 二层广播不可信，当前转为未来迁移方案沉淀，不阻塞 v3.3 | [PRD-V3.2.md](PRD-V3.2.md) |
 | **v3.3.0 VPC/EVPN 配置闭环** | ✅ 2026-07-19 (tag: v3.3.0) | VPC 按 Leaf 下发/撤回、端口绑定/解绑、网关局部撤回/加回、已有 VPC 接入口扩容、display 状态手动同步 + 600s 缓存；`.5` 真机完成本地下联与 EVPN Type-2/Type-3 验证 | [RELEASE-NOTES-v3.3.0.md](RELEASE-NOTES-v3.3.0.md) + [PRD-V3.3.md](PRD-V3.3.md) |
-| **v3.4 前端大屏 + UX** | ⏳ 2026-07-18 (待启动) | VPC 详情页 + 端口矩阵 + 网络拓扑 + UX 打磨（5 步 VPC 向导 / 批量操作 / 错误处理）+ ops-toolkit-probes（3 个脚本）| [PRD-V3.4.md](PRD-V3.4.md) |
+| **v3.4.0 SDN/VPC 工作台** | ✅ 2026-09-06 (tag: v3.4.0) | 运营管理新增 SDN/VPC 工作台：VPC 清单/详情、当前 VPC 设备落地、创建 VPC、接入口扩容、deployment/validation 展示、最佳实践；SDN 目标准入改为显式 `sdn_role=evpn_leaf` | [RELEASE-NOTES-v3.4.0.md](RELEASE-NOTES-v3.4.0.md) + [PRD-V3.4.md](PRD-V3.4.md) |
 | **v3.5 etcd 协调** | ⏳ 远期 | 可选单节点 etcd / 轻量协调方案评估 | 暂未起 spec |
 | **monitor** | ⏳ 远期 | 监控 / 告警 / dashboard 独立化 | 暂未起 spec |
 
@@ -475,30 +477,37 @@ save force
 
 ---
 
-### v3.4 前端大屏 + UX（⏳ 2026-07-18 待启动）
+### v3.4.0 SDN/VPC 工作台（✅ 2026-09-06）
 
-**目标**：VPC 详情页 + 端口矩阵 + 网络拓扑 + UX 打磨 + ops-toolkit-probes。
+**目标**：把 v3.3 VPC/EVPN 后端闭环变成用户能直接操作、能看懂状态、能按最佳实践推进的前端工作台。
 
 **PRD**：[PRD-V3.4.md](PRD-V3.4.md)
+**Release Notes**：[RELEASE-NOTES-v3.4.0.md](RELEASE-NOTES-v3.4.0.md)
+**OpenSpec**：[archive/2026-09-06-v34-sdn-vpc-workspace](openspec/changes/archive/2026-09-06-v34-sdn-vpc-workspace/)
 
-**范围**：
-- **VPC 详情页**：单一 VPC 全景视图（VPC / 端口 / 网关 / 路由 / 状态）
-- **端口矩阵**：所有设备 × 所有端口 × VPC 归属色 + 状态指示
-- **网络拓扑**：underlay + overlay 拓扑图（d3.js / vis.js / echarts 选型）
-- **UX 打磨**：5 步 VPC 创建向导 + dry-run 预览 + 批量操作 + 错误处理
-- **ops-toolkit-probes**：3 个脚本（`sdn-vpc-status` / `sdn-evpn-routes` / `sdn-vxlan-tunnels`）
+**完成范围**：
+- **SDN/VPC 工作台入口**：运营管理新增 `SDN / VPC` 页面；
+- **VPC 用户动作**：VPC 清单、选中详情、创建租户、创建 VPC；
+- **设备落地**：当前 VPC 下发/撤回变更单，支持选择全部或单台 EVPN Leaf，默认生成待执行变更，勾选后立即执行；
+- **接入口扩容**：选择 EVPN Leaf 与接口，支持接口列表辅助选择，也支持手填 `if_index` 和接口名称；
+- **状态展示**：deployment、port binding、validation latest、手动同步 display 快照；
+- **轻量可视化**：基于现有数据展示轻量拓扑，不引入新图库；
+- **最佳实践**：提供新建 VPC、已有 VPC 扩容、排障回退的步骤说明；
+- **目标设备准入**：只认显式 `sdn_role=evpn_leaf`，不再按设备名、型号或 `platform=LSTN/RSTN` 推断 Fabric 成员。
 
-**走法**（4 阶段）：
-1. VPC 详情页（依赖 v3.2/v3.3 后端）
-2. 端口矩阵 + 网络拓扑
-3. UX 打磨
-4. ops-toolkit-probes（3 个脚本）
+**延后范围**：
+- 完整实时大屏；
+- 复杂 underlay/overlay 拓扑交互；
+- d3 / echarts / vis.js 等可视化库选型；
+- ops-toolkit VPC/EVPN 专用探测脚本；
+- 存量 VPC 自动发现/自动认领。
 
-**依赖**：v3.2 / v3.3 后端 + v2.6.0 i18n
-
-**用户原话**：
-> "3.4 做前端其实我觉得这个前端的逻辑也很重要啊... 考虑到用户体验"
-> "当然你也不可能往十全十美，这个在后面再考虑吧"
+**QA**：
+- 后端 SDN/设备相关测试通过；
+- 前端 SDN/VPC 组件测试通过；
+- 前端 lint + build 通过；
+- OpenSpec `v34-sdn-vpc-workspace --strict` 通过；
+- 浏览器验证 `/sdn-vpc` 页面加载、API 200、控制台无错误。
 
 ---
 

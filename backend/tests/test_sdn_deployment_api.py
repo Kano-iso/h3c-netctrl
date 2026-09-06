@@ -31,6 +31,8 @@ def _create_device(db, name="Leaf-04", ip="192.168.100.5"):
         username="test",
         password_encrypted="encrypted",
         protected_interfaces="[]",
+        platform="LSTN",
+        sdn_role="evpn_leaf",
     )
     db.add(dev)
     db.commit()

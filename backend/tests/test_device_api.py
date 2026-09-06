@@ -17,6 +17,25 @@ def test_create_device(client):
     assert data["success"] is True
     assert data["data"]["name"] == "SW-Test"
     assert data["data"]["host"] == "192.168.1.1"
+    assert data["data"]["sdn_role"] is None
+
+
+def test_update_device_sdn_role(client):
+    """设备可显式标记 SDN 业务角色；默认纳管不自动加入 EVPN Fabric。"""
+    create_resp = client.post("/api/devices", json={
+        "name": "SW-SDN",
+        "host": "192.168.1.10",
+        "port": 830,
+        "username": "admin",
+        "password": "Admin123!"
+    })
+    device_id = create_resp.json()["data"]["id"]
+
+    resp = client.put(f"/api/devices/{device_id}", json={"sdn_role": "evpn_leaf"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["success"] is True
+    assert data["data"]["sdn_role"] == "evpn_leaf"
 
 
 def test_list_devices(client):

@@ -54,6 +54,10 @@ class Device(Base):
     # - None: 老数据 / 未识别 → 运行时调 get_platform_for_model() 推算
     # 详见 design.md T1.13d + T1.13e 探针结论
     platform: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, index=True)
+    # v3.4 SDN/VPC: 业务角色，独立于 platform 下发通道。
+    # - evpn_leaf: 已加入 EVPN Fabric，可作为 VPC 下发/扩容目标
+    # - evpn_spine / access / None: 不作为 VPC 业务目标
+    sdn_role: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, index=True)
 
     # 一对一关联资产信息
     asset: Mapped["Asset"] = relationship("Asset", back_populates="device", uselist=False, cascade="all, delete-orphan")

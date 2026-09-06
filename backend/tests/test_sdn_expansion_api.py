@@ -31,6 +31,7 @@ def _create_device(db, name="Leaf-04", ip="192.168.100.5", platform="LSTN"):
         password_encrypted="encrypted",
         protected_interfaces="[]",
         platform=platform,
+        sdn_role="evpn_leaf" if platform else None,
     )
     db.add(dev)
     db.commit()
@@ -47,11 +48,11 @@ def _mark_deployment_success(db, deployment_id):
     return deployment
 
 
-def test_start_vpc_expansion_requires_leaf_device(client, db):
-    """扩容只能选择 Leaf 设备。"""
+def test_start_vpc_expansion_requires_evpn_fabric_device(client, db):
+    """扩容只能选择 EVPN Fabric 成员。"""
     tenant = _create_tenant(client)
     vpc = _create_vpc(client, tenant["id"])
-    edge = _create_device(db, name="Edge-01", ip="192.168.100.100", platform=None)
+    edge = _create_device(db, name="Leaf-Access-01", ip="192.168.100.100", platform=None)
 
     resp = client.post(
         f"/api/sdn/vpcs/{vpc['id']}/expansions",
@@ -66,6 +67,7 @@ def test_start_vpc_expansion_requires_leaf_device(client, db):
     data = resp.json()
     assert data["success"] is False
     assert data["error_key"] == "common.operation_failed"
+    assert "EVPN fabric" in data["error"]
 
 
 def test_start_vpc_expansion_applies_binding_and_enters_expanding(client, db):

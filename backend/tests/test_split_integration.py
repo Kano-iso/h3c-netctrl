@@ -87,13 +87,14 @@ def test_scenario3_running_backup_split(client, split_devices, db, tmp_path, mon
     f.write_text("fake running config\n")
     target_device = split_devices[0]
 
-    with patch("app.routers.backup.BackupManager") as MockBM:
+    with patch("app.routers.backup.check_asset_online"), \
+         patch("app.routers.backup._make_manager") as MockMakeManager:
         mock_mgr = MagicMock()
         mock_mgr.create_backup.return_value = [
             {"id": 1, "type": "running", "size": 100, "content_hash": "abc",
              "filename": "x.cfg", "created_at": "2026-07-03T10:00:00"}
         ]
-        MockBM.return_value = mock_mgr
+        MockMakeManager.return_value = mock_mgr
 
         resp = client.post(
             f"/api/devices/{target_device['id']}/backup",
@@ -119,13 +120,14 @@ def test_scenario4_backup_all_async_split(client, split_devices):
             time.sleep(0.05)
         raise TimeoutError(f"任务 {task_id} 在 {timeout}s 内未到达终态")
 
-    with patch("app.routers.backup.BackupManager") as MockBM:
+    with patch("app.routers.backup.check_asset_online"), \
+         patch("app.routers.backup._make_manager") as MockMakeManager:
         mock_mgr = MagicMock()
         mock_mgr.create_backup.return_value = [
             {"id": 1, "type": "running", "size": 100, "content_hash": "abc",
              "filename": "x.cfg", "created_at": "2026-07-03T10:00:00"}
         ]
-        MockBM.return_value = mock_mgr
+        MockMakeManager.return_value = mock_mgr
 
         start = time.time()
         resp = client.post("/api/backups-async", json={"types": ["running"]})

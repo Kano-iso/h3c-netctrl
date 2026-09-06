@@ -42,6 +42,8 @@ def _wrap_device_dict(d: dict) -> SimpleNamespace:
         _password_decrypted=d.get("password", ""),
         # v3.0 SDN: platform 字段（split 模式内部 API 透传）
         platform=d.get("platform"),
+        # v3.4 SDN: 业务角色字段（split 模式内部 API 透传）
+        sdn_role=d.get("sdn_role"),
     )
 
 

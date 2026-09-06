@@ -172,6 +172,7 @@ def create_device(body: DeviceCreate, db: Session = Depends(get_db)):
         username=body.username,
         password_encrypted=encrypted_pwd,
         protected_interfaces=json.dumps(body.protected_interfaces or []),
+        sdn_role=body.sdn_role,
     )
     db.add(device)
     db.commit()
@@ -210,6 +211,8 @@ def update_device(device_id: int, body: DeviceUpdate, db: Session = Depends(get_
             return error_response(err.DEVICE_CRYPTO_DECRYPT_FAILED)
     if body.protected_interfaces is not None:
         device.protected_interfaces = json.dumps(body.protected_interfaces)
+    if "sdn_role" in body.model_fields_set:
+        device.sdn_role = body.sdn_role
 
     db.commit()
     db.refresh(device)

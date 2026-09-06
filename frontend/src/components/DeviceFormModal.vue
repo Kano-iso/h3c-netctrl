@@ -20,6 +20,7 @@ const form = ref({
   username: '',
   password: '',
   protected_interfaces: '',
+  sdn_role: '',
 })
 const error = ref('')
 const busy = ref(false)
@@ -37,6 +38,7 @@ watch(() => [props.open, props.device], ([open, dev]) => {
       username: dev.username || '',
       password: '', // 编辑模式密码留空
       protected_interfaces: Array.isArray(dev.protected_interfaces) ? dev.protected_interfaces.join(',') : '',
+      sdn_role: dev.sdn_role || '',
     }
   } else {
     form.value = {
@@ -46,6 +48,7 @@ watch(() => [props.open, props.device], ([open, dev]) => {
       username: '',
       password: '',
       protected_interfaces: '',
+      sdn_role: '',
     }
   }
 }, { immediate: true })
@@ -83,6 +86,7 @@ const save = async () => {
       port: form.value.port || undefined,
       username: form.value.username.trim() || undefined,
       protected_interfaces: protectedList,
+      sdn_role: form.value.sdn_role || null,
     }
     if (form.value.password) payload.password = form.value.password
     r = await deviceApi.update(props.device.id, payload)
@@ -94,6 +98,7 @@ const save = async () => {
       username: form.value.username.trim(),
       password: form.value.password,
       protected_interfaces: protectedList,
+      sdn_role: form.value.sdn_role || null,
     }
     r = await deviceApi.create(payload)
   }
@@ -152,6 +157,16 @@ const save = async () => {
               <label class="text-xs text-ink-700 font-medium block mb-1">{{ t('form.device.protected_label', '保护口（if_index）') }}</label>
               <input v-model="form.protected_interfaces" :disabled="busy" class="input font-mono" :placeholder="t('form.device.protected_ph', '逗号分隔，如 1,5,22')" />
               <div class="text-[10px] text-ink-500 mt-1">{{ t('form.device.protected_hint', '填入的接口在配置下发时会被拦截保护，需 force=true 强制通过') }}</div>
+            </div>
+            <div>
+              <label class="text-xs text-ink-700 font-medium block mb-1">{{ t('form.device.sdn_role_label') }}</label>
+              <select v-model="form.sdn_role" :disabled="busy" class="input">
+                <option value="">{{ t('form.device.sdn_role_none') }}</option>
+                <option value="evpn_leaf">{{ t('form.device.sdn_role_evpn_leaf') }}</option>
+                <option value="evpn_spine">{{ t('form.device.sdn_role_evpn_spine') }}</option>
+                <option value="access">{{ t('form.device.sdn_role_access') }}</option>
+              </select>
+              <div class="text-[10px] text-ink-500 mt-1">{{ t('form.device.sdn_role_hint') }}</div>
             </div>
           </div>
           <div class="px-5 py-3 border-t border-canvas-300 flex justify-end gap-2">

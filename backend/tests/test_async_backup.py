@@ -325,13 +325,14 @@ def test_backups_async_success_with_2_devices(client, db):
     db.add_all([d1, d2])
     db.commit()
 
-    with patch("app.routers.backup.BackupManager") as MockBM:
+    with patch("app.routers.backup.check_asset_online"), \
+         patch("app.routers.backup._make_manager") as MockMakeManager:
         mock_mgr = MagicMock()
         mock_mgr.create_backup.return_value = [
             {"id": 1, "type": "startup", "size": 100, "content_hash": "abc",
              "filename": "x.cfg", "created_at": "2026-06-29T10:00:00"}
         ]
-        MockBM.return_value = mock_mgr
+        MockMakeManager.return_value = mock_mgr
 
         resp = client.post("/api/backups-async", json={"types": ["startup"]})
         task_id = resp.json()["data"]["task_id"]

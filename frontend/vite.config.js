@@ -18,7 +18,7 @@ const BACKEND = 'http://backend:8000'
 // /api/devices/{id}/execute 等端点被错误路由到 ctrl 容器。
 // 优先级：data 容器（备份/任务/资产）→ config 容器（执行/接口/VLAN/VPN/batch）→ ctrl 兜底（CRUD/test/dashboard/logs）
 const DATA_PATTERN = /^\/api\/(?:devices\/\d+\/backup(?:-async)?(?:\/\d+\/(?:lock|restore|restore-async))?|tasks(?:\/.*)?|assets(?:\/.*)?|backups(?:-async)?(?:\/.*)?)\/?$/
-const CONFIG_PATTERN = /^\/api\/(?:devices\/\d+\/(?:execute|interfaces|vlans|vpn-instances|interfaces\/\d+\/(?:link-type|link-mode|ipv4-address|vpn-instance))|batch(?:\/.*)?|interfaces(?:\/.*)?|vlans(?:\/.*)?|execute(?:\/.*)?)\/?$/
+const CONFIG_PATTERN = /^\/api\/(?:devices\/\d+\/(?:execute|interfaces|vlans|vpn-instances|interfaces\/\d+\/(?:link-type|link-mode|ipv4-address|vpn-instance))|batch(?:\/.*)?|interfaces(?:\/.*)?|vlans(?:\/.*)?|execute(?:\/.*)?|sdn(?:\/.*)?)\/?$/
 
 // v2.6.1 fix-backup-data-integrity Task 1: 纯 GET 下载 URL（/api/devices/{id}/backup/{id} 无后缀）
 // 上面 DATA_PATTERN 只覆盖了 lock/restore/restore-async 后缀，纯下载 URL 走兜底 → ctrl → 404

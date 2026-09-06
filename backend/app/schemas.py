@@ -16,6 +16,7 @@ class DeviceCreate(BaseModel):
     username: str
     password: str
     protected_interfaces: Optional[List[int]] = None
+    sdn_role: Optional[str] = Field(default=None, pattern="^(evpn_leaf|evpn_spine|access)$")
 
 
 class DeviceUpdate(BaseModel):
@@ -25,6 +26,7 @@ class DeviceUpdate(BaseModel):
     username: Optional[str] = None
     password: Optional[str] = None
     protected_interfaces: Optional[List[int]] = None
+    sdn_role: Optional[str] = Field(default=None, pattern="^(evpn_leaf|evpn_spine|access)$")
 
 
 class DeviceResponse(BaseModel):
@@ -46,6 +48,8 @@ class DeviceResponse(BaseModel):
     # - RSTN: H3C V7 RSTN 新芯片平台 → L2VPN 业务走 schema 化 NETCONF
     # - None: 未识别（executor 运行时调 get_platform_for_model() 推算）
     platform: Optional[str] = None
+    # v3.4 SDN/VPC: 设备业务角色，只有 evpn_leaf 可作为 VPC 编排目标
+    sdn_role: Optional[str] = None
 
     @field_validator("protected_interfaces", mode="before")
     @classmethod
@@ -255,7 +259,7 @@ class SdnPortBindingResponse(BaseModel):
 class SdnVpcFabricOperationRequest(BaseModel):
     """VPC 级 Fabric 编排请求。
 
-    device_ids 不传时按默认 Leaf 候选选择；auto_apply 默认 false，先生成计划，人工确认后再 apply。
+    device_ids 不传时按默认 EVPN Fabric 成员选择；auto_apply 默认 false，先生成计划，人工确认后再 apply。
     """
     device_ids: Optional[List[int]] = None
     auto_apply: bool = False

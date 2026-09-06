@@ -118,6 +118,7 @@ async function loadDevices() {
         name: d.name,
         host: d.host,
         port: d.port,
+        sdn_role: d.sdn_role || null,
         model: a.model || '—',
         software: a.software_package || '—',
         status: a.status || null,

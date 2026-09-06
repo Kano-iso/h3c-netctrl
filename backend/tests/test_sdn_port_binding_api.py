@@ -16,7 +16,7 @@ def _create_vpc(client, tenant_id, name="vpc-1", cidr="192.168.10.0/24"):
     ).json()["data"]
 
 
-def _create_device(db, name="Leaf-04", ip="192.168.100.5", protected="[]"):
+def _create_device(db, name="Leaf-04", ip="192.168.100.5", protected="[]", platform="LSTN", sdn_role="evpn_leaf"):
     dev = Device(
         name=name,
         host=ip,
@@ -24,6 +24,8 @@ def _create_device(db, name="Leaf-04", ip="192.168.100.5", protected="[]"):
         username="test",
         password_encrypted="encrypted",
         protected_interfaces=protected,
+        platform=platform,
+        sdn_role=sdn_role,
     )
     db.add(dev)
     db.commit()
@@ -67,6 +69,24 @@ def test_create_port_binding_rejects_protected_interface(client, db):
     data = resp.json()
     assert data["success"] is False
     assert data["error_key"] == "interface.protected_blocked"
+
+
+def test_create_port_binding_rejects_non_evpn_fabric_device(client, db):
+    """名字像 Leaf 但未标记为 EVPN Fabric 成员时不能做 VPC 绑定。"""
+    tenant = _create_tenant(client)
+    vpc = _create_vpc(client, tenant["id"])
+    dev = _create_device(db, name="Leaf-Access-01", ip="192.168.100.4", platform="LSTN", sdn_role=None)
+
+    resp = client.post("/api/sdn/port-bindings", json={
+        "device_id": dev.id,
+        "vpc_id": vpc["id"],
+        "if_index": 14,
+        "interface_name": "GigabitEthernet1/0/14",
+    })
+    data = resp.json()
+    assert data["success"] is False
+    assert data["error_key"] == "common.operation_failed"
+    assert "EVPN fabric" in data["error"]
 
 
 def test_create_port_binding_rejects_duplicate_active_or_planned(client, db):

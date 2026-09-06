@@ -51,6 +51,65 @@ export const ztpApi = {
     apiCall('/ztp/recovery-override', { method: 'DELETE' }),
 }
 
+// SDN / VPC 工作台（v3.4）
+export const sdnApi = {
+  listTenants: () => apiCall('/sdn/tenants'),
+  createTenant: (payload) =>
+    apiCall('/sdn/tenants', { method: 'POST', body: JSON.stringify(payload) }),
+
+  listVpcs: (params = {}) => {
+    const qs = new URLSearchParams(
+      Object.entries(params).filter(([, value]) => value !== undefined && value !== null && value !== '')
+    ).toString()
+    return apiCall(`/sdn/vpcs${qs ? '?' + qs : ''}`)
+  },
+  getVpc: (id) => apiCall(`/sdn/vpcs/${id}`),
+  createVpc: (payload) =>
+    apiCall('/sdn/vpcs', { method: 'POST', body: JSON.stringify(payload) }),
+  deployVpc: (id, payload) =>
+    apiCall(`/sdn/vpcs/${id}/deploy`, { method: 'POST', body: JSON.stringify(payload || {}) }),
+  withdrawVpc: (id, payload) =>
+    apiCall(`/sdn/vpcs/${id}/withdraw`, { method: 'POST', body: JSON.stringify(payload || {}) }),
+  redeployVpc: (vpcId, deviceId, autoApply = false) =>
+    apiCall(`/sdn/vpcs/${vpcId}/devices/${deviceId}/redeploy?auto_apply=${autoApply ? 'true' : 'false'}`, { method: 'POST' }),
+  deployGateway: (vpcId, deviceId, autoApply = false) =>
+    apiCall(`/sdn/vpcs/${vpcId}/devices/${deviceId}/gateway/deploy?auto_apply=${autoApply ? 'true' : 'false'}`, { method: 'POST' }),
+  undeployGateway: (vpcId, deviceId) =>
+    apiCall(`/sdn/vpcs/${vpcId}/devices/${deviceId}/gateway/undeploy`, { method: 'POST' }),
+
+  listPortBindings: (params = {}) => {
+    const qs = new URLSearchParams(
+      Object.entries(params).filter(([, value]) => value !== undefined && value !== null && value !== '')
+    ).toString()
+    return apiCall(`/sdn/port-bindings${qs ? '?' + qs : ''}`)
+  },
+  createPortBinding: (payload) =>
+    apiCall('/sdn/port-bindings', { method: 'POST', body: JSON.stringify(payload) }),
+  deployPortBinding: (id, mode = 'auto') =>
+    apiCall(`/sdn/port-bindings/${id}/deploy`, { method: 'POST', body: JSON.stringify({ mode }) }),
+  undeployPortBinding: (id) =>
+    apiCall(`/sdn/port-bindings/${id}/undeploy`, { method: 'POST' }),
+
+  startExpansion: (vpcId, payload) =>
+    apiCall(`/sdn/vpcs/${vpcId}/expansions`, { method: 'POST', body: JSON.stringify(payload) }),
+  completeExpansion: (vpcId, bindingId, payload) =>
+    apiCall(`/sdn/vpcs/${vpcId}/expansions/${bindingId}/complete`, { method: 'POST', body: JSON.stringify(payload) }),
+
+  listDeployments: (params = {}) => {
+    const qs = new URLSearchParams(
+      Object.entries(params).filter(([, value]) => value !== undefined && value !== null && value !== '')
+    ).toString()
+    return apiCall(`/sdn/deployments${qs ? '?' + qs : ''}`)
+  },
+  applyDeployment: (id) =>
+    apiCall(`/sdn/deployments/${id}/apply`, { method: 'POST' }),
+
+  syncValidation: (vpcId, deviceId, force = false) =>
+    apiCall(`/sdn/vpcs/${vpcId}/devices/${deviceId}/validation/sync?force=${force ? 'true' : 'false'}`, { method: 'POST' }),
+  latestValidation: (vpcId, deviceId) =>
+    apiCall(`/sdn/vpcs/${vpcId}/devices/${deviceId}/validation/latest`),
+}
+
 // 运维终端 —— 在设备上执行命令
 // run(deviceId, payload) 接受：
 //   - { command: "display version" }                单命令（向后兼容）
