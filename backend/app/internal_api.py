@@ -146,6 +146,16 @@ def get_device(device_id: int) -> dict:
     return _internal_get(f"{CTRL_URL}/internal/devices/{device_id}")
 
 
+def get_device_fresh(device_id: int) -> dict:
+    """绕过 5s 缓存的设备查询（apply 前权威元数据重校验）。
+
+    S1 要求执行前重拉权威 sdn_role/protected_interfaces，不能用缓存静默放行。
+    """
+    key = _cache_key(f"{CTRL_URL}/internal/devices/{device_id}")
+    _cache.pop(key, None)
+    return _internal_get(f"{CTRL_URL}/internal/devices/{device_id}")
+
+
 def write_log(device_id: int, action: str, status: str, detail: str) -> dict:
     """写操作日志到 ctrl 容器"""
     return _internal_post(f"{CTRL_URL}/internal/logs", {

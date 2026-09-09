@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, Index, Integer, String, Text, ForeignKey, func
+from sqlalchemy import Boolean, DateTime, Index, Integer, String, Text, ForeignKey, func, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -191,6 +191,8 @@ class SdnVpc(Base):
     auto_assigned: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)
     description: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    # S1: 配置版本号，任何 mutation 递增；读取/验证不 bump
+    version: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
@@ -213,6 +215,16 @@ class SdnPortBinding(Base):
     本 change 仅建表，CRUD 端点留 sdn-port-binding。
     """
     __tablename__ = "sdn_port_bindings"
+    __table_args__ = (
+        # CR3: 同一 (device_id, if_index) 至多一条未释放(live)绑定；历史 unbound 行不受限。
+        Index(
+            "uq_sdn_port_bindings_live",
+            "device_id",
+            "if_index",
+            unique=True,
+            sqlite_where=text("status != 'unbound'"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     device_id: Mapped[int] = mapped_column(
@@ -229,6 +241,11 @@ class SdnPortBinding(Base):
     access_vlan: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     service_instance: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="planned", nullable=False)
+    # S1: 版本号 + 不可变创建来源 + 可变最近变更者 + 关联操作
+    version: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_by_operation_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    last_changed_by_operation_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    operation_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
@@ -275,6 +292,14 @@ class SdnDeployment(Base):
     planned_config: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)
     error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # S1: 关联操作 + 版本号 + 认领时间/认领 attempt
+    operation_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
+    version: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    claimed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    claimed_by_attempt_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # S1-006 CR8: 配置下发完成/回读时间（因果 token，不得用 created_at 作完成证据）
+    config_started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    config_completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
@@ -311,4 +336,167 @@ class SdnValidationSnapshot(Base):
     snapshot_data: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     validation_result: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     validation_details: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # S1: 关联操作/尝试 + 采集开始/完成时间（因果窗口）
+    operation_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
+    attempt_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    collection_started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    collection_completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+# ── v3.4 S1 终端接入：操作/尝试/单元/计划/资源声明/身份快照 ──
+# 证据表对父资源（tenant/vpc/binding/device）一律存普通整数，不建外键，不随父表级联删除。
+# attempts/units 仅从 operation/attempt 级联（operation 永不删，级联安全）。
+
+
+class SdnPlan(Base):
+    """服务端预览计划（S1）
+
+    plan_id 服务端生成不可变；semantic_hash 用于 stale 检测（≠ 请求 fingerprint）。
+    预览只写这一条，不写设备、不建 binding/deployment/operation。
+    """
+    __tablename__ = "sdn_plans"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    plan_id: Mapped[str] = mapped_column(String(36), unique=True, nullable=False)
+    semantic_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    version_snapshot_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    scope_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="valid", nullable=False)  # valid/consumed/expired/superseded
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class SdnOperation(Base):
+    """终端接入/撤回操作（S1）
+
+    无公开删除路径，永久保留。tenant_id/vpc_id/device_id 为普通整数（无外键）。
+    plan_id 存 sdn_plans.plan_id 字符串（按值引用，非外键）。
+    """
+    __tablename__ = "sdn_operations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    idempotency_key: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    operation_type: Mapped[str] = mapped_column(String(30), nullable=False)  # terminal_access / terminal_withdraw
+    tenant_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    vpc_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    device_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    plan_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    expected_host_ip: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    request_payload_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    scope_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(30), default="planned", nullable=False)
+    # planned/applied/claimed/awaiting_wiring/applying/awaiting_validation/validating/succeeded/degraded/failed/withdrawn/withdrawing/reconciling/unknown
+    # CR30: 当前动作代际令牌——准入时绑定 phase+attempt，收尾 CAS 匹配后原子清空（持久化于 DB，非进程内）
+    active_attempt_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    active_started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class SdnAttempt(Base):
+    """执行/验证/对账尝试（S1）
+
+    attempts 从 operation 级联（operation 永不删）；deployment_id 为普通整数（无外键）。
+    """
+    __tablename__ = "sdn_attempts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    operation_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("sdn_operations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    deployment_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    kind: Mapped[str] = mapped_column(String(20), nullable=False)  # execute / validate / reconcile
+    status: Mapped[str] = mapped_column(String(20), default="claimed", nullable=False)
+    # claimed / running / succeeded / failed_known / unknown
+    owner: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    claimed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    scope_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # S1-007 CR17: validate/reconcile attempt 的四维证据 + 网关 ping 结果
+    evidence_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class SdnAttemptUnit(Base):
+    """逐单元执行状态（S1）
+
+    state: not_started / started / succeeded / failed_known / unknown
+    设备 I/O 前写 started，I/O 后写终态 + evidence。
+    """
+    __tablename__ = "sdn_attempt_units"
+    __table_args__ = (
+        UniqueConstraint("attempt_id", "unit_index", name="uq_attempt_unit"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    attempt_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("sdn_attempts.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    unit_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    unit_name: Mapped[str] = mapped_column(String(50), nullable=False)
+    state: Mapped[str] = mapped_column(String(20), default="not_started", nullable=False)
+    evidence_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class SdnResourceClaim(Base):
+    """未释放资源声明（S1）
+
+    互斥靠部分唯一索引 (resource_key) WHERE released_at IS NULL（在迁移 012 建立），
+    覆盖 held 与 ambiguous：两者的 released_at 均为 NULL，都独占该资源。
+    """
+    __tablename__ = "sdn_resource_claims"
+    __table_args__ = (
+        Index(
+            "uq_sdn_resource_claims_active",
+            "resource_key",
+            unique=True,
+            sqlite_where=text("released_at IS NULL"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    resource_key: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    owner_operation_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    owner_attempt_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="held", nullable=False)  # held / released / ambiguous
+    claimed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    released_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class SdnIdentitySnapshot(Base):
+    """父对象/受影响后代的身份快照（S1）
+
+    父硬删除前写入；删除后历史仍可追溯。
+    """
+    __tablename__ = "sdn_identity_snapshots"
+    __table_args__ = (
+        Index("ix_identity_kind_id_created", "entity_kind", "entity_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    entity_kind: Mapped[str] = mapped_column(String(30), nullable=False)  # tenant/vpc/device/binding/deployment/snapshot
+    entity_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    identity_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

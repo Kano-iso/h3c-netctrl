@@ -1,0 +1,272 @@
+{
+  "_meta": {
+    "kind": "proposed-contract",
+    "note": "本文件是 S1 终端接入闭环的后端契约样本，供前端理解和 fixture 使用。S1-005 已落地 endpoints（见 backend/app/routers/sdn_access.py），状态、对象 ID、证据时间与操作归属已做自洽示例。",
+    "not_implemented": false,
+    "base_endpoints": {
+      "preview": "POST /api/sdn/vpcs/{vpc_id}/access-preview",
+      "start": "POST /api/sdn/vpcs/{vpc_id}/access",
+      "operation": "GET /api/sdn/operations/{operation_id}",
+      "complete": "POST /api/sdn/operations/{operation_id}/complete",
+      "withdraw": "POST /api/sdn/operations/{operation_id}/withdraw",
+      "overview": "GET /api/sdn/vpcs/{vpc_id}/access-overview"
+    },
+    "four_dimension_status": {
+      "execution": "deployment.status: pending|running|success|failed|unknown（attempt/unit 逐单元状态另见 attempt_unit_states）",
+      "config_readback": "校验快照中是否有本次操作后的配置回读证据",
+      "business_validation": "validation_result: active|degraded|failed|insufficient",
+      "evidence": "{ collected_at, cached, source }"
+    }
+  },
+  "examples": {
+    "normal_access_awaiting_wiring": {
+      "request": {
+        "method": "POST",
+        "path": "/api/sdn/vpcs/1/access",
+        "body": {
+          "idempotency_key": "op-9f3a-0001",
+          "device_id": 5,
+          "if_index": 2,
+          "interface_name": "GigabitEthernet1/0/2",
+          "service_instance": 3200,
+          "expected_host_ip": "10.1.1.2",
+          "auto_apply": true
+        }
+      },
+      "response": {
+        "success": true,
+        "data": {
+          "operation_id": 100,
+          "operation_type": "terminal_access",
+          "status": "awaiting_wiring",
+          "execution": "success",
+          "vpc": { "id": 1, "name": "研发网络", "status": "expanding", "cidr": "10.1.1.0/24", "gateway_ip": "10.1.1.254", "vni": 20000, "vsi_name": "vpc0001", "vsi_interface": 1000 },
+          "tenant": { "id": 1, "name": "研发", "rd": "100:1", "l3_vni": 10000 },
+          "device": { "id": 5, "name": "Leaf-04", "host": "192.168.100.5", "sdn_role": "evpn_leaf", "platform": "LSTN" },
+          "binding": { "id": 10, "device_id": 5, "vpc_id": 1, "if_index": 2, "interface_name": "GigabitEthernet1/0/2", "service_instance": 3200, "status": "expanding", "operation_id": 100, "created_at": "2026-09-07T10:00:02Z" },
+          "deployments": [
+            { "id": 200, "action": "port_bind", "unit": "port-bind", "status": "success", "operation_id": 100, "created_at": "2026-09-07T10:00:02Z" }
+          ],
+          "next_status": "awaiting_wiring",
+          "expected_host_ip": "10.1.1.2"
+        }
+      }
+    },
+    "normal_validation_success": {
+      "request": { "method": "POST", "path": "/api/sdn/operations/100/complete", "body": { "expected_host_ip": "10.1.1.2" } },
+      "response": {
+        "success": true,
+        "data": {
+          "operation_id": 100,
+          "status": "succeeded",
+          "attempt_id": "v-100-1",
+          "scope": { "vpc_id": 1, "device_id": 5, "binding_id": 10, "config_version": "deployment-200" },
+          "execution": "success",
+          "config_readback": { "ok": true, "evidence": ["display l2vpn vsi name vpc0001 verbose", "display current-configuration interface GigabitEthernet1/0/2"] },
+          "business_validation": { "result": "active", "details": { "bgp_peer_established": true, "vsi_up": true, "type2_present": true, "arp_present": true } },
+          "ping": { "command": "ping -a 10.1.1.254 -vpn-instance sdn_l3vpn 10.1.1.2", "success": true },
+          "limitations": ["本地网关探测通过不代表跨 Leaf 端到端成功", "仅证明本地下联可达，不含应用层通信"],
+          "evidence": { "snapshot_id": 50, "attempt_id": "v-100-1", "collection_started_at": "2026-09-07T10:02:00Z", "collection_completed_at": "2026-09-07T10:02:05Z", "cached": false, "source": "fresh-display-collect", "causal_ok": true, "config_completed_at": "2026-09-07T10:01:00Z" }
+        }
+      }
+    },
+    "unknown_and_missing_evidence": {
+      "request": { "method": "POST", "path": "/api/sdn/operations/100/complete", "body": { "expected_host_ip": "10.1.1.2" } },
+      "response": {
+        "success": true,
+        "data": {
+          "operation_id": 100,
+          "status": "awaiting_validation",
+          "execution": "success",
+          "config_readback": { "ok": true },
+          "business_validation": { "result": "insufficient", "details": { "arp_present": false, "type2_present": false, "reason": "未观察到该主机学习信息" } },
+          "ping": { "success": false },
+          "evidence": { "snapshot_id": 51, "collected_at": "2026-09-07T10:03:00Z", "cached": false, "source": "fresh-display-collect" },
+          "note": "采集成功但未发现终端学习证据，判定为证据不足，不代表主机故障"
+        }
+      }
+    },
+    "stale_evidence_rejected": {
+      "request": { "method": "POST", "path": "/api/sdn/operations/100/complete", "body": { "expected_host_ip": "10.1.1.2", "force_validation": false } },
+      "response": {
+        "success": true,
+        "data": {
+          "operation_id": 100,
+          "status": "awaiting_validation",
+          "evidence": { "snapshot_id": 40, "collected_at": "2026-09-07T09:00:00Z", "cached": true, "source": "cache-hit" },
+          "business_validation": { "result": "stale" },
+          "error": "旧缓存不能证明本次接入成功，需发起新采集",
+          "next_action": "force_validation"
+        }
+      }
+    },
+    "collection_failure_explicit": {
+      "request": { "method": "POST", "path": "/api/sdn/vpcs/1/devices/5/validation/sync", "body": {} },
+      "response": {
+        "success": true,
+        "data": {
+          "business_validation": { "result": "insufficient" },
+          "evidence": { "source": "collect-failed", "collected_at": "2026-09-07T10:04:00Z" },
+          "collect_failed_commands": ["display l2vpn mac-address"],
+          "note": "采集失败不是空列表，也不是主机故障"
+        }
+      }
+    },
+    "partial_failure": {
+      "request": { "method": "POST", "path": "/api/sdn/vpcs/1/access", "body": { "idempotency_key": "op-9f3a-0002", "device_id": 5, "if_index": 3, "interface_name": "GigabitEthernet1/0/3", "service_instance": 3201, "expected_host_ip": "10.1.1.3", "auto_apply": true } },
+      "response": {
+        "success": true,
+        "data": {
+          "operation_id": 101,
+          "status": "failed",
+          "execution": "failed",
+          "deployments": [
+            { "id": 201, "action": "port_bind", "unit": "port-bind", "status": "failed", "error": "配置下发失败 (unit=port-bind, stage=cmd_failed): ...", "operation_id": 101 }
+          ],
+          "completed_part": null,
+          "unknown_part": ["该接口是否残留部分配置需回读确认"],
+          "note": "首错即停，已完成部分与未执行部分分开表达，不从一个最终状态伪造中间事件"
+        }
+      }
+    },
+    "preview_invalidated": {
+      "request": { "method": "POST", "path": "/api/sdn/vpcs/1/access", "body": { "idempotency_key": "op-9f3a-0003", "plan_id": "plan-0003-xxxx" } },
+      "response": {
+        "success": false,
+        "error_key": "sdn.plan_stale",
+        "error": "计划失效：预览后 VPC 或目标端口已被其他入口改变，请重新预览",
+        "data": { "operation_id": null, "status": "rejected", "note": "执行只接受 plan_id，不接受客户端 preview_fingerprint" }
+      }
+    },
+    "duplicate_request": {
+      "request": { "method": "POST", "path": "/api/sdn/vpcs/1/access", "body": { "idempotency_key": "op-9f3a-0001", "plan_id": "plan-0001-xxxx", "device_id": 5, "if_index": 2, "interface_name": "GigabitEthernet1/0/2", "service_instance": 3200, "expected_host_ip": "10.1.1.2", "auto_apply": true } },
+      "response": {
+        "success": true,
+        "data": { "operation_id": 100, "status": "awaiting_wiring", "duplicate": true, "note": "相同幂等键 + 相同授权 scope + 相同归一化请求 + 相同 plan_id 返回已存在操作，不重复建绑定/下发" }
+      }
+    },
+    "controlled_withdraw": {
+      "request": { "method": "POST", "path": "/api/sdn/operations/100/withdraw", "body": {} },
+      "response": {
+        "success": true,
+        "data": {
+          "operation_id": 100,
+          "operation_type": "terminal_withdraw",
+          "status": "withdrawn",
+          "withdrawn_binding": { "id": 10, "status": "unbound", "operation_id": 100 },
+          "deployments": [ { "id": 202, "action": "port_unbind", "unit": "port-unbind", "status": "success", "operation_id": 100 } ],
+          "kept": ["vpc=1(研发网络)", "gateway=10.1.1.254", "tenant=1(研发)", "其他端口绑定"],
+          "note": "只撤回本次新建且无新引用的绑定，保留 VPC/网关/租户与其他端口"
+        }
+      }
+    },
+    "idempotency_conflict": {
+      "request": { "method": "POST", "path": "/api/sdn/vpcs/1/access", "body": { "idempotency_key": "op-9f3a-0001", "device_id": 6, "if_index": 9, "interface_name": "GigabitEthernet1/0/9", "service_instance": 3299, "expected_host_ip": "10.1.1.9" } },
+      "response": {
+        "success": false,
+        "error_key": "sdn.idempotency_conflict",
+        "error": "相同幂等键对应不同请求，拒绝执行",
+        "data": { "operation_id": null, "status": "conflict", "duplicate": false, "note": "不返回原请求 A 的操作内容，避免跨请求泄漏" }
+      }
+    },
+    "crash_reconcile_unknown": {
+      "request": { "method": "GET", "path": "/api/sdn/operations/102" },
+      "response": {
+        "success": true,
+        "data": {
+          "operation_id": 102,
+          "status": "unknown",
+          "execution": "unknown",
+          "attempt": { "attempt_id": "e-102-1", "status": "running", "started_at": "2026-09-07T10:05:00Z", "completed_at": null },
+          "note": "设备 I/O 已开始但完成事实未落库，需回读设备对账；不盲目重试",
+          "next_action": "reconcile"
+        }
+      }
+    },
+    "predeploy_missing_blocked": {
+      "request": { "method": "POST", "path": "/api/sdn/vpcs/1/access", "body": { "idempotency_key": "op-9f3a-0004", "device_id": 5, "if_index": 4, "interface_name": "GigabitEthernet1/0/4", "service_instance": 3204, "expected_host_ip": "10.1.1.4" } },
+      "response": {
+        "success": false,
+        "error_key": "sdn.predeploy_missing",
+        "error": "目标 Leaf 未部署该 VPC，缺少前置部署",
+        "data": {
+          "operation_id": null,
+          "status": "blocked",
+          "predeploy_proof": { "config_version": null, "latest_change": "delete(success)", "observation": null, "verdict": "invalid" },
+          "note": "不把端口接入静默扩大为整机 VPC 部署",
+          "context_action": "POST /api/sdn/vpcs/1/deploy"
+        }
+      }
+    },
+    "attempt_unit_states": {
+      "request": { "method": "GET", "path": "/api/sdn/operations/103" },
+      "response": {
+        "success": true,
+        "data": {
+          "operation_id": 103,
+          "status": "unknown",
+          "attempt": { "attempt_id": "e-103-1", "kind": "execute", "status": "unknown", "started_at": "2026-09-07T10:10:00Z", "completed_at": null },
+          "units": [
+            { "unit_index": 0, "unit_name": "port-bind", "state": "started", "started_at": "2026-09-07T10:10:01Z", "completed_at": null, "evidence": null },
+            { "unit_index": 1, "unit_name": "readback", "state": "not_started", "started_at": null, "completed_at": null, "evidence": null }
+          ],
+          "note": "unit 0 仅 started 无终态 → unknown，阻塞依赖 unit 1，需显式 reconcile；读不触发设备 I/O"
+        }
+      }
+    },
+    "claim_contention": {
+      "request": { "method": "POST", "path": "/api/sdn/vpcs/1/access", "body": { "idempotency_key": "op-9f3a-0005", "device_id": 5, "if_index": 2, "interface_name": "GigabitEthernet1/0/2", "service_instance": 3200 } },
+      "response": {
+        "success": false,
+        "error_key": "sdn.resource_busy",
+        "error": "资源已被其他操作持有：device-port:5:2",
+        "data": { "operation_id": null, "status": "blocked", "contended_resource": "device-port:5:2" }
+      }
+    },
+    "deleted_parent_history": {
+      "request": { "method": "GET", "path": "/api/sdn/operations/104" },
+      "response": {
+        "success": true,
+        "data": {
+          "operation_id": 104,
+          "status": "withdrawn",
+          "scope": {
+            "vpc": { "id": 7, "name": "已删除研发网络", "cidr": "10.7.0.0/24", "deleted": true, "deleted_at": "2026-09-07T11:00:00Z" },
+            "device": { "id": 5, "name": "Leaf-04", "host": "192.168.100.5" },
+            "binding": { "id": 77, "interface_name": "GigabitEthernet1/0/2", "deleted": true }
+          },
+          "note": "父对象已删除，但操作/尝试/单元证据非级联保留，身份来自 scope 快照与 sdn_identity_snapshots"
+        }
+      }
+    },
+    "crash_unknown_unit": {
+      "request": { "method": "GET", "path": "/api/sdn/operations/105" },
+      "response": {
+        "success": true,
+        "data": {
+          "operation_id": 105,
+          "status": "unknown",
+          "attempts": [
+            {
+              "attempt_id": 300,
+              "kind": "execute",
+              "status": "unknown",
+              "deployment_id": 201,
+              "units": [
+                { "unit_index": 0, "unit_name": "port-bind", "state": "started", "started_at": "2026-09-07T12:00:00Z", "completed_at": null, "evidence": null }
+              ]
+            }
+          ],
+          "note": "设备 I/O 前写 started 后崩溃/超时：单元无终态，不盲目重放，需显式 reconcile 对账后释放 claim"
+        }
+      }
+    },
+    "reconcile_release": {
+      "request": { "method": "POST", "path": "/api/sdn/operations/105/reconcile", "body": {} },
+      "response": {
+        "success": true,
+        "data": { "operation_id": 105, "status": "unknown", "reconciled": true, "note": "显式对账读设备后将歧义 claim 释放" }
+      }
+    }
+  }
+}

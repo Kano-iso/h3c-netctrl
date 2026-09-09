@@ -14,6 +14,7 @@ from app.database import Base, engine
 from app.routers import device, vlan, log, dashboard, asset, execute, batch, interface, backup
 from app.routers import ctrl_internal, data_internal
 from app.routers import sdn
+from app.routers import sdn_access
 from app.routers import ztp
 from app.utils.logger import setup_logging
 
@@ -54,6 +55,7 @@ app.include_router(interface.router, prefix="/api")
 app.include_router(backup.router, prefix="/api")
 # v3.0 SDN/VPC 路由（monolith 模式也注册，便于前端 monolith 跑能用 sdn 端点）
 app.include_router(sdn.router)  # sdn router 自带 prefix=/api/sdn
+app.include_router(sdn_access.router)  # S1 终端接入端点，自带 prefix=/api/sdn
 app.include_router(ztp.router)
 
 # 内部端点（v241-container-split，测试用，monolith 模式也注册）

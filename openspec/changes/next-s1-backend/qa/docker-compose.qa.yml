@@ -1,0 +1,46 @@
+# S1-005 独立 QA Compose 定义（本包用其构建并跑测试，不触碰生产容器/DB/凭据）
+#
+# 目标：用现有 backend/Dockerfile.qa 跑 SDN 单元/迁移测试，完全隔离于主线。
+# 隔离要点：
+#   - 无 env_file（不继承生产 .env / 凭据）
+#   - 无 docker.sock 挂载（契约/单元/迁移测试不需要故障注入）
+#   - 无固定 container_name（run 时自动命名）
+#   - 无 depends_on / 外部服务依赖
+#   - 无生产数据挂载（不挂 ./data、不挂备份卷）
+#   - 测试 DB 走容器内 /tmp（tmpfs），不落盘污染
+#   - 只读挂载 backend 源码（含 tests），复用 Dockerfile COPY 的依赖层
+#   - PYTHONDONTWRITEBYTECODE + 关闭 pytest cache，避免写只读 /app
+#
+# 校验：docker compose -f openspec/changes/next-s1-backend/qa/docker-compose.qa.yml config
+# 构建：docker compose -f ... build qa-backend
+# 运行：docker compose -f ... run --rm qa-backend python -m pytest tests/test_sdn_operation_service.py -q
+
+name: next-s1-qa
+
+services:
+  qa-backend:
+    build:
+      # Dockerfile.qa 的 build context 是 worktree 根（COPY backend/... 、COPY docs/...）
+      # 本文件位于 openspec/changes/next-s1-backend/qa/，向上 4 层回到 worktree 根。
+      context: ../../../..
+      dockerfile: backend/Dockerfile.qa
+    image: next-s1-qa-backend:local
+    working_dir: /app
+    environment:
+      # 合成测试值，非生产凭据
+      DB_PATH: /tmp/next-s1-qa.db
+      ENCRYPTION_KEY: "next-s1-qa-synthetic-key-not-a-secret"
+      INTERNAL_API_TOKEN: "qa-synthetic-token"
+      SERVICE_NAME: "core"
+      # 只读 /app 下不写 .pyc / pytest cache
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONPYCACHEPREFIX: /tmp/pycache
+      PYTEST_ADDOPTS: "-p no:cacheprovider"
+    tmpfs:
+      - /tmp
+    volumes:
+      # 挂载源码与测试；不挂 ./data、不挂备份卷、不挂 docker.sock
+      # 说明：/app 需可写以创建 ./logs（app.main 导入时 mkdir ./logs）。
+      # 污染防护靠 PYTHONDONTWRITEBYTECODE + PYTEST_ADDOPTS=-p no:cacheprovider，
+      # 唯一落盘是 ./logs/app.log（QA 运行日志，非源码）。
+      - ../../../../backend:/app

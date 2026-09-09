@@ -30,8 +30,13 @@ class SdnValidationCollector:
         *,
         force: bool = False,
         min_interval_seconds: int = DEFAULT_MIN_INTERVAL_SECONDS,
+        scope_bindings: Optional[list[SdnPortBinding]] = None,
     ) -> tuple[Optional[SdnValidationSnapshot], Optional[dict], bool]:
         """同步状态快照。
+
+        CR24: scope_bindings 为显式采集 scope（如 reconcile 的待对账绑定），
+        无论其 status（planned/unbound 等）都追加目标接口回读命令；
+        普通周期采集不传该参数，保持只采 active|expanding 的边界。
 
         Returns:
             (snapshot, error, cached)
@@ -60,8 +65,10 @@ class SdnValidationCollector:
             .all()
         )
 
-        commands = self._commands(vpc, bindings)
+        commands = self._commands(vpc, bindings, scope_bindings=scope_bindings)
+        started = datetime.utcnow()
         raw_results = self._collect(device, password, commands)
+        completed = datetime.utcnow()
         snapshot_data = self._snapshot_data(commands, raw_results)
         validation_details = self._validate(vpc, bindings, snapshot_data)
         validation_result = self._overall(validation_details)
@@ -72,6 +79,9 @@ class SdnValidationCollector:
             snapshot_data=json.dumps(snapshot_data, ensure_ascii=False),
             validation_result=validation_result,
             validation_details=json.dumps(validation_details, ensure_ascii=False),
+            # CR8: 新快照落采集起止时间（真实采集窗口，不是 created_at）
+            collection_started_at=started,
+            collection_completed_at=completed,
         )
         db.add(snapshot)
         db.commit()
@@ -110,7 +120,7 @@ class SdnValidationCollector:
         return snapshot.created_at >= datetime.now() - timedelta(seconds=min_interval_seconds)
 
     @staticmethod
-    def _commands(vpc: SdnVpc, bindings: list[SdnPortBinding]) -> list[str]:
+    def _commands(vpc: SdnVpc, bindings: list[SdnPortBinding], scope_bindings: Optional[list[SdnPortBinding]] = None) -> list[str]:
         commands = [
             "display bgp peer l2vpn evpn",
             f"display current-configuration interface Vsi-interface{vpc.vsi_interface}",
@@ -119,10 +129,15 @@ class SdnValidationCollector:
             "display evpn route arp",
             "display bgp l2vpn evpn",
         ]
-        if bindings:
+        scoped = list(scope_bindings or [])
+        if bindings or scoped:
             commands.append(f"display arp vpn-instance {SdnValidationCollector._sdn_l3vpn_name()}")
-            for binding in bindings:
-                commands.append(f"display current-configuration interface {binding.interface_name}")
+            seen: set[str] = set()
+            for binding in list(bindings) + scoped:
+                cmd = f"display current-configuration interface {binding.interface_name}"
+                if cmd not in seen:
+                    commands.append(cmd)
+                    seen.add(cmd)
         return commands
 
     @staticmethod
@@ -182,7 +197,7 @@ class SdnValidationCollector:
                 "required": True,
             },
             "type3_present": {
-                "ok": "[3]" in bgp_evpn_text,
+                "ok": SdnValidationCollector._type3_scoped(bgp_evpn_text, vpc.vni),
                 "required": True,
             },
             "active_binding_count": {
@@ -229,6 +244,27 @@ class SdnValidationCollector:
                 "VPN-Instance does not exist",
             )
         )
+
+    @staticmethod
+    def _type3_scoped(text: str, vni: int) -> bool:
+        """Type-3 按目标 VPC 的 Route distinguisher 归属判定（CR38）。
+
+        只在目标 `Route distinguisher: 1:{vni}` 路由块中发现 `[3]` 才为真：
+        - 输出按 `Route distinguisher:` 行分块（RD 与该关键字同行或紧随其后）；
+        - 逐块精确提取 RD 并做等值比较（`1:2000` 与 `1:20000` 不串匹配）；
+        - 其他 RD 块有 `[3]`、目标 RD 只有 `[2]`、或目标 RD 块缺失 → false（保守）。
+        """
+        target_rd = f"1:{vni}"
+        blocks = re.split(r"(?im)^\s*Route distinguisher:\s*", text)
+        for block in blocks[1:]:
+            if not block.strip():
+                continue
+            m = re.match(r"([0-9]+:[0-9]+)\b", block.lstrip())
+            if not m:
+                continue
+            if m.group(1) == target_rd:
+                return "[3]" in block
+        return False
 
     @staticmethod
     def _candidate_host_ips(text: str) -> list[str]:

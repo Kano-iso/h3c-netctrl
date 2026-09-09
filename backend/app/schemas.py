@@ -330,5 +330,47 @@ class SdnDeploymentResponse(BaseModel):
 
 class SdnDeploymentUpdate(BaseModel):
     """更新 deployment 状态（vpc-apply 下发后回写）。"""
-    status: Optional[str] = Field(default=None, pattern="^(pending|running|success|failed)$")
+    status: Optional[str] = Field(default=None, pattern="^(pending|running|success|failed|unknown)$")
     error: Optional[str] = None
+
+
+# ── S1 终端接入 Schema（next-s1-backend）──
+
+class SdnAccessPreviewRequest(BaseModel):
+    """服务端接入预览请求。持久化一条计划，不写设备/不建绑定/部署/操作。"""
+    device_id: int = Field(..., ge=1)
+    if_index: int = Field(..., ge=1)
+    interface_name: str = Field(..., min_length=1, max_length=100)
+    access_vlan: Optional[int] = Field(default=None, ge=1, le=4094)
+    service_instance: Optional[int] = Field(default=None, ge=1, le=4094)
+    expected_host_ip: Optional[str] = Field(default=None, min_length=7, max_length=45)
+    mode: Optional[str] = Field(default="auto", pattern="^(auto|service_instance|access_vlan)$")
+
+
+class SdnAccessExecuteRequest(BaseModel):
+    """终端接入执行请求。携带 plan_id + 归一化请求字段 + 幂等键。
+
+    执行只接受服务端 plan_id，不接受客户端 preview_fingerprint。
+    归一化请求字段用于服务端重算请求 fingerprint（幂等）与 scope 校验。
+    """
+    idempotency_key: str = Field(..., min_length=8, max_length=64)
+    plan_id: str = Field(..., min_length=1, max_length=36)
+    device_id: int = Field(..., ge=1)
+    if_index: int = Field(..., ge=1)
+    interface_name: str = Field(..., min_length=1, max_length=100)
+    access_vlan: Optional[int] = Field(default=None, ge=1, le=4094)
+    service_instance: Optional[int] = Field(default=None, ge=1, le=4094)
+    expected_host_ip: Optional[str] = Field(default=None, min_length=7, max_length=45)
+    auto_apply: bool = False
+    mode: Optional[str] = Field(default="auto", pattern="^(auto|service_instance|access_vlan)$")
+
+
+class SdnAccessCompleteRequest(BaseModel):
+    """终端接入完成/验证请求。显式 POST，可 force 采集。"""
+    expected_host_ip: Optional[str] = Field(default=None, min_length=7, max_length=45)
+    force_validation: bool = True
+
+
+class SdnWithdrawRequest(BaseModel):
+    """终端接入撤回请求。"""
+    reason: Optional[str] = Field(default=None, max_length=500)

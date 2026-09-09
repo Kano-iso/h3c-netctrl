@@ -48,6 +48,18 @@ from app.schemas import (
 from app.i18n_keys import err, error_response
 from app.services.sdn_deployment_executor import SdnDeploymentError, SdnDeploymentExecutor
 from app.services.sdn_validation_collector import SdnValidationCollector
+from app.services.sdn_operation_service import (
+    SdnOperationError,
+    acquire_claims,
+    device_port_key,
+    release_claims,
+    snapshot_identity,
+    tenant_key,
+    vpc_device_key,
+    vpc_key,
+    AttemptUnitHooks,
+    ensure_legacy_apply_operation,
+)
 from app.services.sdn_device_adapter import (
     H3cV7Adapter,
     UNIT_VSI_L3,
@@ -62,6 +74,15 @@ router = APIRouter(prefix="/api/sdn", tags=["sdn"])
 
 
 # ─────────── 内部辅助 ───────────
+
+def _acquire_resource_claims(db: Session, keys: list[str]) -> list[str]:
+    """CR9 复用守卫：按 rank 序认领一组资源（旧入口用合成 owner attempt_id=-1），成功后立即 commit。
+
+    调用方需在 finally 里 release_claims(db, acquired, owner_attempt_id=-1)。
+    """
+    acquired = acquire_claims(db, keys, attempt_id=-1)
+    db.commit()
+    return acquired
 
 def _tenant_to_response(tenant: SdnTenant, vpc_count: int = 0) -> SdnTenantResponse:
     return SdnTenantResponse(
@@ -151,6 +172,9 @@ def _create_sdn_deployment(
     port_binding_id: Optional[int] = None,
 ) -> SdnDeployment:
     """创建 deployment 记录，统一补齐 v3.3 新字段。"""
+    # S1-016: 固化 VPC 版本因果——deployment 携带创建时的 vpc.version，
+    # 使 _l2_ready_status 能证明「当前 VPC 配置」与「成功 create 部署」一致（不伪造）。
+    vpc = db.query(SdnVpc).filter(SdnVpc.id == vpc_id).first()
     deployment = SdnDeployment(
         vpc_id=vpc_id,
         device_id=device_id,
@@ -160,6 +184,7 @@ def _create_sdn_deployment(
         port_binding_id=port_binding_id,
         planned_config=planned_config,
         status="pending",
+        version=vpc.version if vpc is not None else 0,
     )
     db.add(deployment)
     db.commit()
@@ -227,28 +252,12 @@ def _resolve_fabric_targets(
 
 
 def _get_device_metadata(db: Session, device_id: int) -> tuple[Optional[object], Optional[APIResponse]]:
-    """获取设备元数据，不解密密码。
-
-    端口绑定只需要 name/platform/protected_interfaces，不应因为密码密文不可解而失败。
-    """
-    try:
-        device = db.query(Device).filter(Device.id == device_id).first()
-        if device:
-            return device, None
+    """获取设备元数据，不解密密码（CR7：复用 device_access 显式分派，不靠异常）。"""
+    from app.utils.device_access import get_device_metadata
+    device, error = get_device_metadata(db, device_id)
+    if error is not None:
         return None, error_response(err.SDN_DEVICE_NOT_FOUND, params={"id": device_id})
-    except Exception as e:
-        logger.warning(f"本地 Device 表不可用，设备元数据走内部 API: {e}")
-
-    try:
-        from app.internal_api import get_device
-        from app.utils.device_access import _wrap_device_dict
-        resp = get_device(device_id)
-        if not resp.get("success"):
-            return None, error_response(err.SDN_DEVICE_NOT_FOUND, params={"id": device_id})
-        return _wrap_device_dict(resp["data"]), None
-    except Exception as api_error:
-        logger.error(f"设备元数据内部 API 失败: {api_error}")
-        return None, error_response(err.SDN_DEVICE_NOT_FOUND, params={"id": device_id})
+    return device, None
 
 
 def _apply_if_requested(
@@ -399,11 +408,47 @@ def update_tenant(tenant_id: int, payload: SdnTenantUpdate, db: Session = Depend
 
 @router.delete("/tenants/{tenant_id}", response_model=APIResponse)
 def delete_tenant(tenant_id: int, db: Session = Depends(get_db)):
-    """删除租户（CASCADE 清理其下所有 VPC / binding / deployment / snapshot）。"""
+    """删除租户（CR9：先认领 tenant/VPC claim，再快照证据 + CASCADE 删除，最后释放）。"""
     tenant = db.query(SdnTenant).filter(SdnTenant.id == tenant_id).first()
     if not tenant:
         return error_response(err.SDN_TENANT_NOT_FOUND, params={"id": tenant_id})
+
+    vpcs = db.query(SdnVpc).filter(SdnVpc.tenant_id == tenant_id).all()
+    bindings = (
+        db.query(SdnPortBinding)
+        .filter(SdnPortBinding.vpc_id.in_([v.id for v in vpcs]))
+        .all()
+        if vpcs else []
+    )
+    claims = [tenant_key(tenant_id)]
+    claims += [vpc_key(v.id) for v in vpcs]
+    claims += [vpc_device_key(b.vpc_id, b.device_id) for b in bindings]
+
+    # 认领：并发 mutation 会被唯一索引挡住，delete 要么全拿要么拒绝（不留半删）
+    try:
+        acquired = acquire_claims(db, claims, attempt_id=-1)
+        db.commit()
+    except SdnOperationError as e:
+        return error_response(err.SDN_RESOURCE_BUSY, params=e.params)
+
+    # S1: 父删除前写身份快照（父 + 受影响后代），使历史在级联后仍可追溯
+    snapshot_identity(db, entity_kind="tenant", entity_id=tenant.id, identity={
+        "name": tenant.name, "rd": tenant.rd, "l3_vni": tenant.l3_vni,
+    }, deleted=True)
+    for vpc in vpcs:
+        snapshot_identity(db, entity_kind="vpc", entity_id=vpc.id, identity={
+            "name": vpc.name, "cidr": vpc.cidr, "vni": vpc.vni, "gateway_ip": vpc.gateway_ip,
+        }, deleted=True)
+        for binding in db.query(SdnPortBinding).filter(SdnPortBinding.vpc_id == vpc.id).all():
+            snapshot_identity(db, entity_kind="binding", entity_id=binding.id, identity={
+                "device_id": binding.device_id, "if_index": binding.if_index,
+                "interface_name": binding.interface_name,
+            }, deleted=True)
+    db.flush()
+
     db.delete(tenant)
+    db.commit()
+    release_claims(db, acquired, owner_attempt_id=-1)
     db.commit()
     return APIResponse(success=True, data={"deleted": tenant_id})
 
@@ -530,67 +575,79 @@ def deploy_vpc_to_fabric(
     if target_error is not None:
         return target_error
 
-    planner = VPCConfigPlanner(H3cV7Adapter())
-    deployments: list[SdnDeployment] = []
-    target_ids = {d.id for d in targets}
-    bindings_by_device: dict[int, list[SdnPortBinding]] = {}
-    if payload.include_port_bindings:
-        bindings = (
-            db.query(SdnPortBinding)
-            .filter(
-                SdnPortBinding.vpc_id == vpc.id,
-                SdnPortBinding.device_id.in_(target_ids),
-                SdnPortBinding.status.in_(("planned", "pending", "failed")),
+    # CR9: 认领 tenant + vpc + 各 vpc-device，串行化并发 deploy/withdraw/redeploy
+    keys = [tenant_key(vpc.tenant_id), vpc_key(vpc.id)]
+    keys += [vpc_device_key(vpc.id, d.id) for d in targets]
+    try:
+        acquired = _acquire_resource_claims(db, keys)
+    except SdnOperationError as e:
+        return error_response(err.SDN_RESOURCE_BUSY, params=e.params)
+
+    try:
+        planner = VPCConfigPlanner(H3cV7Adapter())
+        deployments: list[SdnDeployment] = []
+        target_ids = {d.id for d in targets}
+        bindings_by_device: dict[int, list[SdnPortBinding]] = {}
+        if payload.include_port_bindings:
+            bindings = (
+                db.query(SdnPortBinding)
+                .filter(
+                    SdnPortBinding.vpc_id == vpc.id,
+                    SdnPortBinding.device_id.in_(target_ids),
+                    SdnPortBinding.status.in_(("planned", "pending", "failed")),
+                )
+                .order_by(SdnPortBinding.id)
+                .all()
             )
-            .order_by(SdnPortBinding.id)
-            .all()
-        )
-        for binding in bindings:
-            bindings_by_device.setdefault(binding.device_id, []).append(binding)
+            for binding in bindings:
+                bindings_by_device.setdefault(binding.device_id, []).append(binding)
 
-    for device in targets:
-        vpc_units = planner.plan_vpc_create(vpc, tenant, dry_run=True)
-        vpc_deployment = _create_sdn_deployment(
-            db,
-            vpc_id=vpc.id,
-            device_id=device.id,
-            action="create",
-            unit="vpc-create-all",
-            planned_config=VPCConfigPlanner.serialize(vpc_units),
-        )
-        deployments.append(vpc_deployment)
-
-        for binding in bindings_by_device.get(device.id, []):
-            bind_units = planner.plan_port_bind(binding, vpc, mode="auto", dry_run=True)
-            bind_deployment = _create_sdn_deployment(
+        for device in targets:
+            vpc_units = planner.plan_vpc_create(vpc, tenant, dry_run=True)
+            vpc_deployment = _create_sdn_deployment(
                 db,
                 vpc_id=vpc.id,
                 device_id=device.id,
-                action="port_bind",
-                unit="port-bind",
-                parent_deployment_id=vpc_deployment.id,
-                port_binding_id=binding.id,
-                planned_config=VPCConfigPlanner.serialize(bind_units),
+                action="create",
+                unit="vpc-create-all",
+                planned_config=VPCConfigPlanner.serialize(vpc_units),
             )
-            binding.status = "pending"
-            deployments.append(bind_deployment)
+            deployments.append(vpc_deployment)
 
-    vpc.status = "deploying" if payload.auto_apply else "planned"
-    db.commit()
+            for binding in bindings_by_device.get(device.id, []):
+                bind_units = planner.plan_port_bind(binding, vpc, mode="auto", dry_run=True)
+                bind_deployment = _create_sdn_deployment(
+                    db,
+                    vpc_id=vpc.id,
+                    device_id=device.id,
+                    action="port_bind",
+                    unit="port-bind",
+                    parent_deployment_id=vpc_deployment.id,
+                    port_binding_id=binding.id,
+                    planned_config=VPCConfigPlanner.serialize(bind_units),
+                )
+                binding.status = "pending"
+                deployments.append(bind_deployment)
 
-    deployments = _apply_if_requested(db, deployments, payload.auto_apply)
-    items = [_deployment_to_response(d).model_dump(mode="json") for d in deployments]
-    return APIResponse(
-        success=True,
-        data={
-            "vpc_id": vpc.id,
-            "operation": "deploy",
-            "auto_apply": payload.auto_apply,
-            "target_device_ids": [d.id for d in targets],
-            "total": len(items),
-            "deployments": items,
-        },
-    )
+        vpc.status = "deploying" if payload.auto_apply else "planned"
+        db.commit()
+
+        deployments = _apply_if_requested(db, deployments, payload.auto_apply)
+        items = [_deployment_to_response(d).model_dump(mode="json") for d in deployments]
+        return APIResponse(
+            success=True,
+            data={
+                "vpc_id": vpc.id,
+                "operation": "deploy",
+                "auto_apply": payload.auto_apply,
+                "target_device_ids": [d.id for d in targets],
+                "total": len(items),
+                "deployments": items,
+            },
+        )
+    finally:
+        release_claims(db, acquired, owner_attempt_id=-1)
+        db.commit()
 
 
 @router.post("/vpcs/{vpc_id}/withdraw", response_model=APIResponse)
@@ -608,69 +665,81 @@ def withdraw_vpc_from_fabric(
     if target_error is not None:
         return target_error
 
-    planner = VPCConfigPlanner(H3cV7Adapter())
-    deployments: list[SdnDeployment] = []
-    target_ids = {d.id for d in targets}
-    bindings_by_device: dict[int, list[SdnPortBinding]] = {}
-    if payload.include_port_bindings:
-        bindings = (
-            db.query(SdnPortBinding)
-            .filter(
-                SdnPortBinding.vpc_id == vpc.id,
-                SdnPortBinding.device_id.in_(target_ids),
-                SdnPortBinding.status != "unbound",
-            )
-            .order_by(SdnPortBinding.id)
-            .all()
-        )
-        for binding in bindings:
-            bindings_by_device.setdefault(binding.device_id, []).append(binding)
+    # CR9: 认领 tenant + vpc + 各 vpc-device
+    keys = [tenant_key(vpc.tenant_id), vpc_key(vpc.id)]
+    keys += [vpc_device_key(vpc.id, d.id) for d in targets]
+    try:
+        acquired = _acquire_resource_claims(db, keys)
+    except SdnOperationError as e:
+        return error_response(err.SDN_RESOURCE_BUSY, params=e.params)
 
-    for device in targets:
-        parent_id = None
-        for binding in bindings_by_device.get(device.id, []):
-            unbind_units = planner.plan_port_unbind(binding, vpc, dry_run=True)
-            unbind_deployment = _create_sdn_deployment(
+    try:
+        planner = VPCConfigPlanner(H3cV7Adapter())
+        deployments: list[SdnDeployment] = []
+        target_ids = {d.id for d in targets}
+        bindings_by_device: dict[int, list[SdnPortBinding]] = {}
+        if payload.include_port_bindings:
+            bindings = (
+                db.query(SdnPortBinding)
+                .filter(
+                    SdnPortBinding.vpc_id == vpc.id,
+                    SdnPortBinding.device_id.in_(target_ids),
+                    SdnPortBinding.status != "unbound",
+                )
+                .order_by(SdnPortBinding.id)
+                .all()
+            )
+            for binding in bindings:
+                bindings_by_device.setdefault(binding.device_id, []).append(binding)
+
+        for device in targets:
+            parent_id = None
+            for binding in bindings_by_device.get(device.id, []):
+                unbind_units = planner.plan_port_unbind(binding, vpc, dry_run=True)
+                unbind_deployment = _create_sdn_deployment(
+                    db,
+                    vpc_id=vpc.id,
+                    device_id=device.id,
+                    action="port_unbind",
+                    unit="port-unbind",
+                    parent_deployment_id=parent_id,
+                    port_binding_id=binding.id,
+                    planned_config=VPCConfigPlanner.serialize(unbind_units),
+                )
+                parent_id = unbind_deployment.id
+                deployments.append(unbind_deployment)
+
+            delete_units = planner.plan_vpc_delete(vpc, dry_run=True)
+            delete_deployment = _create_sdn_deployment(
                 db,
                 vpc_id=vpc.id,
                 device_id=device.id,
-                action="port_unbind",
-                unit="port-unbind",
+                action="delete",
+                unit="vpc-create-all",
                 parent_deployment_id=parent_id,
-                port_binding_id=binding.id,
-                planned_config=VPCConfigPlanner.serialize(unbind_units),
+                planned_config=VPCConfigPlanner.serialize(delete_units),
             )
-            parent_id = unbind_deployment.id
-            deployments.append(unbind_deployment)
+            deployments.append(delete_deployment)
 
-        delete_units = planner.plan_vpc_delete(vpc, dry_run=True)
-        delete_deployment = _create_sdn_deployment(
-            db,
-            vpc_id=vpc.id,
-            device_id=device.id,
-            action="delete",
-            unit="vpc-create-all",
-            parent_deployment_id=parent_id,
-            planned_config=VPCConfigPlanner.serialize(delete_units),
+        vpc.status = "withdrawing" if payload.auto_apply else "withdraw_planned"
+        db.commit()
+
+        deployments = _apply_if_requested(db, deployments, payload.auto_apply)
+        items = [_deployment_to_response(d).model_dump(mode="json") for d in deployments]
+        return APIResponse(
+            success=True,
+            data={
+                "vpc_id": vpc.id,
+                "operation": "withdraw",
+                "auto_apply": payload.auto_apply,
+                "target_device_ids": [d.id for d in targets],
+                "total": len(items),
+                "deployments": items,
+            },
         )
-        deployments.append(delete_deployment)
-
-    vpc.status = "withdrawing" if payload.auto_apply else "withdraw_planned"
-    db.commit()
-
-    deployments = _apply_if_requested(db, deployments, payload.auto_apply)
-    items = [_deployment_to_response(d).model_dump(mode="json") for d in deployments]
-    return APIResponse(
-        success=True,
-        data={
-            "vpc_id": vpc.id,
-            "operation": "withdraw",
-            "auto_apply": payload.auto_apply,
-            "target_device_ids": [d.id for d in targets],
-            "total": len(items),
-            "deployments": items,
-        },
-    )
+    finally:
+        release_claims(db, acquired, owner_attempt_id=-1)
+        db.commit()
 
 
 @router.post("/vpcs/{vpc_id}/devices/{device_id}/redeploy", response_model=APIResponse)
@@ -695,31 +764,42 @@ def redeploy_vpc_on_device(
     if device_error is not None:
         return device_error
 
-    planner = VPCConfigPlanner(H3cV7Adapter())
-    units = planner.plan_vpc_create(vpc, tenant, dry_run=True)
-    deployment = _create_sdn_deployment(
-        db,
-        vpc_id=vpc.id,
-        device_id=device_id,
-        action="create",
-        unit="vpc-create-all",
-        planned_config=VPCConfigPlanner.serialize(units),
-    )
-    applied = _apply_if_requested(db, [deployment], auto_apply)[0]
-    if auto_apply:
-        vpc.status = "active" if applied.status == "success" else "degraded"
-    else:
-        vpc.status = "planned"
-    db.commit()
-    db.refresh(vpc)
-    db.refresh(applied)
-    return APIResponse(
-        success=True,
-        data={
-            "vpc": _vpc_to_response(vpc, tenant, binding_count=len(vpc.port_bindings)).model_dump(mode="json"),
-            "deployment": _deployment_to_response(applied).model_dump(mode="json"),
-        },
-    )
+    # CR9: 认领 tenant + vpc + vpc-device
+    keys = [tenant_key(vpc.tenant_id), vpc_key(vpc.id), vpc_device_key(vpc.id, device_id)]
+    try:
+        acquired = _acquire_resource_claims(db, keys)
+    except SdnOperationError as e:
+        return error_response(err.SDN_RESOURCE_BUSY, params=e.params)
+
+    try:
+        planner = VPCConfigPlanner(H3cV7Adapter())
+        units = planner.plan_vpc_create(vpc, tenant, dry_run=True)
+        deployment = _create_sdn_deployment(
+            db,
+            vpc_id=vpc.id,
+            device_id=device_id,
+            action="create",
+            unit="vpc-create-all",
+            planned_config=VPCConfigPlanner.serialize(units),
+        )
+        applied = _apply_if_requested(db, [deployment], auto_apply)[0]
+        if auto_apply:
+            vpc.status = "active" if applied.status == "success" else "degraded"
+        else:
+            vpc.status = "planned"
+        db.commit()
+        db.refresh(vpc)
+        db.refresh(applied)
+        return APIResponse(
+            success=True,
+            data={
+                "vpc": _vpc_to_response(vpc, tenant, binding_count=len(vpc.port_bindings)).model_dump(mode="json"),
+                "deployment": _deployment_to_response(applied).model_dump(mode="json"),
+            },
+        )
+    finally:
+        release_claims(db, acquired, owner_attempt_id=-1)
+        db.commit()
 
 
 # ── v3.0 SDN/VPC Deployment 端点（sdn-vpc-deployment-api）──
@@ -858,6 +938,18 @@ def create_port_binding(payload: SdnPortBindingCreate, db: Session = Depends(get
     if payload.if_index in _parse_protected_interfaces(device):
         return error_response(err.INTERFACE_PROTECTED_BLOCKED)
 
+    # S1: 层级 claim（tenant < vpc < vpc-device < device-port），串行化同 VPC/端口 mutation
+    # 旧入口无 operation，用稳定合成 owner 令牌（attempt_id=-1），释放时只释放该令牌
+    try:
+        acquired = acquire_claims(
+            db,
+            [tenant_key(vpc.tenant_id), vpc_key(vpc.id), vpc_device_key(vpc.id, payload.device_id), device_port_key(payload.device_id, payload.if_index)],
+            attempt_id=-1,
+        )
+        db.commit()
+    except SdnOperationError as e:
+        return error_response(err.SDN_RESOURCE_BUSY, params=e.params)
+
     conflict = (
         db.query(SdnPortBinding)
         .filter(
@@ -868,6 +960,8 @@ def create_port_binding(payload: SdnPortBindingCreate, db: Session = Depends(get
         .first()
     )
     if conflict:
+        release_claims(db, acquired, owner_attempt_id=-1)
+        db.commit()
         return error_response(
             err.SDN_PORT_BINDING_CONFLICT,
             params={"device_id": payload.device_id, "interface_name": payload.interface_name},
@@ -891,6 +985,8 @@ def create_port_binding(payload: SdnPortBindingCreate, db: Session = Depends(get
     db.add(binding)
     db.commit()
     db.refresh(binding)
+    release_claims(db, acquired, owner_attempt_id=-1)
+    db.commit()
     return APIResponse(success=True, data=_binding_to_response(binding, vpc, tenant).model_dump(mode="json"))
 
 
@@ -928,7 +1024,27 @@ def delete_port_binding(binding_id: int, db: Session = Depends(get_db)):
         return error_response(err.SDN_PORT_BINDING_NOT_FOUND, params={"id": binding_id})
     if binding.status == "active":
         return error_response(err.OPERATION_FAILED, params={"error": "active binding must be undeployed first"})
+
+    # S1: 父删除前写身份快照
+    snapshot_identity(db, entity_kind="binding", entity_id=binding.id, identity={
+        "device_id": binding.device_id, "vpc_id": binding.vpc_id,
+        "if_index": binding.if_index, "interface_name": binding.interface_name,
+    }, deleted=True)
+    db.flush()
+
+    try:
+        acquired = acquire_claims(
+            db,
+            [tenant_key(binding.tenant_id), vpc_key(binding.vpc_id), vpc_device_key(binding.vpc_id, binding.device_id), device_port_key(binding.device_id, binding.if_index)],
+            attempt_id=-1,
+        )
+        db.commit()
+    except SdnOperationError as e:
+        return error_response(err.SDN_RESOURCE_BUSY, params=e.params)
+
     db.delete(binding)
+    db.commit()
+    release_claims(db, acquired, owner_attempt_id=-1)
     db.commit()
     return APIResponse(success=True, data={"deleted": binding_id})
 
@@ -950,21 +1066,34 @@ def deploy_port_binding(
     if device_error is not None:
         return device_error
 
-    planner = VPCConfigPlanner(H3cV7Adapter())
-    units = planner.plan_port_bind(binding, vpc, mode=payload.mode, dry_run=True)
-    deployment = _create_sdn_deployment(
-        db,
-        vpc_id=binding.vpc_id,
-        device_id=binding.device_id,
-        action="port_bind",
-        unit="port-bind",
-        port_binding_id=binding.id,
-        planned_config=VPCConfigPlanner.serialize(units),
-    )
-    binding.status = "pending"
-    db.commit()
-    db.refresh(deployment)
-    return APIResponse(success=True, data=_deployment_to_response(deployment).model_dump(mode="json"))
+    # CR9: 认领 tenant + vpc + vpc-device + device-port
+    keys = [tenant_key(binding.tenant_id), vpc_key(binding.vpc_id),
+            vpc_device_key(binding.vpc_id, binding.device_id),
+            device_port_key(binding.device_id, binding.if_index)]
+    try:
+        acquired = _acquire_resource_claims(db, keys)
+    except SdnOperationError as e:
+        return error_response(err.SDN_RESOURCE_BUSY, params=e.params)
+
+    try:
+        planner = VPCConfigPlanner(H3cV7Adapter())
+        units = planner.plan_port_bind(binding, vpc, mode=payload.mode, dry_run=True)
+        deployment = _create_sdn_deployment(
+            db,
+            vpc_id=binding.vpc_id,
+            device_id=binding.device_id,
+            action="port_bind",
+            unit="port-bind",
+            port_binding_id=binding.id,
+            planned_config=VPCConfigPlanner.serialize(units),
+        )
+        binding.status = "pending"
+        db.commit()
+        db.refresh(deployment)
+        return APIResponse(success=True, data=_deployment_to_response(deployment).model_dump(mode="json"))
+    finally:
+        release_claims(db, acquired, owner_attempt_id=-1)
+        db.commit()
 
 
 @router.post("/port-bindings/{binding_id}/undeploy", response_model=APIResponse)
@@ -980,18 +1109,31 @@ def undeploy_port_binding(binding_id: int, db: Session = Depends(get_db)):
     if device_error is not None:
         return device_error
 
-    planner = VPCConfigPlanner(H3cV7Adapter())
-    units = planner.plan_port_unbind(binding, vpc, dry_run=True)
-    deployment = _create_sdn_deployment(
-        db,
-        vpc_id=binding.vpc_id,
-        device_id=binding.device_id,
-        action="port_unbind",
-        unit="port-unbind",
-        port_binding_id=binding.id,
-        planned_config=VPCConfigPlanner.serialize(units),
-    )
-    return APIResponse(success=True, data=_deployment_to_response(deployment).model_dump(mode="json"))
+    # CR9: 认领 tenant + vpc + vpc-device + device-port
+    keys = [tenant_key(binding.tenant_id), vpc_key(binding.vpc_id),
+            vpc_device_key(binding.vpc_id, binding.device_id),
+            device_port_key(binding.device_id, binding.if_index)]
+    try:
+        acquired = _acquire_resource_claims(db, keys)
+    except SdnOperationError as e:
+        return error_response(err.SDN_RESOURCE_BUSY, params=e.params)
+
+    try:
+        planner = VPCConfigPlanner(H3cV7Adapter())
+        units = planner.plan_port_unbind(binding, vpc, dry_run=True)
+        deployment = _create_sdn_deployment(
+            db,
+            vpc_id=binding.vpc_id,
+            device_id=binding.device_id,
+            action="port_unbind",
+            unit="port-unbind",
+            port_binding_id=binding.id,
+            planned_config=VPCConfigPlanner.serialize(units),
+        )
+        return APIResponse(success=True, data=_deployment_to_response(deployment).model_dump(mode="json"))
+    finally:
+        release_claims(db, acquired, owner_attempt_id=-1)
+        db.commit()
 
 
 @router.post("/vpcs/{vpc_id}/expansions", response_model=APIResponse)
@@ -1011,73 +1153,86 @@ def start_vpc_expansion(vpc_id: int, payload: SdnVpcExpansionRequest, db: Sessio
     if payload.if_index in _parse_protected_interfaces(device):
         return error_response(err.INTERFACE_PROTECTED_BLOCKED)
 
-    conflict = (
-        db.query(SdnPortBinding)
-        .filter(
-            SdnPortBinding.device_id == payload.device_id,
-            SdnPortBinding.if_index == payload.if_index,
-            SdnPortBinding.status != "unbound",
+    # CR9: 先认领再冲突检查+插入，避免 check-then-insert 竞态
+    keys = [tenant_key(vpc.tenant_id), vpc_key(vpc.id),
+            vpc_device_key(vpc.id, payload.device_id),
+            device_port_key(payload.device_id, payload.if_index)]
+    try:
+        acquired = _acquire_resource_claims(db, keys)
+    except SdnOperationError as e:
+        return error_response(err.SDN_RESOURCE_BUSY, params=e.params)
+
+    try:
+        conflict = (
+            db.query(SdnPortBinding)
+            .filter(
+                SdnPortBinding.device_id == payload.device_id,
+                SdnPortBinding.if_index == payload.if_index,
+                SdnPortBinding.status != "unbound",
+            )
+            .first()
         )
-        .first()
-    )
-    if conflict:
-        return error_response(
-            err.SDN_PORT_BINDING_CONFLICT,
-            params={"device_id": payload.device_id, "interface_name": payload.interface_name},
+        if conflict:
+            return error_response(
+                err.SDN_PORT_BINDING_CONFLICT,
+                params={"device_id": payload.device_id, "interface_name": payload.interface_name},
+            )
+
+        access_vlan = payload.access_vlan
+        service_instance = payload.service_instance
+        if access_vlan is None and service_instance is None:
+            service_instance = vpc.vlan_id
+
+        binding = SdnPortBinding(
+            device_id=payload.device_id,
+            tenant_id=vpc.tenant_id,
+            vpc_id=vpc.id,
+            if_index=payload.if_index,
+            interface_name=payload.interface_name,
+            access_vlan=access_vlan,
+            service_instance=service_instance,
+            status="pending",
         )
+        db.add(binding)
+        db.commit()
+        db.refresh(binding)
 
-    access_vlan = payload.access_vlan
-    service_instance = payload.service_instance
-    if access_vlan is None and service_instance is None:
-        service_instance = vpc.vlan_id
+        planner = VPCConfigPlanner(H3cV7Adapter())
+        units = planner.plan_port_bind(binding, vpc, mode="auto", dry_run=True)
+        deployment = _create_sdn_deployment(
+            db,
+            vpc_id=vpc.id,
+            device_id=payload.device_id,
+            action="port_bind",
+            unit="port-bind",
+            port_binding_id=binding.id,
+            planned_config=VPCConfigPlanner.serialize(units),
+        )
+        applied = _apply_if_requested(db, [deployment], payload.auto_apply)[0]
+        if applied.status == "success":
+            binding.status = "expanding"
+            vpc.status = "expanding"
+        else:
+            binding.status = "failed"
+            vpc.status = "degraded"
+        db.commit()
+        db.refresh(binding)
+        db.refresh(vpc)
+        db.refresh(applied)
 
-    binding = SdnPortBinding(
-        device_id=payload.device_id,
-        tenant_id=vpc.tenant_id,
-        vpc_id=vpc.id,
-        if_index=payload.if_index,
-        interface_name=payload.interface_name,
-        access_vlan=access_vlan,
-        service_instance=service_instance,
-        status="pending",
-    )
-    db.add(binding)
-    db.commit()
-    db.refresh(binding)
-
-    planner = VPCConfigPlanner(H3cV7Adapter())
-    units = planner.plan_port_bind(binding, vpc, mode="auto", dry_run=True)
-    deployment = _create_sdn_deployment(
-        db,
-        vpc_id=vpc.id,
-        device_id=payload.device_id,
-        action="port_bind",
-        unit="port-bind",
-        port_binding_id=binding.id,
-        planned_config=VPCConfigPlanner.serialize(units),
-    )
-    applied = _apply_if_requested(db, [deployment], payload.auto_apply)[0]
-    if applied.status == "success":
-        binding.status = "expanding"
-        vpc.status = "expanding"
-    else:
-        binding.status = "failed"
-        vpc.status = "degraded"
-    db.commit()
-    db.refresh(binding)
-    db.refresh(vpc)
-    db.refresh(applied)
-
-    return APIResponse(
-        success=True,
-        data={
-            "vpc": _vpc_to_response(vpc, tenant, binding_count=len(vpc.port_bindings)).model_dump(mode="json"),
-            "binding": _binding_to_response(binding, vpc, tenant).model_dump(mode="json"),
-            "deployment": _deployment_to_response(applied).model_dump(mode="json"),
-            "expected_host_ip": payload.expected_host_ip,
-            "next_status": binding.status,
-        },
-    )
+        return APIResponse(
+            success=True,
+            data={
+                "vpc": _vpc_to_response(vpc, tenant, binding_count=len(vpc.port_bindings)).model_dump(mode="json"),
+                "binding": _binding_to_response(binding, vpc, tenant).model_dump(mode="json"),
+                "deployment": _deployment_to_response(applied).model_dump(mode="json"),
+                "expected_host_ip": payload.expected_host_ip,
+                "next_status": binding.status,
+            },
+        )
+    finally:
+        release_claims(db, acquired, owner_attempt_id=-1)
+        db.commit()
 
 
 @router.post("/vpcs/{vpc_id}/expansions/{binding_id}/complete", response_model=APIResponse)
@@ -1165,31 +1320,42 @@ def deploy_vpc_gateway(
     if device_error is not None:
         return device_error
 
-    planner = VPCConfigPlanner(H3cV7Adapter())
-    units = [u for u in planner.plan_vpc_create(vpc, tenant, dry_run=True) if u.name == UNIT_VSI_L3]
-    deployment = _create_sdn_deployment(
-        db,
-        vpc_id=vpc_id,
-        device_id=device_id,
-        action="create",
-        unit=UNIT_VSI_L3,
-        planned_config=VPCConfigPlanner.serialize(units),
-    )
-    applied = _apply_if_requested(db, [deployment], auto_apply)[0]
-    if auto_apply:
-        vpc.status = "active" if applied.status == "success" else "degraded"
-    else:
-        vpc.status = "planned"
-    db.commit()
-    db.refresh(vpc)
-    db.refresh(applied)
-    return APIResponse(
-        success=True,
-        data={
-            "vpc": _vpc_to_response(vpc, tenant, binding_count=len(vpc.port_bindings)).model_dump(mode="json"),
-            "deployment": _deployment_to_response(applied).model_dump(mode="json"),
-        },
-    )
+    # CR9: 认领 tenant + vpc + vpc-device
+    keys = [tenant_key(vpc.tenant_id), vpc_key(vpc.id), vpc_device_key(vpc.id, device_id)]
+    try:
+        acquired = _acquire_resource_claims(db, keys)
+    except SdnOperationError as e:
+        return error_response(err.SDN_RESOURCE_BUSY, params=e.params)
+
+    try:
+        planner = VPCConfigPlanner(H3cV7Adapter())
+        units = [u for u in planner.plan_vpc_create(vpc, tenant, dry_run=True) if u.name == UNIT_VSI_L3]
+        deployment = _create_sdn_deployment(
+            db,
+            vpc_id=vpc_id,
+            device_id=device_id,
+            action="create",
+            unit=UNIT_VSI_L3,
+            planned_config=VPCConfigPlanner.serialize(units),
+        )
+        applied = _apply_if_requested(db, [deployment], auto_apply)[0]
+        if auto_apply:
+            vpc.status = "active" if applied.status == "success" else "degraded"
+        else:
+            vpc.status = "planned"
+        db.commit()
+        db.refresh(vpc)
+        db.refresh(applied)
+        return APIResponse(
+            success=True,
+            data={
+                "vpc": _vpc_to_response(vpc, tenant, binding_count=len(vpc.port_bindings)).model_dump(mode="json"),
+                "deployment": _deployment_to_response(applied).model_dump(mode="json"),
+            },
+        )
+    finally:
+        release_claims(db, acquired, owner_attempt_id=-1)
+        db.commit()
 
 
 @router.post("/vpcs/{vpc_id}/devices/{device_id}/gateway/undeploy", response_model=APIResponse)
@@ -1202,17 +1368,29 @@ def undeploy_vpc_gateway(vpc_id: int, device_id: int, db: Session = Depends(get_
     if device_error is not None:
         return device_error
 
-    planner = VPCConfigPlanner(H3cV7Adapter())
-    units = [u for u in planner.plan_vpc_delete(vpc, dry_run=True) if u.name == UNIT_VSI_L3]
-    deployment = _create_sdn_deployment(
-        db,
-        vpc_id=vpc_id,
-        device_id=device_id,
-        action="gateway_delete",
-        unit=UNIT_VSI_L3,
-        planned_config=VPCConfigPlanner.serialize(units),
-    )
-    return APIResponse(success=True, data=_deployment_to_response(deployment).model_dump(mode="json"))
+    # CR9: 认领 tenant + vpc + vpc-device
+    keys = [tenant_key(vpc.tenant_id), vpc_key(vpc.id), vpc_device_key(vpc.id, device_id)]
+    try:
+        acquired = _acquire_resource_claims(db, keys)
+    except SdnOperationError as e:
+        return error_response(err.SDN_RESOURCE_BUSY, params=e.params)
+
+    try:
+        planner = VPCConfigPlanner(H3cV7Adapter())
+        units = [u for u in planner.plan_vpc_delete(vpc, dry_run=True) if u.name == UNIT_VSI_L3]
+        deployment = _create_sdn_deployment(
+            db,
+            vpc_id=vpc_id,
+            device_id=device_id,
+            action="gateway_delete",
+            unit=UNIT_VSI_L3,
+            planned_config=VPCConfigPlanner.serialize(units),
+        )
+        db.commit()
+        return APIResponse(success=True, data=_deployment_to_response(deployment).model_dump(mode="json"))
+    finally:
+        release_claims(db, acquired, owner_attempt_id=-1)
+        db.commit()
 
 
 @router.patch("/deployments/{deployment_id}", response_model=APIResponse)
@@ -1229,7 +1407,20 @@ def update_deployment(
     d = db.query(SdnDeployment).filter(SdnDeployment.id == deployment_id).first()
     if not d:
         return error_response(err.SDN_DEPLOYMENT_NOT_FOUND, params={"id": deployment_id})
+
+    # CR9: 限制 PATCH —— 终态历史不可改写；running 不可退回 pending（不可反认领）
     if body.status is not None:
+        terminal = {"success", "failed", "unknown"}
+        if d.status in terminal and body.status != d.status:
+            return error_response(
+                err.SDN_DEPLOYMENT_NOT_PENDING,
+                params={"id": deployment_id, "status": d.status},
+            )
+        if d.status == "running" and body.status == "pending":
+            return error_response(
+                err.SDN_DEPLOYMENT_NOT_PENDING,
+                params={"id": deployment_id, "status": d.status},
+            )
         d.status = body.status
     if body.error is not None:
         d.error = body.error
@@ -1253,8 +1444,14 @@ def apply_deployment(deployment_id: int, db: Session = Depends(get_db)):
     4. 成功 → 200 + status=success
     """
     executor = SdnDeploymentExecutor()
+    # CR2: legacy apply 复用同一 attempt/unit 追踪（无 operation 则建系统 operation）
+    d = db.query(SdnDeployment).filter(SdnDeployment.id == deployment_id).first()
+    if d is None:
+        return error_response(err.SDN_DEPLOYMENT_NOT_FOUND, params={"id": deployment_id})
+    attempt_id = ensure_legacy_apply_operation(db, d)
+    hooks = AttemptUnitHooks(db, attempt_id, operation_id=d.operation_id)
     try:
-        deployment = executor.execute(db, deployment_id)
+        deployment = executor.execute(db, deployment_id, unit_hooks=hooks)
     except SdnDeploymentError as e:
         # 校验类错误（status_code 由 error 决定）
         logger.warning(

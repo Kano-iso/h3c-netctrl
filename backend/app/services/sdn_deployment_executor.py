@@ -52,6 +52,7 @@
 """
 import json
 import logging
+from datetime import datetime
 from typing import List, Optional
 
 from sqlalchemy.orm import Session
@@ -83,12 +84,17 @@ WRITABLE_HOST_SUFFIXES = (".5", ".6", ".26")
 
 
 class SdnDeploymentError(Exception):
-    """executor 内部错误（业务可处理的异常）"""
-    def __init__(self, error_key, params: Optional[dict] = None, status_code: int = 422):
+    """executor 内部错误（业务可处理的异常）
+
+    definitive=True 表示设备已给出确定性失败回读（failed_known）；
+    definitive=False 表示传输超时/无响应（unknown），需 reconcile 对账。
+    """
+    def __init__(self, error_key, params: Optional[dict] = None, status_code: int = 422, definitive: bool = False):
         super().__init__(error_key)
         self.error_key = error_key
         self.params = params or {}
         self.status_code = status_code
+        self.definitive = definitive
 
 
 class SdnDeploymentExecutor:
@@ -102,150 +108,93 @@ class SdnDeploymentExecutor:
     def __init__(self):
         pass
 
-    def execute(self, db: Session, deployment_id: int) -> SdnDeployment:
-        """执行 deployment 下发（v3.0 T3 路由版）
+    def execute(self, db: Session, deployment_id: int, *, unit_hooks=None) -> SdnDeployment:
+        """执行 deployment 下发（v3.0 T3 路由版 + S1-006 短事务/逐单元证据）。
 
-        流程：
-        1. 查 deployment + 校验（status == 'pending'、action 在允许集合内）
-        2. 查 device + 解密密码 + 校验 host 白名单
-        3. 解析 planned_config 为 List[TemplateUnit]（用 deserialize_template_units）
-        4. 解析 device.platform（device.platform 优先，fallback 调 get_platform_for_model）
-        5. NetconfClient context manager 按 device.platform 串行 edit_config
-           - LSTN: 每条 unit.cli_commands 走 `<Configuration>` 包裹
-           - RSTN: 每条 unit.xml_payloads 直接 schema 化 NETCONF
-        6. 写回 status（success / failed + error）
+        流程（S1-006 CR1/CR2 修正）：
+        1. 只读加载 deployment + 静态校验（action/device/白名单/解析/平台），
+           此阶段不写 DB、不碰设备 I/O。
+        2. 静态校验全过后，CAS pending->running 并 commit（短事务，claim 持久可见）。
+        3. 才进入设备 I/O；逐单元经 unit_hooks 先落 started 再 I/O、I/O 后落终态。
+        4. 终态（success/failed/unknown）由单元证据推导并 commit。
 
-        Args:
-            db: SQLAlchemy Session
-            deployment_id: SdnDeployment.id
-
-        Returns:
-            SdnDeployment（已写回 status / error，commit 到 DB）
-
-        Raises:
-            SdnDeploymentError: 校验失败（status / action / device / JSON / platform）
-            异常会冒泡到 router 层，router 转 APIResponse
+        unit_hooks: 可选对象，含 before_unit(index,name)/after_unit_success(index,name)/
+                    after_unit_failure(index,name,definitive,error)。index 0-based，与
+                    sdn_attempt_units.unit_index 对齐。
         """
-        # 1. 查 deployment
+        # 1. 只读加载
         deployment = db.query(SdnDeployment).filter(SdnDeployment.id == deployment_id).first()
         if not deployment:
-            raise SdnDeploymentError(
-                "SDN_DEPLOYMENT_NOT_FOUND",
-                params={"id": deployment_id},
-                status_code=404,
-            )
+            raise SdnDeploymentError("SDN_DEPLOYMENT_NOT_FOUND", params={"id": deployment_id}, status_code=404)
 
-        # 2. 校验 status
-        if deployment.status != "pending":
-            raise SdnDeploymentError(
-                "SDN_DEPLOYMENT_NOT_PENDING",
-                params={"id": deployment_id, "status": deployment.status},
-                status_code=409,
-            )
-
-        # 3. 校验 action
+        # 2. 静态校验（无写、无 I/O）
         if deployment.action not in {"create", "delete", "port_bind", "port_unbind", "gateway_delete"}:
-            raise SdnDeploymentError(
-                "SDN_DEPLOYMENT_ACTION_NOT_SUPPORTED",
-                params={"action": deployment.action},
-                status_code=422,
-            )
-
-        # 4. 查 device + 校验
+            raise SdnDeploymentError("SDN_DEPLOYMENT_ACTION_NOT_SUPPORTED", params={"action": deployment.action}, status_code=422)
+        # 快速失败：非 pending 直接拒绝（不解析配置/不碰设备），CAS 在下方仍原子兜底
+        if deployment.status != "pending":
+            raise SdnDeploymentError("SDN_DEPLOYMENT_NOT_PENDING", params={"id": deployment_id, "status": deployment.status}, status_code=409)
         device, password, device_err = get_device_with_password(db, deployment.device_id)
         if device_err is not None:
-            # 透传 device_err 的 error_key（可能是 device.not_found / device.crypto_decrypt_failed 等）
-            raise SdnDeploymentError(
-                device_err.error_key or "SDN_DEVICE_NOT_FOUND",
-                params={"id": deployment.device_id},
-                status_code=404,
-            )
+            raise SdnDeploymentError(device_err.error_key or "SDN_DEVICE_NOT_FOUND", params={"id": deployment.device_id}, status_code=404)
         if not password:
-            raise SdnDeploymentError(
-                "SDN_DEVICE_NOT_WRITABLE",
-                params={"name": device.name, "host": device.host},
-                status_code=422,
-            )
-
-        # 5. 校验 host 白名单
+            raise SdnDeploymentError("SDN_DEVICE_NOT_WRITABLE", params={"name": device.name, "host": device.host}, status_code=422)
         if not self._is_writable_host(device.host):
-            raise SdnDeploymentError(
-                "SDN_DEVICE_NOT_WRITABLE",
-                params={"name": device.name, "host": device.host},
-                status_code=422,
-            )
-
-        # 6. 解析 planned_config 为 List[TemplateUnit]
+            raise SdnDeploymentError("SDN_DEVICE_NOT_WRITABLE", params={"name": device.name, "host": device.host}, status_code=422)
         try:
             units = self._parse_planned_config(deployment.planned_config)
         except (json.JSONDecodeError, ValueError, KeyError) as e:
-            # 标记 failed
             deployment.status = "failed"
             deployment.error = f"planned_config 格式错误: {e}"
             db.commit()
             db.refresh(deployment)
-            logger.error(f"sdn deploy: deployment {deployment_id} planned_config 解析失败: {e}")
-            raise SdnDeploymentError(
-                "SDN_PLANNED_CONFIG_INVALID",
-                params={"id": deployment_id, "error": str(e)},
-                status_code=500,
-            )
-
-        # 7. 解析 device.platform
+            raise SdnDeploymentError("SDN_PLANNED_CONFIG_INVALID", params={"id": deployment_id, "error": str(e)}, status_code=500)
         platform = self._resolve_platform(device)
         if platform == PLATFORM_UNKNOWN:
-            # device.model 不在白名单（既不是 LSTN 也不是 RSTN）→ 拒绝下发
             asset_model = device.asset.model if device.asset is not None else None
-            raise SdnDeploymentError(
-                "SDN_DEVICE_PLATFORM_UNKNOWN",
-                params={"model": asset_model or "<empty>", "name": device.name, "host": device.host},
-                status_code=422,
-            )
+            raise SdnDeploymentError("SDN_DEVICE_PLATFORM_UNKNOWN", params={"model": asset_model or "<empty>", "name": device.name, "host": device.host}, status_code=422)
 
-        # 8. 按 device.platform 路由串行 NETCONF edit_config
-        # v3.0 sdn-vpc-netconf-schema-xml T6 A 方案: LSTN 走 SSH 22, RSTN 走 NETCONF 830
-        # - device.port 字段默认是 NETCONF 830, LSTN 走 SSH 必须强制覆盖为 22
-        # - 设备 port 字段保留 NETCONF 端口用于 L3vpn/interface 等 schema 化业务
-        if platform == PLATFORM_LSTN:
-            deploy_port = 22  # LSTN 老芯片 SSH 22 CLI 通道
-        else:  # PLATFORM_RSTN
-            deploy_port = device.port  # RSTN 用 device 配置的 NETCONF 端口（默认 830）
+        # 3. CAS 认领（短事务：claim 持久可见后才开始 I/O；单一 CAS 来源 = claim_deployment）
         try:
-            self._apply_units(
-                units=units,
-                platform=platform,
-                host=device.host,
-                port=deploy_port,
-                username=device.username,
-                password=password,
-            )
+            from app.services.sdn_operation_service import claim_deployment, SdnOperationError as _SdnOpErr
+            claim_deployment(db, deployment_id, attempt_id=getattr(unit_hooks, "attempt_id", None) or 0, operation_id=getattr(unit_hooks, "operation_id", None))
+        except _SdnOpErr as e:
+            db.expire_all()
+            dep = db.query(SdnDeployment).filter(SdnDeployment.id == deployment_id).first()
+            raise SdnDeploymentError("SDN_DEPLOYMENT_NOT_PENDING", params={"id": deployment_id, "status": dep.status if dep else "missing"}, status_code=409)
+        db.commit()  # CR1: 短事务提交，第二个 Session 立即可见 running 且无法再认领
+        db.refresh(deployment)
+
+        # 4. 设备 I/O（逐单元证据经 unit_hooks 落库）
+        try:
+            self._apply_units(units=units, platform=platform, device=device, password=password, unit_hooks=unit_hooks)
         except SdnDeploymentError as e:
-            # 业务下发通道级错误（executor 内部已封装的 SSH/NETCONF 错误）
-            # 直接把 error_key + params 拼成可读消息，不走 classify_netconf_error
-            # （classify_netconf_error 是给 ncclient 原始异常用的，不认 SdnDeploymentError）
-            stage = e.params.get("stage", "?")
-            unit = e.params.get("unit", "?")
-            detail = e.params.get("error", "?")
-            error_msg = f"{e.error_key} (unit={unit}, stage={stage}): {detail}"
-            deployment.status = "failed"
-            deployment.error = f"配置下发失败: {error_msg}"
+            ui = e.params.get("unit_index")
+            definitive = e.definitive
+            if ui is not None and unit_hooks is not None:
+                # CR14: after_unit_failure 零行更新不得静默忽略——证据无法持久化时降级 unknown
+                if not unit_hooks.after_unit_failure(ui, e.params.get("unit", "?"), e.definitive, e.params.get("error", "?")):
+                    definitive = False
+            deployment.status = "failed" if definitive else "unknown"
+            deployment.error = f"配置下发失败: {e.error_key}: {e.params.get('error', '?')}"
+            if definitive:
+                deployment.config_completed_at = datetime.utcnow()
             db.commit()
             db.refresh(deployment)
-            logger.error(f"sdn deploy: deployment {deployment_id} 失败 ({platform}): {error_msg}")
+            logger.error(f"sdn deploy: deployment {deployment_id} {deployment.status} ({platform})")
             return deployment
         except Exception as e:
-            # 其它未分类异常（paramiko / ncclient 原始异常）— 走 classify_netconf_error
             error_msg = classify_netconf_error(e)
-            deployment.status = "failed"
-            deployment.error = f"配置下发失败: {error_msg}"
+            deployment.status = "unknown"
+            deployment.error = f"配置下发结果未知: {error_msg}"
             db.commit()
             db.refresh(deployment)
-            logger.error(f"sdn deploy: deployment {deployment_id} 异常 ({platform}): {error_msg}")
+            logger.error(f"sdn deploy: deployment {deployment_id} unknown ({platform}): {error_msg}")
             return deployment
 
-        # 9. 成功
+        # 5. 成功
         deployment.status = "success"
         deployment.error = None
+        deployment.config_completed_at = datetime.utcnow()
         self._mark_resource_success(deployment)
         db.commit()
         db.refresh(deployment)
@@ -310,157 +259,118 @@ class SdnDeploymentExecutor:
     def _apply_units(
         units: List[TemplateUnit],
         platform: str,
-        host: str,
-        port: int,
-        username: str,
+        device,
         password: str,
+        unit_hooks=None,
     ) -> None:
-        """按 device.platform 路由业务下发（v3.0 T6 A 方案）
-
-        Args:
-            units: List[TemplateUnit]（从 planned_config 解析）
-            platform: "LSTN" | "RSTN"
-            host: 设备 host
-            port: LSTN=22 (SSH); RSTN=830 (NETCONF)
-            username: 设备用户名
-            password: 设备密码
-
-        Note:
-            - LSTN 走 SSH 22 + SSHExecutor 跑 system-view CLI（T6 A 方案）
-            - RSTN 走 NETCONF 830 + NetconfClient edit-config schema XML
-            - 任一 unit 失败立即停 + 抛出
-        """
+        """按 device.platform 路由业务下发，逐单元经 unit_hooks 落证据（S1-006 CR2）。"""
         if platform == PLATFORM_LSTN:
-            # LSTN 老芯片 → SSH 22 + paramiko（不依赖 NETCONF L2VPN 通道）
-            SdnDeploymentExecutor._apply_units_via_ssh(
-                units, host, port, username, password
-            )
+            host, port, username = device.host, 22, device.username
+            SdnDeploymentExecutor._apply_units_via_ssh(units, host, port, username, password, unit_hooks)
         elif platform == PLATFORM_RSTN:
-            # RSTN 新芯片 → NETCONF 830 schema XML
-            SdnDeploymentExecutor._apply_units_via_netconf(
-                units, host, port, username, password
-            )
+            host, port, username = device.host, device.port, device.username
+            SdnDeploymentExecutor._apply_units_via_netconf(units, host, port, username, password, unit_hooks)
         else:
-            raise SdnDeploymentError(
-                "SDN_DEVICE_PLATFORM_UNKNOWN",
-                params={"platform": platform},
-                status_code=422,
-            )
+            raise SdnDeploymentError("SDN_DEVICE_PLATFORM_UNKNOWN", params={"platform": platform}, status_code=422)
 
     @staticmethod
-    def _apply_units_via_ssh(
-        units: List[TemplateUnit],
-        host: str,
-        port: int,
-        username: str,
-        password: str,
-    ) -> None:
+    def _hook(unit_hooks, method, *args):
+        """调用 hook 并返回其返回值；无 hook 视为允许（True）。"""
+        if unit_hooks is not None and hasattr(unit_hooks, method):
+            return getattr(unit_hooks, method)(*args)
+        return True
+
+    @staticmethod
+    def _apply_units_via_ssh(units, host, port, username, password, unit_hooks=None) -> None:
         """LSTN 老芯片走 SSH 22 跑 system-view CLI（v3.0 T6 A 方案）
 
-        每个 unit 独立一次 SSH 连接：
-        - 进入 system-view
-        - 跑该 unit 的 cli_commands
-        - return 退到 user-view
-        失败立即抛 SdnDeploymentError（unit 级错误定位）
-
-        SSH 22 验证基础：
-        - T1.13 早期 .5/.177 SSH CLI 跑命令成功
-        - 清理 .5 脏数据用 SSHExecutor 成功（vpna/vpnb/vpc_t113f_v2-4/v9999 全部 undo）
-        - SSHExecutor.execute_commands 处理 H3C V7 [Y/N] 二次确认 + 分页 + 错误检测
+        每个 unit 独立一次 SSH 连接；失败立即停并抛 SdnDeploymentError。
+        连接失败/超时 definitive=False（unknown），设备回读命令失败 definitive=True（failed_known）。
         """
         from app.utils.ssh_executor import SSHExecutor
-        for unit_idx, unit in enumerate(units, 1):
-            if not unit.cli_commands:
-                # LSTN 走空 cli_commands 不合理，但 global unit 这种情况少
-                logger.warning(
-                    f"ssh deploy: unit[{unit_idx}/{len(units)}] {unit.name} "
-                    f"unit.cli_commands 为空，跳过"
+        for unit_index, unit in enumerate(units):
+            # CR14: before_unit CAS 失败（单元已非 not_started）必须阻止 I/O
+            if not SdnDeploymentExecutor._hook(unit_hooks, "before_unit", unit_index, unit.name):
+                raise SdnDeploymentError(
+                    "SDN_UNIT_NOT_STARTABLE",
+                    params={"unit": unit.name, "unit_index": unit_index, "error": "unit already started or terminal"},
+                    status_code=409, definitive=False,
                 )
+            if not unit.cli_commands:
+                logger.warning(f"ssh deploy: unit[{unit_index}] {unit.name} cli_commands 为空，跳过")
+                if not SdnDeploymentExecutor._hook(unit_hooks, "after_unit_success", unit_index, unit.name):
+                    raise SdnDeploymentError(
+                        "SDN_UNIT_EVIDENCE_LOST",
+                        params={"unit": unit.name, "unit_index": unit_index, "error": "unit terminal CAS failed"},
+                        status_code=500, definitive=False,
+                    )
                 continue
             commands = ["system-view"] + list(unit.cli_commands) + ["return"]
             try:
                 ssh = SSHExecutor(host, port, username, password, timeout=30)
                 results = ssh.execute_commands(commands, delay_ms=300)
             except Exception as ssh_conn_err:
-                # SSH 连接本身失败（认证失败 / 协议错 / timeout）
                 raise SdnDeploymentError(
                     "SDN_DEPLOYMENT_SSH_FAILED",
-                    params={
-                        "unit": unit.name,
-                        "unit_idx": unit_idx,
-                        "stage": "ssh_connect",
-                        "error": f"SSH 连接失败: {type(ssh_conn_err).__name__}: {ssh_conn_err}"[:300],
-                    },
-                    status_code=502,
+                    params={"unit": unit.name, "unit_index": unit_index, "unit_idx": unit_index + 1,
+                            "stage": "ssh_connect",
+                            "error": f"SSH 连接失败: {type(ssh_conn_err).__name__}: {ssh_conn_err}"[:300]},
+                    status_code=502, definitive=False,
                 )
             failed = [r for r in results if not r.get("success", False)]
             if failed:
                 failed_cmd = failed[0]
-                logger.error(
-                    f"ssh deploy: unit[{unit_idx}/{len(units)}] {unit.name} "
-                    f"失败 cmd={failed_cmd.get('cmd', '?')!r} "
-                    f"output={failed_cmd.get('output', '')[:200]!r} "
-                    f"error={failed_cmd.get('error', '')[:200]!r}"
-                )
                 raise SdnDeploymentError(
                     "SDN_DEPLOYMENT_SSH_FAILED",
-                    params={
-                        "unit": unit.name,
-                        "unit_idx": unit_idx,
-                        "stage": "cmd_failed",
-                        "cmd": failed_cmd.get("cmd", ""),
-                        "error": (failed_cmd.get("error") or failed_cmd.get("output", ""))[:200],
-                    },
-                    status_code=502,
+                    params={"unit": unit.name, "unit_index": unit_index, "unit_idx": unit_index + 1,
+                            "stage": "cmd_failed", "cmd": failed_cmd.get("cmd", ""),
+                            "error": (failed_cmd.get("error") or failed_cmd.get("output", ""))[:200]},
+                    status_code=502, definitive=True,
                 )
-            logger.info(
-                f"ssh deploy: unit[{unit_idx}/{len(units)}] {unit.name} "
-                f"{len(results)} 条命令全过"
-            )
+            # CR14: after_unit_success 零行更新不得静默忽略
+            if not SdnDeploymentExecutor._hook(unit_hooks, "after_unit_success", unit_index, unit.name):
+                raise SdnDeploymentError(
+                    "SDN_UNIT_EVIDENCE_LOST",
+                    params={"unit": unit.name, "unit_index": unit_index, "error": "unit terminal CAS failed"},
+                    status_code=500, definitive=False,
+                )
 
     @staticmethod
-    def _apply_units_via_netconf(
-        units: List[TemplateUnit],
-        host: str,
-        port: int,
-        username: str,
-        password: str,
-    ) -> None:
-        """RSTN 新芯片走 NETCONF 830 schema 化 XML edit-config（v3.0 T6 A 方案）
-
-        每个 unit 的 xml_payloads 逐条 edit_config（payload 已含完整 <config> XML）
-        RSTN 平台上 unit.xml_payloads 为空（如 global unit）→ fallback 走 unit.cli_commands
-        但 RSTN 不走 SSH——这种情况下应改用 NETCONF 包 CLI 文本
-        目前 v3.0 P0：global unit cli 走 NETCONF <CLI> RPC（ncclient 后续兼容方案预留）
-        """
+    def _apply_units_via_netconf(units, host, port, username, password, unit_hooks=None) -> None:
+        """RSTN 新芯片走 NETCONF 830 schema 化 XML edit-config。"""
         with NetconfClient(host, port, username, password) as client:
-            for unit_idx, unit in enumerate(units, 1):
-                if not unit.xml_payloads:
-                    logger.warning(
-                        f"netconf deploy: unit[{unit_idx}/{len(units)}] {unit.name} "
-                        f"unit.xml_payloads 为空，跳过"
+            for unit_index, unit in enumerate(units):
+                # CR14: before_unit CAS 失败必须阻止 I/O
+                if not SdnDeploymentExecutor._hook(unit_hooks, "before_unit", unit_index, unit.name):
+                    raise SdnDeploymentError(
+                        "SDN_UNIT_NOT_STARTABLE",
+                        params={"unit": unit.name, "unit_index": unit_index, "error": "unit already started or terminal"},
+                        status_code=409, definitive=False,
                     )
+                if not unit.xml_payloads:
+                    logger.warning(f"netconf deploy: unit[{unit_index}] {unit.name} xml_payloads 为空，跳过")
+                    if not SdnDeploymentExecutor._hook(unit_hooks, "after_unit_success", unit_index, unit.name):
+                        raise SdnDeploymentError(
+                            "SDN_UNIT_EVIDENCE_LOST",
+                            params={"unit": unit.name, "unit_index": unit_index, "error": "unit terminal CAS failed"},
+                            status_code=500, definitive=False,
+                        )
                     continue
                 for payload_idx, payload in enumerate(unit.xml_payloads, 1):
-                    logger.debug(
-                        f"netconf deploy: unit[{unit_idx}/{len(units)}] "
-                        f"{unit.name} payload[{payload_idx}/{len(unit.xml_payloads)}] "
-                        f"len={len(payload)}"
-                    )
                     try:
                         client.edit_config(payload)
                     except Exception as e:
-                        logger.error(
-                            f"netconf deploy: unit[{unit_idx}] {unit.name} "
-                            f"payload[{payload_idx}] 失败: {e}"
-                        )
+                        definitive = "timeout" not in str(e).lower() and "no response" not in str(e).lower()
                         raise SdnDeploymentError(
                             "SDN_DEPLOYMENT_NETCONF_FAILED",
-                            params={
-                                "unit": unit.name,
-                                "unit_idx": unit_idx,
-                                "payload_idx": payload_idx,
-                                "error": str(e)[:200],
-                            },
-                            status_code=502,
+                            params={"unit": unit.name, "unit_index": unit_index, "unit_idx": unit_index + 1,
+                                    "payload_idx": payload_idx, "error": str(e)[:200]},
+                            status_code=502, definitive=definitive,
                         )
+                # CR14: after_unit_success 零行更新不得静默忽略
+                if not SdnDeploymentExecutor._hook(unit_hooks, "after_unit_success", unit_index, unit.name):
+                    raise SdnDeploymentError(
+                        "SDN_UNIT_EVIDENCE_LOST",
+                        params={"unit": unit.name, "unit_index": unit_index, "error": "unit terminal CAS failed"},
+                        status_code=500, definitive=False,
+                    )

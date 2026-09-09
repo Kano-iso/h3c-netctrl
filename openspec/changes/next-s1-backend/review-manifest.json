@@ -1,0 +1,199 @@
+{
+  "schema_version": 1,
+  "package_id": "S1-018",
+  "change_id": "next-s1-backend",
+  "baseline_sha": "6cd19fbfca9fab47896236debbb37816310eb915",
+  "worktree": "/root/workpace/h3c-netctrl/.agent-worktrees/next-s1-backend",
+  "scope": [
+    "backend/app/i18n_keys.py",
+    "backend/app/routers/sdn_access.py",
+    "backend/app/services/sdn_operation_service.py",
+    "backend/app/services/sdn_validation_collector.py",
+    "backend/migrations/versions/012_add_sdn_operations.py",
+    "backend/tests/test_s1_00*_adversarial.py"
+  ],
+  "changed_files": [
+    "backend/app/i18n_keys.py",
+    "backend/app/internal_api.py",
+    "backend/app/main.py",
+    "backend/app/models.py",
+    "backend/app/routers/sdn.py",
+    "backend/app/routers/sdn_access.py",
+    "backend/app/schemas.py",
+    "backend/app/services/sdn_deployment_executor.py",
+    "backend/app/services/sdn_operation_service.py",
+    "backend/app/services/sdn_validation_collector.py",
+    "backend/app/utils/device_access.py",
+    "backend/migrations/versions/012_add_sdn_operations.py",
+    "backend/tests/test_s1_006_adversarial.py",
+    "backend/tests/test_s1_007_adversarial.py",
+    "backend/tests/test_s1_008_adversarial.py",
+    "backend/tests/test_s1_009_adversarial.py",
+    "backend/tests/test_s1_010_adversarial.py",
+    "backend/tests/test_s1_011_adversarial.py",
+    "backend/tests/test_s1_012_adversarial.py",
+    "backend/tests/test_s1_013_adversarial.py",
+    "backend/tests/test_s1_014_adversarial.py",
+    "backend/tests/test_s1_015_adversarial.py",
+    "backend/tests/test_s1_016_adversarial.py",
+    "backend/tests/test_s1_017_adversarial.py",
+    "backend/tests/test_s1_018_adversarial.py",
+    "backend/tests/test_sdn_access_api.py",
+    "backend/tests/test_sdn_migration.py",
+    "backend/tests/test_sdn_operation_service.py",
+    "openspec/changes/next-s1-backend/"
+  ],
+  "requirements": [
+    {
+      "id": "CR38",
+      "summary": "Type-3 证据按目标 VPC 的 Route distinguisher 归属校验",
+      "implementation": "SdnValidationCollector._type3_scoped(text, vni)：按 Route distinguisher: 分块、逐块精确 RD 等值比较，只在目标 1:{vni} 块中发现 [3] 才为真；替代 [3] in text；多 RD 正确分块、1:2000 与 1:20000 不串匹配、目标 RD 缺失/只有 [2]/无法解析 → false（_l2_ready_status 返回 unknown）；_validate() 的 type3_present.ok 改用之；清理 CR36/CR37 冲突口径与已重命名测试",
+      "tests": ["test_type3_scoped_target_rd_has_type3_true", "test_type3_scoped_other_rd_type3_target_type2_false", "test_type3_scoped_target_rd_missing_false", "test_type3_scoped_vni_substring_no_false_match", "test_type3_scoped_multi_rd_target_middle_true", "test_type3_scoped_multi_rd_target_last_true", "test_validate_type3_is_scoped_to_target_rd", "test_terminal_gate_unknown_when_type3_not_in_target_rd"]
+    },
+    {
+      "id": "CR37",
+      "summary": "解除 terminal L2 接入门禁对 L3 网关健康的隐式耦合",
+      "implementation": "冻结 L2 必需条件 TERMINAL_L2_REQUIRED_CHECKS=(bgp_peer_established, vsi_exists, vsi_up, type3_present) + L2 所需命令映射 _terminal_l2_required_commands（BGP peer / VSI / Type-3）；移除「整张快照 validation_result==active」与「遍历整张快照所有命令」两处 L3 耦合；raw_has_error 按 L2 命令输出重算；无关 L3/Vsi-interface/ARP 命令失败不拖垮纯 L2 门禁，支撑 L2 的命令缺失/失败/CLI 错误仍 conservative unknown；网关/L3 健康继续由 complete l3_gateway_ready + ping 表达",
+      "tests": ["test_l2_ready_with_degraded_overall_and_healthy_l2", "test_l2_ready_with_l3_command_failure", "test_l2_condition_false_blocks", "test_l2_command_missing_blocks", "test_l2_command_failed_blocks", "test_l2_command_cli_error_blocks", "test_complete_still_expresses_l3_unhealth_as_degraded"]
+    },
+    {
+      "id": "CR36",
+      "summary": "真实设备证据门禁与前置部署语义闭环",
+      "implementation": "两套门禁语义分离（SdnPreflight create「VNI 应不存在」deferred vs terminal predeploy「VSI 必须存在」）；_l2_ready_status 收紧（绝对新鲜度 600s + 采集晚于配置完成）；VPC 版本因果（create.version == vpc.version，_create_sdn_deployment 固化）；execute 证据不足强制重新取证（只读 display），采集失败在消费 plan 前阻断（零业务副作用）；SdnPreflight deferred success=True 明确为 create 路径 blocker/后续项。命令/校验 scoping 由 CR37（L2/L3 解耦）与 CR38（type3 按目标 RD 归属）收紧；CR36 当时口径的 validation_result=active/全命令遍历/raw_has_error 已被取代",
+      "tests": ["test_predeploy_fresh_scoped_healthy_snapshot_ready", "test_predeploy_stale_snapshot_blocked", "test_predeploy_snapshot_predates_config_blocked", "test_predeploy_validation_result_not_a_l2_gate", "test_predeploy_command_failed_blocked", "test_predeploy_command_cli_error_blocked", "test_predeploy_display_error_in_output_blocked", "test_predeploy_validation_details_missing_key_blocked", "test_predeploy_validation_details_invalid_json_blocked", "test_predeploy_vpc_version_change_blocked", "test_execute_collection_failure_blocks_without_side_effects", "test_terminal_predeploy_requires_vsi_exists_not_create_semantics"]
+    },
+    {
+      "id": "CR35",
+      "summary": "收紧 stale takeover 的 active attempt 身份与终态保护",
+      "implementation": "唯一 phase→kind 映射 ACTIVE_PHASE_EXPECTED_KIND；可接管状态仅 claimed/running；claim_stale_takeover 单条原子 UPDATE + EXISTS 同时证明 op phase/token/lease 与 active attempt 的 operation/kind/status；条件式 mark_attempt_stale（rowcount==1 才继续，零行回滚接管）",
+      "tests": ["test_cr35_applying_with_validate_token_rejected", "test_cr35_validating_with_succeeded_execute_token_rejected", "test_cr35_withdrawing_with_terminal_withdraw_token_rejected", "test_cr35_applying_with_terminal_execute_token_rejected", "test_cr35_stale_takeover_allows_active_attempt", "test_cr35_cas_rejects_when_attempt_terminalized_between_read_and_cas"]
+    },
+    {
+      "id": "CR32",
+      "summary": "stale takeover 正确归属 active attempt，与设备副作用 attempt 分离",
+      "implementation": "reconcile 拆分 active_attempt（按 old_active_attempt_id 查询且必须 operation_id==op.id，只标它及其 started unit 为 unknown 并写 stale_takeover 证据；token 无效/跨 operation 保守拒绝）与 effect_attempt（execute/withdraw，已确定终态不降级）；validate 失联按 port_bind 回读恢复到 awaiting_validation",
+      "tests": ["test_cr32_stale_validating_takeover_preserves_succeeded_execute", "test_cr32_stale_applying_takeover_marks_started_unit_unknown", "test_cr32_stale_withdrawing_takeover_resolves_via_readback", "test_cr32_stale_takeover_rejects_invalid_token", "test_cr32_stale_takeover_rejects_other_operation_token"]
+    },
+    {
+      "id": "CR30",
+      "summary": "动作代际令牌：收尾 CAS 绑定具体 attempt/token（owner-aware），杜绝 phase-only CAS 的 ABA",
+      "implementation": "sdn_operations 新增 active_attempt_id/active_started_at 持久列；claim_action_admission 绑定 phase+token+time；finish_action 匹配 operation_id+phase+active_attempt_id 且成功原子清空 token；apply 用原 execute attempt、validate/withdraw/reconcile 用各自新 attempt；准入输家回滚临时 attempt",
+      "tests": ["test_cr30_aba_validate_generation_token", "test_cr30_aba_withdraw_generation_token", "test_cr30_aba_apply_generation_token"]
+    },
+    {
+      "id": "CR31",
+      "summary": "reconcile 参与动作仲裁，区分活跃任务与失联任务",
+      "implementation": "普通 reconcile 仅从 unknown 原子准入 reconciling（绑定 token，与 applying/validating/withdrawing/reconciling 互斥）；active phase 走 claim_stale_takeover（active_started_at + 300s lease）；终态写入/deployment/binding/claims 在持有 reconciling+token 时发生；collector 失败条件收尾到 unknown；withdrawn 不可变",
+      "tests": ["test_cr31_reconcile_rejected_during_live_validate", "test_cr31_reconcile_rejected_during_live_apply", "test_cr31_reconcile_rejected_during_live_withdraw", "test_cr31_unknown_reconcile_single_winner", "test_cr31_stale_takeover_rejected_within_lease", "test_cr31_stale_takeover_succeeds_past_lease", "test_cr31_reconcile_collector_fail_keeps_claims", "test_cr31_reconcile_late_finish_does_not_overwrite_withdrawn"]
+    },
+    {
+      "id": "CR29",
+      "summary": "apply 纳入同一 operation 动作仲裁（apply/withdraw/validate 共享持久化 CAS 准入与条件收尾）",
+      "implementation": "applying 中间态；apply 设备 I/O 前原子 CAS awaiting_wiring→applying（claim_action_admission，与 validating/withdrawing 互斥）；收尾条件 CAS applying→awaiting_validation|failed|unknown；deployment CAS 失败（SDN_DEPLOYMENT_NOT_PENDING）即停不推导 unknown/不误标 claims；并发 apply 单赢家；auto_apply 内联 claimed 阶段兼容阻挡 complete/withdraw",
+      "tests": ["test_cr29_apply_wins_withdraw_blocked", "test_cr29_withdraw_wins_apply_blocked", "test_cr29_concurrent_apply_single_winner", "test_cr29_late_apply_does_not_overwrite_withdrawn"]
+    },
+    {
+      "id": "CR28",
+      "summary": "同一 operation 的 validate 与 withdraw 跨动作互斥 + 终态不被迟到请求覆盖",
+      "implementation": "claim_action_admission 泛化为 from_statuses→to_status 单行 CAS + withdrawing 中间态；withdraw 设备 I/O 前 CAS 准入（WITHDRAW_FROM_STATUSES，排除 withdrawn/validating/withdrawing）；validate 在 validating/withdrawing 下返回 in-progress；finish_action 条件收尾 CAS（WHERE status=from_status）零行不覆盖现状、不误释放 claims + late completion 诊断；withdrawn 不可逆幂等",
+      "tests": ["test_cr28_validate_wins_withdraw_blocked", "test_cr28_withdraw_wins_complete_blocked", "test_cr28_late_complete_does_not_overwrite_withdrawn"]
+    },
+    {
+      "id": "CR27",
+      "summary": "同一 operation 同时至多一个活跃 validate attempt（complete/validate 并发准入）",
+      "implementation": "claim_action_admission 单行 UPDATE CAS（awaiting_validation|unknown→validating）；赢者同事务建 validate attempt + claims 后 commit 才进入 collector/ping；输家/读到 validating 返回 sdn.operation_in_progress（新增 error key）；准入后崩溃留 validating+claimed 痕迹不回退不重放",
+      "tests": ["test_cr27_concurrent_complete_single_winner", "test_cr27_concurrent_unknown_recovery_single_winner", "test_cr27_validating_stuck_not_replayed"]
+    },
+    {
+      "id": "CR24",
+      "summary": "显式 reconcile 必须采到待对账目标接口（真实链路）",
+      "implementation": "SdnValidationCollector.sync 增加 scope_bindings 参数；_commands 对 scope binding 无论 status 都追加 display current-configuration interface；reconcile_operation 传 binding scope；普通周期采集不传 scope",
+      "tests": ["test_cr24_reconcile_port_bind_collects_target_interface", "test_cr24_reconcile_port_unbind_collects_target_interface", "test_cr24_periodic_collection_excludes_planned_binding"]
+    },
+    {
+      "id": "CR25",
+      "summary": "unknown validation 存在可恢复路径（幂等仅限确定完成）",
+      "implementation": "complete_access 幂等仅限 latest validate attempt 为 succeeded/failed_known；unknown + port_bind 执行已成功（success+config_completed_at）允许显式重试新建 validate attempt，旧 attempt 历史保留；不自动重放设备写",
+      "tests": ["test_cr25_unknown_validation_recovers_on_retry"]
+    },
+    {
+      "id": "CR26",
+      "summary": "CLI 错误从 output 与结构化字段共同识别",
+      "implementation": "_scoped_port_evidence 复用 SdnValidationCollector._has_display_error(output)，success=true/error=null 且 output 含 % Wrong parameter/Unrecognized command/Incomplete command 判 insufficient",
+      "tests": ["test_cr26_port_unbind_cli_error_in_output_not_success[% Wrong parameter...]", "test_cr26_port_unbind_cli_error_in_output_not_success[Unrecognized command...]", "test_cr26_port_unbind_cli_error_in_output_not_success[Incomplete command...]"]
+    },
+    {
+      "id": "CR1-CR23",
+      "summary": "前序四轮复审阻断项（S1-006..S1-008）已闭环",
+      "implementation": "见 review-response.md 与 handoff.md 的 CR1-CR23 映射",
+      "tests": ["test_s1_006_adversarial.py (14)", "test_s1_007_adversarial.py (21)", "test_s1_008_adversarial.py (15)"]
+    }
+  ],
+  "invariants": [
+    "同一 operation 至多一个 validate attempt 进入 collector/ping（原子 CAS 准入）",
+    "validate 与 withdraw 跨动作互斥：withdraw 设备 I/O 前 CAS 取得 withdrawing，与 validating 互斥",
+    "apply/withdraw/validate 共享同一持久化动作仲裁：apply 设备 I/O 前 CAS 取得 applying，与 validating/withdrawing 互斥",
+    "apply/validate/withdraw/reconcile 最终状态写入带 phase + active_attempt_id 条件 CAS；旧代际迟到收尾零行、不覆盖新代际、不误释放 claims",
+    "reconcile 参与动作仲裁：unknown→reconciling 原子准入；active phase 依 lease 判定失联才可受保护 takeover；withdrawn 不可被 reconcile 改写",
+    "stale takeover 严格归属：只把 token 指向的 active_attempt 及其 started unit 标 unknown；effect_attempt 已确定终态不降级；token 无效/跨 operation 拒绝",
+    "stale takeover 身份与终态保护：phase→kind 唯一映射；仅 claimed/running 可接管；原子 UPDATE+EXISTS 消除先读后改；零行条件标记回滚接管",
+    "terminal access predeploy proof：VSI/VNI 必须存在且 L2 可用；degraded/failed/陈旧/命令失败/CLI 错误/缺项一律 unknown，不放过",
+    "terminal L2 门禁独立于 L3/网关健康：不要求整张快照 validation_result==active、不遍历整张快照所有命令，只按 L2 必需条件与 L2 所需命令判定",
+    "type3_present 只证明目标 VPC 的 Type-3：按目标 Route distinguisher 1:{vni} 路由块判定，不搜整段 [3]、1:2000 与 1:20000 不串匹配，目标 RD 缺失/只有 [2]/无法解析 → false",
+    "网关/L3 健康继续由 complete 业务验证 l3_gateway_ready + ping 表达，不得用 L2 成功冒充 L3 成功",
+    "VPC 版本因果：create deployment 固化 vpc.version；不一致/缺失 → conservative unknown，不伪造",
+    "execute 证据不足强制重新取证（只读 display）；采集失败在消费 plan/建 operation/binding/deployment/占用 claim 之前阻断（零业务副作用）",
+    "create preflight（VNI 应不存在 deferred）与 terminal predeploy（VSI 必须存在）语义严格分离，不混用",
+    "reconcile 只在全部 uncertain unit 逐项 rowcount 解析成功后才 reconciled=true 并释放 claims",
+    "port_bind 对账需目标端口 scoped 正向证据；port_unbind 不得把采集失败/CLI 错误当配置缺失",
+    "complete 幂等仅限确定完成的 validate attempt；unknown validation 可显式重试且不自动重放设备写",
+    "准入后崩溃留 validating+claimed 痕迹，不回退 awaiting_validation、不重放",
+    "主机观测 IP/端口必须来自同一条本地记录",
+    "claim 互斥（含 ambiguous）独占资源，mutation 前 owner-aware 获取/复用"
+  ],
+  "tests": [
+    {
+      "command": "docker compose -f openspec/changes/next-s1-backend/qa/docker-compose.qa.yml run --rm qa-backend python -m pytest tests/test_s1_018_adversarial.py -q",
+      "environment": "qa-backend 容器（image next-s1-qa-backend:local）",
+      "result": "8 passed",
+      "baseline_failed": true
+    },
+    {
+      "command": "docker compose -f openspec/changes/next-s1-backend/qa/docker-compose.qa.yml run --rm qa-backend python -m pytest tests/test_s1_016_adversarial.py tests/test_s1_017_adversarial.py tests/test_s1_018_adversarial.py -q",
+      "environment": "qa-backend 容器",
+      "result": "31 passed",
+      "baseline_failed": false
+    },
+    {
+      "command": "docker compose -f openspec/changes/next-s1-backend/qa/docker-compose.qa.yml run --rm qa-backend python -m pytest tests/test_sdn_validation_api.py tests/test_sdn_access_api.py tests/test_sdn_operation_service.py tests/test_sdn_migration.py -q",
+      "environment": "qa-backend 容器",
+      "result": "32 passed",
+      "baseline_failed": false
+    },
+    {
+      "command": "docker compose -f openspec/changes/next-s1-backend/qa/docker-compose.qa.yml run --rm qa-backend python -m pytest tests/ -q -p no:cacheprovider",
+      "environment": "qa-backend 容器",
+      "result": "560 passed / 55 skipped / 11 failed（S1-016 基线；11 失败为基线段 test_ops_toolkit_paramiko.py 的 _paramiko_batch_exec 模块缺失，非本次引入；本轮按约定不重跑全量）",
+      "baseline_failed": false
+    }
+  ],
+  "migrations": [
+    {
+      "id": "012_add_sdn_operations",
+      "summary": "新增 sdn_operations/sdn_attempts/sdn_attempt_units/sdn_resource_claims/sdn_port_bindings 等 S1 表 + 部分唯一索引/复合索引 + evidence_json 列",
+      "repeatable": true,
+      "test": "tests/test_sdn_migration.py"
+    }
+  ],
+  "device_io": [],
+  "unverified": [
+    "真机设备链路（EVPN/VXLAN 设备侧回读、网关 ping、主机 ARP/MAC 学习）未经真实设备验证"
+  ],
+  "forbidden_actions_confirmed": [
+    "未连设备 / 未进行任何设备 I/O",
+    "未修改前端、主工作树、常驻业务服务",
+    "未 commit / push / tag / archive / close stage",
+    "未新建 change（沿用 next-s1-backend）"
+  ],
+  "ready_for_code_review": true
+}

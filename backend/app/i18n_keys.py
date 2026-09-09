@@ -191,6 +191,25 @@ class SDN:
     # v3.3 VPC/EVPN 配置闭环
     PORT_BINDING_NOT_FOUND = I18nKey("sdn.port_binding_not_found")    # 端口绑定不存在: id={id}
     PORT_BINDING_CONFLICT = I18nKey("sdn.port_binding_conflict")      # 端口已绑定到其他 VPC: device_id={device_id}, interface={interface_name}
+    # S1 终端接入（next-s1-backend）
+    OPERATION_NOT_FOUND = I18nKey("sdn.operation_not_found")          # 操作不存在: id={id}
+    PLAN_NOT_FOUND = I18nKey("sdn.plan_not_found")                    # 预览计划不存在: plan_id={plan_id}
+    PLAN_EXPIRED = I18nKey("sdn.plan_expired")                        # 预览计划已过期: plan_id={plan_id}
+    PLAN_CONSUMED = I18nKey("sdn.plan_consumed")                      # 预览计划已被消费: plan_id={plan_id}
+    PLAN_STALE = I18nKey("sdn.plan_stale")                            # 计划失效：预览后对象已改变，请重新预览
+    RESOURCE_BUSY = I18nKey("sdn.resource_busy")                      # 资源已被其他操作持有: {resource_key}
+    RESOURCE_AMBIGUOUS = I18nKey("sdn.resource_ambiguous")            # 资源处于歧义状态，需先对账: {resource_key}
+    IDEMPOTENCY_CONFLICT = I18nKey("sdn.idempotency_conflict")        # 相同幂等键对应不同请求: {idempotency_key}
+    IDEMPOTENCY_NOT_FOUND = I18nKey("sdn.idempotency_not_found")      # 幂等键不存在或不可访问
+    PREDEPLOY_MISSING = I18nKey("sdn.predeploy_missing")              # 目标设备缺少 VPC 前置部署
+    PREDEPLOY_UNKNOWN = I18nKey("sdn.predeploy_unknown")              # 目标设备前置部署状态未知
+    METADATA_UNAVAILABLE = I18nKey("sdn.metadata_unavailable")        # 设备权威元数据不可用，无法安全执行
+    UNSAFE_WITHDRAWAL = I18nKey("sdn.unsafe_withdrawal")              # 撤回不安全：绑定已被其他操作变更或引用
+    RECONCILE_REQUIRED = I18nKey("sdn.reconcile_required")            # 存在未知结果，需先对账
+    EVIDENCE_INSUFFICIENT = I18nKey("sdn.evidence_insufficient")      # 证据不足，无法判定业务验证
+    INVALID_HOST_IP = I18nKey("sdn.invalid_host_ip")                  # 期望主机 IP 非法：{detail}
+    INVALID_INTERFACE = I18nKey("sdn.invalid_interface")              # 接口身份非法：{detail}
+    OPERATION_IN_PROGRESS = I18nKey("sdn.operation_in_progress")      # 同一 operation 已有动作进行中: id={id}
 
 
 # ===== 集中导出（便于 import，支持 err.X 点访问） =====
@@ -307,6 +326,25 @@ err = SimpleNamespace(
     SDN_DEPLOYMENT_NETCONF_FAILED=I18nKey("sdn.deployment_netconf_failed"),
     SDN_PORT_BINDING_NOT_FOUND=SDN.PORT_BINDING_NOT_FOUND,
     SDN_PORT_BINDING_CONFLICT=SDN.PORT_BINDING_CONFLICT,
+    # S1 终端接入
+    SDN_OPERATION_NOT_FOUND=SDN.OPERATION_NOT_FOUND,
+    SDN_PLAN_NOT_FOUND=SDN.PLAN_NOT_FOUND,
+    SDN_PLAN_EXPIRED=SDN.PLAN_EXPIRED,
+    SDN_PLAN_CONSUMED=SDN.PLAN_CONSUMED,
+    SDN_PLAN_STALE=SDN.PLAN_STALE,
+    SDN_RESOURCE_BUSY=SDN.RESOURCE_BUSY,
+    SDN_RESOURCE_AMBIGUOUS=SDN.RESOURCE_AMBIGUOUS,
+    SDN_IDEMPOTENCY_CONFLICT=SDN.IDEMPOTENCY_CONFLICT,
+    SDN_IDEMPOTENCY_NOT_FOUND=SDN.IDEMPOTENCY_NOT_FOUND,
+    SDN_PREDEPLOY_MISSING=SDN.PREDEPLOY_MISSING,
+    SDN_PREDEPLOY_UNKNOWN=SDN.PREDEPLOY_UNKNOWN,
+    SDN_METADATA_UNAVAILABLE=SDN.METADATA_UNAVAILABLE,
+    SDN_UNSAFE_WITHDRAWAL=SDN.UNSAFE_WITHDRAWAL,
+    SDN_RECONCILE_REQUIRED=SDN.RECONCILE_REQUIRED,
+    SDN_EVIDENCE_INSUFFICIENT=SDN.EVIDENCE_INSUFFICIENT,
+    SDN_INVALID_HOST_IP=SDN.INVALID_HOST_IP,
+    SDN_INVALID_INTERFACE=SDN.INVALID_INTERFACE,
+    SDN_OPERATION_IN_PROGRESS=SDN.OPERATION_IN_PROGRESS,
 )
 
 
@@ -434,6 +472,25 @@ FALLBACK_MESSAGES = {
     I18nKey("sdn.deployment_netconf_failed"): "NETCONF schema XML 业务下发失败: unit={unit}, payload_idx={payload_idx}, error={error}",
     SDN.PORT_BINDING_NOT_FOUND: "端口绑定不存在: id={id}",
     SDN.PORT_BINDING_CONFLICT: "端口已绑定到其他 VPC: device_id={device_id}, interface={interface_name}",
+    # S1 终端接入
+    SDN.OPERATION_NOT_FOUND: "操作不存在: id={id}",
+    SDN.PLAN_NOT_FOUND: "预览计划不存在: plan_id={plan_id}",
+    SDN.PLAN_EXPIRED: "预览计划已过期: plan_id={plan_id}",
+    SDN.PLAN_CONSUMED: "预览计划已被消费: plan_id={plan_id}",
+    SDN.PLAN_STALE: "计划失效：预览后对象已改变，请重新预览",
+    SDN.RESOURCE_BUSY: "资源已被其他操作持有: {resource_key}",
+    SDN.RESOURCE_AMBIGUOUS: "资源处于歧义状态，需先对账: {resource_key}",
+    SDN.IDEMPOTENCY_CONFLICT: "相同幂等键对应不同请求: {idempotency_key}",
+    SDN.IDEMPOTENCY_NOT_FOUND: "幂等键不存在或不可访问",
+    SDN.PREDEPLOY_MISSING: "目标设备缺少 VPC 前置部署",
+    SDN.PREDEPLOY_UNKNOWN: "目标设备前置部署状态未知",
+    SDN.METADATA_UNAVAILABLE: "设备权威元数据不可用，无法安全执行",
+    SDN.UNSAFE_WITHDRAWAL: "撤回不安全：绑定已被其他操作变更或引用",
+    SDN.RECONCILE_REQUIRED: "存在未知结果，需先对账",
+    SDN.EVIDENCE_INSUFFICIENT: "证据不足，无法判定业务验证",
+    SDN.INVALID_HOST_IP: "期望主机 IP 非法: {detail}",
+    SDN.INVALID_INTERFACE: "接口身份非法: {detail}",
+    SDN.OPERATION_IN_PROGRESS: "同一 operation 已有动作进行中: id={id}",
 }
 
 

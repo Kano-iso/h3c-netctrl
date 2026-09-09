@@ -13,6 +13,7 @@ import logging
 from types import SimpleNamespace
 from typing import Optional, Tuple, List
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.models import Device
@@ -21,6 +22,17 @@ from app.schemas import APIResponse
 from app.i18n_keys import err, error_response
 
 logger = logging.getLogger("app")
+
+
+def _local_devices_table_exists(db: Session) -> bool:
+    """显式判定本地是否有 devices 表（S1-006 CR7：不靠 SQL 异常决定 monolith/split）。"""
+    try:
+        row = db.execute(
+            text("SELECT name FROM sqlite_master WHERE type='table' AND name='devices'")
+        ).fetchone()
+        return row is not None
+    except Exception:
+        return False
 
 
 def _wrap_device_dict(d: dict) -> SimpleNamespace:
@@ -48,27 +60,15 @@ def _wrap_device_dict(d: dict) -> SimpleNamespace:
 
 
 def get_device_with_password(
-    db: Session, device_id: int
+    db: Session, device_id: int, *, fresh: bool = False
 ) -> Tuple[Optional[object], Optional[str], Optional[APIResponse]]:
-    """获取设备 + 解密密码
+    """获取设备 + 解密密码（S1-006 CR7：显式判定 monolith/split，不靠异常）。
 
-    Returns:
-        (device_obj, password, error_resp)
-        - 成功: (device_obj, password, None)
-        - 失败: (None, None, APIResponse(success=False, error=...))
+    fresh=True：split 模式绕过 internal_api 5s 缓存重拉权威元数据。
     """
-    # 1. 先尝试本地查（monolith 模式）
-    table_unavailable = False
-    try:
+    # 1. 显式判定本地是否有 devices 表（monolith），而非触发 SQL 异常
+    if _local_devices_table_exists(db):
         device = db.query(Device).filter(Device.id == device_id).first()
-    except Exception as e:
-        # split 模式：config/data 容器无 devices 表
-        logger.warning(f"本地 Device 表不可用，走内部 API: {e}")
-        device = None
-        table_unavailable = True
-
-    # 本地表查询成功（monolith 模式）
-    if not table_unavailable:
         if device:
             try:
                 password = decrypt_password(device.password_encrypted)
@@ -76,16 +76,13 @@ def get_device_with_password(
             except Exception as e:
                 logger.error(f"密码解密失败: {e}")
                 return None, None, error_response(err.DEVICE_CRYPTO_DECRYPT_FAILED)
-        else:
-            # 设备真不存在（本地查到了但返回 None）
-            return None, None, error_response(
-                err.DEVICE_NOT_FOUND, params={"id": device_id}
-            )
+        return None, None, error_response(err.DEVICE_NOT_FOUND, params={"id": device_id})
 
-    # 2. 走内部 API（split 模式）
+    # 2. split 模式：走内部 API
     try:
-        from app.internal_api import get_device
-        resp = get_device(device_id)
+        from app.internal_api import get_device, get_device_fresh
+        getter = get_device_fresh if fresh else get_device
+        resp = getter(device_id)
         if not resp.get("success"):
             err_msg = resp.get("error", f"设备不存在: id={device_id}")
             return None, None, error_response(
@@ -93,7 +90,6 @@ def get_device_with_password(
             )
         d = resp["data"]
         device_obj = _wrap_device_dict(d)
-        # 内部 API 已解密密码
         return device_obj, d.get("password", ""), None
     except Exception as e:
         logger.error(f"内部 API 查设备失败: {e}")
@@ -116,6 +112,27 @@ def get_device_or_error(
     if error:
         return None, error
     return device, None
+
+
+def get_device_metadata(
+    db: Session, device_id: int, *, fresh: bool = False
+) -> Tuple[Optional[object], Optional[APIResponse]]:
+    """仅取设备元数据，不解密密码（CR7：显式分派，端口绑定不因密文不可解而失败）。"""
+    if _local_devices_table_exists(db):
+        device = db.query(Device).filter(Device.id == device_id).first()
+        if device:
+            return device, None
+        return None, error_response(err.DEVICE_NOT_FOUND, params={"id": device_id})
+    try:
+        from app.internal_api import get_device, get_device_fresh
+        getter = get_device_fresh if fresh else get_device
+        resp = getter(device_id)
+        if not resp.get("success"):
+            return None, error_response(err.DEVICE_NOT_FOUND, params={"id": device_id})
+        return _wrap_device_dict(resp["data"]), None
+    except Exception as e:
+        logger.error(f"设备元数据内部 API 失败: {e}")
+        return None, error_response(err.DEVICE_NOT_FOUND, params={"id": device_id})
 
 
 def get_devices_batch(db: Session, device_ids: List[int]) -> List[object]:
