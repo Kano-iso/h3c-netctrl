@@ -157,6 +157,14 @@ docker compose -f docker-compose.dev.yml --profile core up -d backend frontend
 # backend API 文档（core 模式）：http://localhost:8000/docs
 ```
 
+### 从 GitHub 接手与灾备恢复
+
+- `main` 始终代表最近一次正式发布；进行中的 NEXT 工作以远端 `codex/next-s1-backend` 分支为可恢复检查点。接手开发时先读取该分支内的 `openspec/changes/next-s1-backend/readiness.md` 和 `handoff.md`，不要只看 `main` 推断进度。
+- 克隆后分别由 `.env.example` 和 `frontend/.env.example` 生成本机配置，再执行上面的 Compose 启动命令。环境模板只描述变量，不保存真实凭据。
+- GitHub 可以恢复源码、迁移、测试和项目文档，但不会保存 `.env`、`frontend/.env`、`data/*.db`、`data/ztp/`、运行日志或 Docker 备份卷。这些运行状态必须单独备份到宿主机之外。
+- 恢复既有数据库时必须同时恢复原 `ENCRYPTION_KEY`，否则数据库中已加密的设备密码无法解密。不要为旧数据库临时生成新密钥。
+- 灾备验收标准：目标分支可重新克隆、`git fsck --full` 无损坏、Compose 配置可解析、环境变量模板完整；运行数据恢复另按外部备份介质核对，不能把“代码已推送”等同于“业务状态已备份”。
+
 ## 访问入口
 
 | 服务 | 地址 |
