@@ -175,6 +175,33 @@ onMounted(loadStatus)
               {{ clearing ? t('ztp.clearing') : t('ztp.clear') }}
             </button>
           </div>
+
+          <div class="mt-6 rounded-xl border border-canvas-300 bg-canvas-50 p-4">
+            <div class="text-sm font-semibold text-ink-800">{{ t('ztp.steps_title') }}</div>
+            <div class="mt-1 text-xs text-ink-500">{{ t('ztp.steps_desc') }}</div>
+            <ol class="mt-3 space-y-2.5 text-sm text-ink-700">
+              <li class="flex gap-3">
+                <span class="flex-shrink-0 inline-flex size-5 items-center justify-center rounded-full bg-accent/10 text-xs font-semibold text-accent">1</span>
+                <div>
+                  <div class="font-medium text-ink-800">{{ t('ztp.step_reset') }}</div>
+                  <code class="mt-1 block rounded bg-white px-2 py-1 font-mono text-xs text-ink-700 ring-1 ring-canvas-300">{{ t('ztp.step_reset_cmd') }}</code>
+                  <div class="mt-1 text-xs text-ink-500">{{ t('ztp.step_reset_confirm') }}</div>
+                </div>
+              </li>
+              <li class="flex gap-3">
+                <span class="flex-shrink-0 inline-flex size-5 items-center justify-center rounded-full bg-accent/10 text-xs font-semibold text-accent">2</span>
+                <div>
+                  <div class="font-medium text-ink-800">{{ t('ztp.step_reboot') }}</div>
+                  <code class="mt-1 block rounded bg-white px-2 py-1 font-mono text-xs text-ink-700 ring-1 ring-canvas-300">{{ t('ztp.step_reboot_cmd') }}</code>
+                  <ul class="mt-1 space-y-0.5 text-xs text-ink-500 list-disc list-inside">
+                    <li>{{ t('ztp.step_reboot_save') }}</li>
+                    <li>{{ t('ztp.step_reboot_confirm') }}</li>
+                  </ul>
+                </div>
+              </li>
+            </ol>
+            <div class="mt-3 text-xs text-ink-500">{{ t('ztp.steps_note') }}</div>
+          </div>
         </section>
 
         <aside class="panel p-5">

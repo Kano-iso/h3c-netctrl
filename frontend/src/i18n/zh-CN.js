@@ -534,6 +534,16 @@ export default {
     clear_failed: '清除恢复配置失败',
     save_success: '恢复配置已启用',
     clear_success: '已恢复默认 ZTP 配置',
+    steps_title: '设备端操作步骤（H3C V7）',
+    steps_desc: '在设备控制台执行以下命令，清空配置并重启，设备将自动通过 ZTP 拉取恢复配置：',
+    step_reset: '清空启动配置',
+    step_reset_cmd: 'reset saved-configuration',
+    step_reset_confirm: '输入 Y 确认清空',
+    step_reboot: '重启设备',
+    step_reboot_cmd: 'reboot',
+    step_reboot_save: '提示是否保存当前配置时，输入 N（不保存）',
+    step_reboot_confirm: '提示确认重启时，输入 Y',
+    steps_note: '设备重启后将自动通过 DHCP 获取临时地址，并从 TFTP 拉取 autocfg.cfg 完成上线。仅适用于 H3C V7 平台。',
   },
   // v2.6 Task 6: VLAN （在 Interfaces 内部，已经在 Task 5 处理）这里仅放 search 提示
   vlan: {
