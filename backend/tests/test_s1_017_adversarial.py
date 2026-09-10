@@ -9,7 +9,7 @@
 覆盖：
 - validation_result=degraded + L2 健康 + L3 失败 → L2 predeploy ready；
 - Vsi-interface/L3VNI 命令失败但 L2 命令成功 → L2 predeploy ready；
-- bgp_peer_established/vsi_exists/vsi_up/type3_present 分别 false → 阻断；
+- bgp_peer_established/vsi_exists/type3_present 分别 false → 阻断（vsi_up 自 S1-020 起为动态必需，见 test_s1_020_adversarial.py）；
 - L2 必需命令缺失 / success=false / CLI error 分别阻断；
 - complete/业务验证仍把 L3 不健康表达为 degraded（不冒充完整业务成功）。
 """
@@ -85,8 +85,10 @@ def test_l2_ready_with_l3_command_failure(db):
 
 
 # ── L2 必需条件分别 false → 阻断 ──
+# 注：vsi_up 自 S1-020 起为动态必需（仅目标 Leaf 已有 active/expanding 本地绑定时必需），
+# 其「无绑定放行 / 有绑定阻断」语义见 test_s1_020_adversarial.py，此处只覆盖始终必需的三项。
 
-@pytest.mark.parametrize("check", ["bgp_peer_established", "vsi_exists", "vsi_up", "type3_present"])
+@pytest.mark.parametrize("check", ["bgp_peer_established", "vsi_exists", "type3_present"])
 def test_l2_condition_false_blocks(db, check):
     device, _, vpc = _seed_ready(None, db)
     snap = _latest_snap(db, vpc)

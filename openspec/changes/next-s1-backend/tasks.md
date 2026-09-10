@@ -154,3 +154,42 @@
 - [x] 21.2 `_validate()` 的 `type3_present.ok` 改用 `_type3_scoped(bgp_evpn_text, vpc.vni)`，替代 `"[3]" in text`
 - [x] 21.3 清理 CR36/CR37 冲突口径：readiness S1-016、handoff CR36、review-response 历史 CR36、review-manifest CR36、tasks 19.2 标注「CR36 当时口径，已被 CR37/CR38 取代」，修正已重命名测试 `test_predeploy_validation_result_not_a_l2_gate`
 - [x] 21.4 对抗测试：`test_s1_018_adversarial.py`（目标 RD [3] true、其他 RD [3]/目标 [2] false、目标 RD 缺失 false、1:2000 vs 1:20000、多 RD 中/末位、真实 `_validate` scoped、terminal 门禁 unknown，8 条）
+
+## 22. S1-019（真机生命周期验证）
+
+- [x] 22.1 新增默认 skip 真机集成测试 `backend/tests/test_s1_019_reallife.py`：`integration` 标记 + `S1_019_REAL=1` + `S1_019_REAL_HOST=192.168.100.5` 三重门；凭据只读 `.env` 注入、Fernet 进程内加解密、不落盘/打印；业务写入全走 backend API/executor（LSTN→SSH22 CLI）；try/finally 补偿撤回
+- [x] 22.2 新增恢复清单 `openspec/changes/next-s1-backend/recovery-manifest-s1-019.md`（时间戳/目标设备/唯一测试名/基线/预期对象/清理项/原子状态），本轮真实对象（VSI `vpc0001`、RD `1:20000`、Vsi-interface1000、sdn_l3vpn、vxlan global、GE1/0/10 service-instance 3200）全部记录
+- [x] 22.3 文档/工具别名一致性修正：`docs/ops-toolkit.md` §设备命名约定 删除错误的 `Leaf-05: .6`（.6 实为 SWD/Spine，Router ID 1.1.1.1），注明 `_lib.sh` 未实现 `leaf-05`；新增 `backend/tests/test_s1_019_doc_alias.py`（leaf-04→.5、leaf-05 不映射、test/spine-01 仍解析）
+- [x] 22.4 真机一轮（.5 SWC/S6850 T7064P15/LSTN）：VPC create/apply ✅、display+目标 RD `1:20000` Type-3 `[3]` ✅、access preview ✅、access execute 被 predeploy gate `sdn.predeploy_unknown` 诚实阻断（`vsi_up=False`，无 AC/tunnel 时 VSI State Down）、VPC withdraw ✅
+- [x] 22.5 兜底清理（fallback）：ops-toolkit `undo ip vpn-instance sdn_l3vpn` + `undo vxlan tunnel mac-learning disable`（产品保留的共享对象，基线不存在，前后 readback）
+- [x] 22.6 最终 readback：VSI 空 / routes 0 / 无 sdn_l3vpn / 无 vxlan / GE1/0/10 回基线；未 save/改 startup-config；access apply/complete 因 vsi_up 数据面边界未端到端验证（诚实标注未验证，非伪造成功）
+- [x] 22.7 QA：`test_s1_019_doc_alias.py` + `test_s1_019_reallife.py`（默认 skip 验证）+ S1-016~018 门禁 + validation/access/service/migration = **66 passed / 1 skipped**；`openspec validate --strict` 通过、`git diff --check` 干净
+
+## 23. S1-020（修复首次接入自阻断 + .5 真机生命周期）
+
+- [x] 23.1 对抗测试先行证明 S1-019 基线失败：`test_s1_020_adversarial.py`（无绑定+vsi_up=Down 应 ready、active/expanding 绑定+vsi_up=Down 应 block、绑定+vsi_up=True 应 ready、unbound/planned 不误判、preview/execute 同语义、force refresh 零副作用），修复前 5 failed/4 passed，修复后 9 passed
+- [x] 23.2 实现 `_l2_ready_status` 动态 `vsi_up` 必需：目标 Leaf 无 active/expanding 本地绑定时 vsi_up 不作为门禁（首次 AC bootstrap），已有绑定时仍必需（Down 保守阻断）；其余三项 + 版本因果/TTL/配置完成时间/命令完整性/CLI 错误/BGP peer/VSI 存在/目标 RD Type-3 门禁不删不放宽
+- [x] 23.3 修正 S1-017 `test_l2_condition_false_blocks` 参数化：vsi_up 移出「始终必需」列表（动态必需见 S1-020），更新 docstring
+- [x] 23.4 重写 S1-019 真机测试：不再把 predeploy 阻断断言为 PASS，走 preview→execute→apply→readback GE1/0/10 service-instance/xconnect→complete（无主机诚实 degraded/unknown）→access withdraw→VPC withdraw，核对 operation/binding/deployment/attempt/claim 收尾
+- [x] 23.5 非真机 QA：S1-016~020 + validation/access/service/migration = 74 passed / 1 skipped（skip=reallife 默认门）；真机只跑一次完整生命周期
+- [x] 23.6 同步 spec/design/tasks/readiness/handoff/review-response/review-manifest，删除「固定四项始终必需」旧结论，明确首次 AC bootstrap 与已有 AC 健康检查差异
+
+## 24. S1-021（真机生命周期安全 Runner 与交付口径修正，本轮未触真机）
+
+- [x] 24.1 新增唯一、可复用宿主安全 runner `openspec/changes/next-s1-backend/qa/run_s1_019_real_lifecycle.sh`：默认拒绝真机（`--integration`/`S1_019_REAL=1`/精确 `192.168.100.5`/`--cleanup-shared` 四重门禁，目标非 .5 设备 I/O 前退出）；凭据仅 `.env`/环境注入不落盘；额外设备读写走 ops-toolkit 既有入口；pytest 前保存最小基线（身份/VSI/EVPN/共享对象/GE1/0/10），共享对象基线已存在→拒绝承担所有权绝不 trap 删除；进入可写阶段装 trap，成功/失败/Ctrl-C/TERM 都按恢复清单精确兜底清理（仅两条共享 undo + 上下文，无 save/越界）+ 最终 readback 回基线（返回码 0 ≠ 清理成功）；保留 pytest 原始退出码但 cleanup/readback 失败整体失败并输出 MANUAL-NEEDED；本机 flock 锁防并发
+- [x] 24.2 新增不触真机对抗测试 `backend/tests/test_s1_021_runner_adversarial.py`（16 条，stub/fake 命令）：缺门禁/目标非 .5 设备 I/O 前失败、基线共享对象拒绝且无 undo、pytest 成功/失败都进 cleanup+readback、SIGINT/SIGTERM 触发 trap、pytest 失败保留非零 / cleanup/readback 失败 runner 非零、cleanup 仅两条精确 undo 无 save/越界、并发锁退出 2
+- [x] 24.3 QA compose 只读挂载 qa 目录（`.:/opt/s1-qa:ro` + `S1_021_QA_DIR`），供对抗测试在容器内访问 runner/stub
+- [x] 24.4 口径修正：真机测试 docstring 与 review manifest 标准跑法改为唯一 runner（裸 pytest 只是 runner 内部实现，不承担共享对象清理）；readiness 去掉「Codex 已完成代码复审」提前结论改「等待 Codex 复审」；review manifest 完成只写 `READY_FOR_CODE_REVIEW` 不写 `CODE_REVIEW_PASSED`；如实记录 S1-020 历史共享残留由测试外 ops-toolkit 精确兜底（当时无自动 runner）
+- [x] 24.5 同步 design/spec/tasks/handoff/review-response/review-manifest/recovery-manifest 的运行时与恢复契约（唯一 runner 标准跑法、清理所有权边界、历史人工/监督清理与自动 runner 区分）
+- [x] 24.6 QA（本轮未触真机）：`test_s1_021_runner_adversarial.py` = 16 passed；S1-016~020 + validation/access/service/migration + runner 对抗 = **90 passed / 1 skipped**；`openspec validate --strict` valid、manifest JSON valid、`git diff --check` clean
+
+## 25. S1-022（Runner 审计目录失效时仍必须安全清理，本轮未触真机）
+
+- [x] 25.1 启动审计目录探针：任何设备 I/O 前 `umask 077` + `setup_artifact_dir`（`mkdir -p` + 临时探针文件后删除），失败直接退出码 6（不采集基线、不跑 pytest）
+- [x] 25.2 baseline 持久化门：`baseline.txt` 写失败 → 退出码 4，在 pytest/可写阶段前终止；持久化成功才设置 WRITE_PHASE
+- [x] 25.3 EXIT trap 先执行后落盘：cleanup / final readback 一律先真实执行并捕获返回码/输出（命令替换），再尽力写审计文件；审计目录被删除/变只读/写失败不得阻止精确清理与回读；审计写入失败置 AUDIT_FAIL=1 → MANUAL-NEEDED + runner 最终非零但不替代 cleanup/readback；cleanup 失败不跳过 final readback
+- [x] 25.4 `stub_pytest.sh` 增加 `STUB_PYTEST_HOOK`（pytest 期间删除/破坏审计目录的注入点）
+- [x] 25.5 新增对抗测试 5 条（审计目录不可创建/不可写→ops 0/pytest 未调用/非零；baseline 持久化失败→不进入 pytest/可写阶段；pytest 期间删审计目录→cleanup 两条精确 undo 仍实际调用 + final readback 仍实际调用 + runner 非零提示人工；cleanup 设备失败 + 审计目录失败→仍执行 final readback）；修掉并发锁测试 `or True` 恒真断言改为真实断言
+- [x] 25.6 QA（本轮未触真机）：`test_s1_021_runner_adversarial.py` = **21 passed**；S1-016~020 + validation/access/service/migration + runner 对抗 = **95 passed / 1 skipped**；`openspec validate --strict` valid、manifest JSON valid、`git diff --check` clean、凭据/越界命令扫描干净
+- [x] 25.7 同步 design/tasks/handoff/review-response/review-manifest/readiness 为 S1-022 口径（审计目录可靠性 + 先执行后落盘契约）
+- [x] 25.8 Codex 独立复跑与安全复审通过（95 passed / 1 skipped；stub 失效路径设备 I/O=0）

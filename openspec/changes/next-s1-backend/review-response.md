@@ -1,6 +1,48 @@
 # 复审响应（review-response）
 
-## Codex 最终复审结论（2026-09-10）
+## Codex 最终复审结论（S1-022，2026-09-10）
+
+**CODE_REVIEW_PASSED**。Codex 独立复跑 S1-016～S1-022、validation/access/service/migration 共 **95 passed / 1 skipped**；另以 stub 重放审计目录不可创建反例，确认退出码 6、设备调用 0、pytest 调用 0。`bash -n`、QA Compose 解析、OpenSpec strict、manifest JSON、`git diff --check` 与凭据/越界命令扫描均通过。本轮复审未连接真机、未执行设备 I/O。
+
+该结论允许形成 Git 检查点并进入下一阶段，不等同于 NEXT 前端体验、跨 Leaf 数据面或正式版本发布已经验收。
+
+---
+
+## S1-022（Runner 审计目录失效时仍必须安全清理，最新；本轮未触真机）
+
+> 审核方：Codex（对 S1-021 的复审反馈，暂不通过；阻断只在安全 runner，业务代码无新问题）。用 stub 独立复现：将 `RUNNER_ARTIFACT_DIR` 指向不可创建路径时，runner 在 baseline 文件写入失败后仍打印 `BASELINE-OK` 并进入可能写设备阶段；退出时 `run_ops ... > cleanup.txt` 的重定向在命令启动前失败，导致两条共享 undo 根本没有执行，只能报 `MANUAL-NEEDED`。这违反「保存基线后才允许写」和「trap 必须实际尝试清理」的核心契约。另有测试质量问题：`test_lock_prevents_concurrent_runners` 中 `assert not _has_undo(...) or True` 恒真。
+
+**S1-022 修复映射（代码/测试）：**
+- 任何设备 I/O 前可靠创建并验证审计目录可写：`umask 077` + `setup_artifact_dir`（`mkdir -p` + 临时探针文件后删除）；失败直接退出（码 6），不采集基线、不跑 pytest。
+- baseline 必须成功持久化（`baseline.txt` 写失败 → 码 4）后才设置可写阶段；写失败在 pytest 前终止。
+- EXIT trap 中 cleanup / final readback 一律「先真实执行并捕获返回码/输出（命令替换），再尽力写审计文件」：审计目录在 pytest 期间被删除/变只读/写失败不得阻止精确清理或回读执行；审计写入失败置 `AUDIT_FAIL=1` → `MANUAL-NEEDED` + runner 最终非零，但不替代 cleanup/readback；cleanup 失败不跳过 final readback。
+- 修掉恒真断言：`test_lock_prevents_concurrent_runners` 真实断言并发 loser 无新增 ops 调用、无 undo（日志仅 1 次基线只读、read 计数 1）。
+- `stub_pytest.sh` 增加 `STUB_PYTEST_HOOK`（pytest 期间删除/破坏审计目录的注入点）。
+
+**新增对抗测试（全部 stub，未触真机；`test_s1_021_runner_adversarial.py` 16 → 21 条）：**
+- `test_artifact_dir_uncreatable_fails_before_io` / `test_artifact_dir_is_a_file_fails_before_io`：设备 I/O 调用数 0、pytest 未调用、非零退出（码 6）。
+- `test_baseline_persist_failure_stops_before_pytest`：仅 1 次基线只读、无 undo、无 pytest（码 4）。
+- `test_artifact_dir_removed_during_pytest_cleanup_still_runs`：cleanup 两条精确 undo 仍实际调用、final readback 仍实际调用、runner 非零 + `MANUAL-NEEDED`（审计写失败不替代 cleanup/readback）。
+- `test_cleanup_device_failure_and_audit_failure_still_readback`：cleanup 设备命令失败（写 rc=1）+ 审计目录被破坏，仍执行 final readback。
+
+**QA 证据（本轮，未触真机）：** `test_s1_021_runner_adversarial.py` = **21 passed**；S1-016~020 + validation/access/service/migration + runner 对抗 = **95 passed / 1 skipped**（skip=reallife 默认门）。`openspec validate --strict` valid；manifest JSON valid；`git diff --check` clean。**未运行真机测试、未执行任何设备 I/O。**
+
+---
+
+## S1-021（真机生命周期安全 Runner 与交付口径修正，历史）
+
+> 审核方：Codex（对 S1-020 交付的两个复审阻断项）。(1) `test_s1_019_reallife.py` 最后声称共享 `sdn_l3vpn`/VXLAN global「由 runner 兜底清理」，但仓库内没有该 runner；裸 pytest 的 `finally` 只尝试 VPC withdraw 且吞掉 withdraw 异常；实际 S1-020 运行后两个设备级共享配置确有残留，由测试外的 ops-toolkit 精确清理。(2) `readiness.md` 提前宣称「Codex 已完成代码复审与独立复跑」，整体仍因本单阻断，不能提前写成复审通过。
+
+**S1-021 整改（代码/测试）：**
+- 新增唯一、可复用宿主安全 runner `openspec/changes/next-s1-backend/qa/run_s1_019_real_lifecycle.sh`，包装 S1-019/S1-020 真机 pytest（本轮只实现 + 模拟验证，**禁止实际运行真机模式**）：默认拒绝真机（`--integration`/`S1_019_REAL=1`/精确 `.5`/`--cleanup-shared` 四重门禁，目标非 .5 设备 I/O 前退出）；凭据只从 `.env`/环境注入不落盘；额外设备读写走 ops-toolkit 既有入口；pytest 前保存最小基线，共享对象基线已存在→拒绝承担所有权、绝不在 trap 删除既有配置；进入可写阶段装 trap，成功/失败/Ctrl-C/TERM 都按恢复清单精确兜底清理（仅两条共享 undo + 上下文，无 save/越界）+ 最终 readback 确认回基线（返回码 0 ≠ 清理成功）；保留 pytest 原始退出码但 cleanup/readback 失败整体失败并指示人工；本机 flock 锁防并发。
+- 新增对抗测试 `backend/tests/test_s1_021_runner_adversarial.py`（16 条，stub/fake 命令，不启动生产网络、不读真实凭据、不连接设备）：缺门禁/目标非 .5 设备 I/O 前失败、基线已有共享对象拒绝且不发 undo、pytest 成功/失败都进 cleanup+readback、SIGINT/SIGTERM 触发 trap（可控子进程 + killpg）、pytest 失败 cleanup 成功保留非零 / pytest 成功 cleanup/readback 失败 runner 非零、cleanup 仅两条精确 undo 无 save/越界、并发锁第二个 runner 退出 2。
+- 口径修正：真机测试 docstring 与 review manifest 标准跑法改为唯一 runner（裸 pytest 只是 runner 内部实现，不再暗示能清共享对象）；readiness 去掉「Codex 已完成代码复审」提前结论改「等待 Codex 复审」；review manifest 完成只写 `READY_FOR_CODE_REVIEW` 不写 `CODE_REVIEW_PASSED`；如实记录 S1-020 历史共享残留由测试外 ops-toolkit 精确兜底。
+
+**QA 证据（本轮，未触真机）：** `test_s1_021_runner_adversarial.py` = **16 passed**；S1-016~020 + validation/access/service/migration + runner 对抗 = **90 passed / 1 skipped**（skip=reallife 默认门）。`openspec validate --strict` valid；manifest JSON valid；`git diff --check` clean。**未运行真机测试、未执行任何设备 I/O。**
+
+---
+
+## Codex 最终复审结论（S1-018，历史）
 
 **CODE_REVIEW_PASSED**。Codex 已核对 S1-018 的目标 RD 分块实现、L2/L3 门禁边界、CR36/CR37/CR38 文档口径，并在隔离 QA 容器独立复跑 S1-016～018 共 31 条对抗测试，结果全部通过；OpenSpec strict、review manifest JSON 与 `git diff --check` 均通过。
 
@@ -8,7 +50,26 @@
 
 ---
 
-## S1-018（CR38 第十三轮复审修正，最新）
+## S1-020（修复首次接入自阻断 + .5 完整真机生命周期，历史）
+
+> 审核方：Codex（对 S1-019 真机验证的复审反馈）。S1-019 的清理、Type-3 scoped 证据与 QA 记录可信，但未达到「完整接入生命周期」：真机 fresh VPC 在目标 Leaf 尚无本地 AC/tunnel 时 `VSI State: Down`，而 terminal predeploy 硬要求 `vsi_up=True`，导致第一次端口接入永远无法创建 AC——控制流因果悖论，不能把 `sdn.predeploy_unknown` 作为真机测试通过条件。collector 已表达 `vsi_up.required = bool(bindings)`，但 `_l2_ready_status` 忽略 required、无条件遍历固定四项。
+
+**S1-020 修复映射（代码/测试）：**
+- `_l2_ready_status` 动态查询目标 Leaf `status ∈ {active, expanding}` 本地绑定：无绑定 → `vsi_up` 不作为门禁（首次 AC bootstrap 放行）；有绑定 → `vsi_up` 仍必需、Down 保守阻断；`unbound`/`planned` 历史行不误判。
+- 其余三项（`bgp_peer_established`/`vsi_exists`/`type3_present`）与版本因果、TTL、配置完成时间、命令完整性、CLI 错误、BGP peer、VSI 存在、目标 RD Type-3 门禁**不删不放宽**；preview/execute 共用同一 `_l2_ready_status`（自动同语义），execute 证据不足仍 force refresh、失败零业务副作用。
+- 修正 S1-017 `test_l2_condition_false_blocks` 参数化（vsi_up 移出「始终必需」列表，动态语义移至 S1-020）。
+- 重写 S1-019 真机测试：不再把 predeploy 阻断断言为 PASS，走 preview → execute → apply → readback GE1/0/10 AC → complete → access withdraw → VPC withdraw，并核对 operation/binding/deployment/attempt/claim 收尾。
+- 测试：`test_s1_020_adversarial.py` 9 条（无绑定+vsi_up=Down 应 ready、active/expanding+vsi_up=Down 应 block、绑定+vsi_up=True 应 ready、unbound/planned 不误判、preview/execute 同语义、force refresh 零副作用）。
+
+**修复前失败证据：** 修复前 `test_s1_020_adversarial.py` 5 failed / 4 passed（`test_no_local_binding_vsi_up_down_is_ready`、`test_unbound_or_planned_binding_does_not_require_vsi_up[unbound/planned]`、`test_preview_uses_dynamic_vsi_up_semantics`、`test_execute_uses_dynamic_vsi_up_semantics` 失败），证明 S1-019 基线无条件要求 vsi_up；修复后 9 passed。
+
+**QA 证据：** S1-016~020 + validation/access/service/migration = **74 passed / 1 skipped**（skip=reallife 默认门）；真机一轮 `test_s1_019_reallife.py -m integration --integration` = **1 passed**（49.9s，完整生命周期）。`openspec validate --strict` valid；`git diff --check` clean。
+
+**真机生命周期（.5 / SWC / S6850 T7064P15 / LSTN，一轮）：** VPC create/apply ✅ → display+目标 RD `1:20000` Type-3 ✅ → access preview/execute/apply ✅（GE1/0/10 `service-instance 3200`+`xconnect vsi` 回读确认）→ complete 无主机诚实 `degraded`/`host_observed=False` ✅ → access withdraw ✅（回读确认撤销）→ VPC withdraw ✅ → 兜底清理 sdn_l3vpn+vxlan global ✅ → 最终残留空 ✅、`active_bindings=0`/`unreleased_claims=0`。未验证数据面边界：跨 leaf 转发、网关 ping reachable、主机 ARP/MAC 学习（无下联主机，未伪造成功）。
+
+---
+
+## S1-018（CR38 第十三轮复审修正，历史）
 
 > 审核方：Codex。本轮修正 S1-017 被复审打回的 CR38 问题：`SdnValidationCollector._validate()` 对 `type3_present` 仍只做 `"[3]" in display bgp l2vpn evpn`，只能证明设备上存在任意 VPC 的 Type-3，不能证明目标 VPC 的 Type-3；`_l2_ready_status` 又直接信任该布尔值，导致目标 VPC 缺 Type-3、另一 VPC 有 Type-3 时错误放行 terminal 接入。另有交接材料残留旧口径（validation_result=active / 全命令成功 / 已重命名测试名）。
 

@@ -351,7 +351,7 @@
 
 ### Requirement: 真实设备证据门禁与前置部署语义闭环
 
-后端 SHALL 严格区分两套门禁语义：VPC create preflight（`SdnPreflight` 四项 deferred，其中「VNI/VLAN 应不存在」是创建前语义，其 deferred `success=True` 是占位而非通过）与 terminal access predeploy proof（目标 VPC 在目标 Leaf 已存在且 L2 可用，目标 VSI/VNI 必须存在），二者 SHALL NOT 混用。terminal access 的 `_l2_ready_status` SHALL 同时证明：① 成功 create deployment 对应当前 `vpc.version`（`create.version == vpc.version`，不一致/缺失 → unknown，不伪造）；② 快照绝对新鲜（`collection_completed_at` 距今 ≤ 600s）；③ 快照采集晚于相关配置完成时间；④ 原始命令按 L2 所需命令映射成功且无 CLI 错误；⑤ `validation_details` 中 L2 必需条件（`bgp_peer_established`/`vsi_exists`/`vsi_up`/`type3_present`）为真（L2-scoped 无 CLI 错误）。字段缺失、旧格式、解析失败、L2 命令失败、L2 CLI 错误一律 unknown/blocker。execute SHALL 在证据不足时重新取得足够新的权威设备证据（force 采集，只读 display），不得复用陈旧缓存；采集失败/SSH 不通/命令不支持/输出不完整 SHALL 在消费 plan、创建 operation/binding/deployment、占用 claim 之前阻断（零业务副作用）。单次空输出 SHALL NOT 被当作「设备无配置」。
+后端 SHALL 严格区分两套门禁语义：VPC create preflight（`SdnPreflight` 四项 deferred，其中「VNI/VLAN 应不存在」是创建前语义，其 deferred `success=True` 是占位而非通过）与 terminal access predeploy proof（目标 VPC 在目标 Leaf 已存在且 L2 可用，目标 VSI/VNI 必须存在），二者 SHALL NOT 混用。terminal access 的 `_l2_ready_status` SHALL 同时证明：① 成功 create deployment 对应当前 `vpc.version`（`create.version == vpc.version`，不一致/缺失 → unknown，不伪造）；② 快照绝对新鲜（`collection_completed_at` 距今 ≤ 600s）；③ 快照采集晚于相关配置完成时间；④ 原始命令按 L2 所需命令映射成功且无 CLI 错误；⑤ `validation_details` 中 L2 必需条件为真：`bgp_peer_established`/`vsi_exists`/`type3_present` 始终必需；`vsi_up` 动态必需——仅当目标 Leaf 已有 active/expanding 本地绑定时必需（S1-020 统一 collector `vsi_up.required = bool(active/expanding bindings)` 语义），无本地绑定时（首次 AC bootstrap）`vsi_up=False` SHALL NOT 阻断第一个本地 AC（L2-scoped 无 CLI 错误）。字段缺失、旧格式、解析失败、L2 命令失败、L2 CLI 错误一律 unknown/blocker。execute SHALL 在证据不足时重新取得足够新的权威设备证据（force 采集，只读 display），不得复用陈旧缓存；采集失败/SSH 不通/命令不支持/输出不完整 SHALL 在消费 plan、创建 operation/binding/deployment、占用 claim 之前阻断（零业务副作用）。单次空输出 SHALL NOT 被当作「设备无配置」。
 
 #### Scenario: fresh + scoped healthy 快照放行
 
@@ -381,12 +381,12 @@
 
 ### Requirement: terminal L2 门禁与 L3 网关健康解耦
 
-后端 SHALL 使 terminal L2 predeploy 门禁独立于 L3/网关健康：`_l2_ready_status` SHALL NOT 以整张快照 `validation_result == "active"` 为门禁，也 SHALL NOT 遍历整张快照所有命令。其 SHALL 按 L2 必需条件（`bgp_peer_established`/`vsi_exists`/`vsi_up`/`type3_present`）与 L2 所需命令映射（`display bgp peer l2vpn evpn` + `display l2vpn vsi name {vsi_name} verbose` + `display bgp l2vpn evpn`）独立判定；无 CLI 错误（`raw_has_error`）SHALL 按 L2 命令输出重算，不复用 collector 全量 all_text 的 `raw_has_error`。无关的 Vsi-interface/L3VNI/ARP/MAC/Type-2 命令失败或 L3 条件为假 SHALL NOT 阻断纯 L2 门禁；支撑 BGP/VSI/Type-3 的命令缺失、失败、CLI 错误仍 SHALL conservative unknown。网关/L3 健康 SHALL 继续由 complete/业务验证的 `l3_gateway_ready` 与 ping 维度表达，不得删除，也 SHALL NOT 用 L2 成功冒充 L3 成功。
+后端 SHALL 使 terminal L2 predeploy 门禁独立于 L3/网关健康：`_l2_ready_status` SHALL NOT 以整张快照 `validation_result == "active"` 为门禁，也 SHALL NOT 遍历整张快照所有命令。其 SHALL 按 L2 必需条件（`bgp_peer_established`/`vsi_exists`/`type3_present` 始终必需，`vsi_up` 仅当目标 Leaf 已有 active/expanding 本地绑定时必需）与 L2 所需命令映射（`display bgp peer l2vpn evpn` + `display l2vpn vsi name {vsi_name} verbose` + `display bgp l2vpn evpn`）独立判定；无 CLI 错误（`raw_has_error`）SHALL 按 L2 命令输出重算，不复用 collector 全量 all_text 的 `raw_has_error`。无关的 Vsi-interface/L3VNI/ARP/MAC/Type-2 命令失败或 L3 条件为假 SHALL NOT 阻断纯 L2 门禁；支撑 BGP/VSI/Type-3 的命令缺失、失败、CLI 错误仍 SHALL conservative unknown。网关/L3 健康 SHALL 继续由 complete/业务验证的 `l3_gateway_ready` 与 ping 维度表达，不得删除，也 SHALL NOT 用 L2 成功冒充 L3 成功。
 
 #### Scenario: degraded 但 L2 健康 → ready
 
 - **WHEN** 整张快照 `validation_result=degraded`（因 L3/网关条件失败）
-- **AND** 所有 L2 必需条件（`bgp_peer_established`/`vsi_exists`/`vsi_up`/`type3_present`）及其命令健康
+- **AND** 所有 L2 必需条件（`bgp_peer_established`/`vsi_exists`/`type3_present`，以及有 active/expanding 绑定时的 `vsi_up`）及其命令健康
 - **THEN** `_l2_ready_status` 返回 `ready`
 
 #### Scenario: L3 命令失败但 L2 命令成功 → ready
@@ -397,13 +397,38 @@
 
 #### Scenario: L2 条件或命令失败分别阻断
 
-- **WHEN** `bgp_peer_established`/`vsi_exists`/`vsi_up`/`type3_present` 任一为假，或 L2 所需命令缺失/`success=false`/CLI 错误
+- **WHEN** `bgp_peer_established`/`vsi_exists`/`type3_present` 任一为假，或目标 Leaf 已有 active/expanding 绑定而 `vsi_up` 为假，或 L2 所需命令缺失/`success=false`/CLI 错误
 - **THEN** `_l2_ready_status` 返回 `unknown` 并给出具体原因，不放行
 
 #### Scenario: 网关不健康仍表达为 degraded
 
 - **WHEN** complete/业务验证时 L2 就绪但 `vsi_interface_exists`/`l3_vni_present` 为假（`l3_gateway_ready=False`）
 - **THEN** 最终状态为 `degraded`（而非 `succeeded`），SHALL NOT 把 L2 ready 冒充完整业务成功
+
+### Requirement: 首次 AC bootstrap 与已有 AC 健康检查差异（S1-020）
+
+后端 SHALL 统一 `_l2_ready_status` 与 collector 的 `vsi_up.required = bool(active/expanding 本地绑定)` 语义，消除「fresh VPC 无本地 AC/tunnel 时 `VSI State: Down` 导致第一个端口接入永远无法创建 AC」的控制流因果悖论：
+
+- 目标 Leaf **尚无** active/expanding 本地绑定时，`vsi_up` 不作为 predeploy 门禁（首次 AC bootstrap 放行），但 `bgp_peer_established`/`vsi_exists`/目标 RD `type3_present` 仍必须为真，版本因果、无后续成功 delete、证据新鲜且晚于配置完成、L2 三条 display 成功无 CLI 错误仍必须满足。
+- 目标 Leaf **已有** active/expanding 本地绑定时，`vsi_up` 仍是必需条件；`VSI State: Down` SHALL 保守阻断后续接入，不得把真实故障掩盖成 ready。
+- 判断「已有绑定」只认 `status ∈ {active, expanding}`；`unbound`/`planned` 等历史行 SHALL NOT 误判为「已有绑定」。
+- preview 与 execute SHALL 使用同一动态必需语义；execute 证据不足仍 force refresh，失败零业务副作用。
+- 不得删除或放宽版本因果、TTL、配置完成时间、命令完整性、CLI 错误、BGP peer、VSI 存在、目标 RD Type-3 等门禁。
+
+#### Scenario: 无本地绑定 + vsi_up=Down → 放行首个 AC
+
+- **WHEN** 目标 Leaf 无 active/expanding 本地绑定，`vsi_up.ok=False`，其余 L2 证据健康
+- **THEN** `_l2_ready_status` 返回 `ready`，preview `predeploy_status=ready`，execute 不再返回 `sdn.predeploy_unknown`
+
+#### Scenario: 已有 active/expanding 绑定 + vsi_up=Down → 保守阻断
+
+- **WHEN** 目标 Leaf 已有 active/expanding 本地绑定，且 `vsi_up.ok=False`
+- **THEN** `_l2_ready_status` 返回 `unknown`（detail 含 `vsi_up`），后续接入被阻断
+
+#### Scenario: unbound/planned 历史行不误判为已有绑定
+
+- **WHEN** 目标 Leaf 仅有 `unbound`/`planned` 状态的历史绑定，`vsi_up.ok=False`
+- **THEN** `_l2_ready_status` 返回 `ready`（不要求 `vsi_up`）
 
 ### Requirement: Type-3 证据按目标 VPC 的 Route distinguisher 归属
 

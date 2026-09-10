@@ -36,6 +36,8 @@ services:
       PYTHONDONTWRITEBYTECODE: "1"
       PYTHONPYCACHEPREFIX: /tmp/pycache
       PYTEST_ADDOPTS: "-p no:cacheprovider"
+      # S1-021: runner 对抗测试定位唯一宿主安全 runner 与 stub
+      S1_021_QA_DIR: /opt/s1-qa
     tmpfs:
       - /tmp
     volumes:
@@ -44,3 +46,7 @@ services:
       # 污染防护靠 PYTHONDONTWRITEBYTECODE + PYTEST_ADDOPTS=-p no:cacheprovider，
       # 唯一落盘是 ./logs/app.log（QA 运行日志，非源码）。
       - ../../../../backend:/app
+      # S1-021: 只读挂载 qa 目录（run_s1_019_real_lifecycle.sh + test_stubs），
+      # 供 test_s1_021_runner_adversarial.py 以 stub/fake 命令验证 runner 守卫行为
+      # （不触真机、不读真实凭据）。
+      - .:/opt/s1-qa:ro

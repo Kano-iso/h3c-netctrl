@@ -360,14 +360,16 @@ vpc-show --device .5
 
 ## 设备命名约定
 
-设备名对应后端 CMDB 中的 name 字段：
+设备名对应后端 CMDB 中的 name 字段（`_lib.sh` `_resolve_alias` 别名表仅映射下列 `test`/`leaf-03`/`leaf-04`/`spine-01`，其余设备名透传给 `_resolve_device` 查后端 API）：
 - Spine-01: 192.168.100.100
 - Leaf-01: 192.168.100.2
 - Leaf-02: 192.168.100.3
 - Leaf-03: 192.168.100.4
 - Leaf-04: 192.168.100.5
-- Leaf-05: 192.168.100.6
 - Test-Switch-177: 192.168.100.177
+
+> 注：`192.168.100.6` 实为 SWD（Spine，Router ID 1.1.1.1），不是 Leaf-05；
+> `_lib.sh` 未实现 `leaf-05` 别名，也不含 `.6` 映射（避免把 Spine 误当 Leaf 下发）。
 
 ## 常见错误
 

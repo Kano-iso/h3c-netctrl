@@ -258,7 +258,24 @@ def _l2_ready_status(db: Session, vpc: SdnVpc, device_id: int) -> tuple[str, str
         return "unknown", "validation_details invalid json"
     if not isinstance(details, dict):
         return "unknown", "validation_details not an object"
+
+    # S1-020: 统一 collector 的 `vsi_up.required = bool(active/expanding 本地绑定)` 语义。
+    # 目标 Leaf 尚无 active/expanding 本地绑定时（首次 AC bootstrap），VSI State Down 不得阻断
+    # 第一个本地 AC；已有 active/expanding 绑定时，vsi_up 仍是必需条件，Down 保守阻断后续接入。
+    # 其余三项（bgp_peer_established / vsi_exists / type3_present）始终必需，不受影响。
+    has_local_binding = (
+        db.query(SdnPortBinding)
+        .filter(
+            SdnPortBinding.vpc_id == vpc.id,
+            SdnPortBinding.device_id == device_id,
+            SdnPortBinding.status.in_(("active", "expanding")),
+        )
+        .first()
+        is not None
+    )
     for k in TERMINAL_L2_REQUIRED_CHECKS:
+        if k == "vsi_up" and not has_local_binding:
+            continue  # 首次 AC bootstrap：vsi_up 不作为门禁
         item = details.get(k)
         if not isinstance(item, dict) or item.get("ok") is not True:
             return "unknown", f"L2 condition not true: {k}"

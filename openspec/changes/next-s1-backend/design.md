@@ -301,7 +301,7 @@ reconcile(operation):
 
 - **CR36 真实设备证据门禁与前置部署语义闭环**：
   - **两套门禁语义**（§3 C5）：`SdnPreflight` 四项 deferred 是「创建 VPC 前」（VNI/VLAN 应不存在）语义，`deferred success=True` 是占位非通过，本轮保持 create 路径 blocker/后续项；terminal access predeploy proof 是「终端接入已有 VPC」（目标 VSI/VNI 必须存在）语义，二者不得混用。
-  - **`_l2_ready_status` 收紧**（terminal access predeploy gate）：除「成功 create + 之后无成功 delete + 采集晚于配置完成」外，新增：① create deployment `version == vpc.version`（版本因果，不伪造）；② 绝对新鲜度 `collection_completed_at` 距今 ≤ `PREDEPLOY_EVIDENCE_MAX_AGE_SECONDS`（600s）；③ 原始命令按 L2 所需命令映射检查（BGP peer / VSI / Type-3），无关 L3/Vsi-interface/ARP 命令失败不参与（S1-017 CR37 修正）；④ 不再要求整张快照 `validation_result == "active"`（S1-017 CR37 修正）；⑤ `validation_details` 含 L2 必需条件 `bgp_peer_established`/`vsi_exists`/`vsi_up`/`type3_present` 且 `ok=True`（L2-scoped，无 CLI 错误按 L2 命令输出重算）。L2 字段缺失/旧格式/解析失败/L2 命令失败/L2 CLI 错误 → `unknown`。
+  - **`_l2_ready_status` 收紧**（terminal access predeploy gate）：除「成功 create + 之后无成功 delete + 采集晚于配置完成」外，新增：① create deployment `version == vpc.version`（版本因果，不伪造）；② 绝对新鲜度 `collection_completed_at` 距今 ≤ `PREDEPLOY_EVIDENCE_MAX_AGE_SECONDS`（600s）；③ 原始命令按 L2 所需命令映射检查（BGP peer / VSI / Type-3），无关 L3/Vsi-interface/ARP 命令失败不参与（S1-017 CR37 修正）；④ 不再要求整张快照 `validation_result == "active"`（S1-017 CR37 修正）；⑤ `validation_details` 含 L2 必需条件 `bgp_peer_established`/`vsi_exists`/`type3_present` 且 `ok=True`；`vsi_up` 动态必需——仅当目标 Leaf 已有 active/expanding 本地绑定时要求 `ok=True`（S1-020 统一 collector `vsi_up.required = bool(bindings)` 语义，见 §22）（L2-scoped，无 CLI 错误按 L2 命令输出重算）。L2 字段缺失/旧格式/解析失败/L2 命令失败/L2 CLI 错误 → `unknown`。
   - **VPC 版本因果持久化**：`_create_sdn_deployment` 在创建时把 `deployment.version = vpc.version` 固化；`_l2_ready_status` 校验 `create.version == vpc.version`，不一致 → 保守 `unknown`（不伪造），旧数据 `version=0` 与 `vpc.version=0` 兼容。
   - **preview 与 execute 证据语义分离**：preview 只展示已有证据结果（读库，陈旧/不足显示 blocker）；execute 在 `_l2_ready_status == unknown` 且存在成功 create 时**强制重新取证**（`SdnValidationCollector.sync(force=True, min_interval_seconds=0)`，只读 display），不得复用陈旧缓存。采集失败/SSH 不通/命令不支持/输出不完整 → `SDN_PREDEPLOY_UNKNOWN` 阻断，且发生在消费 plan、创建 operation/binding/deployment、占用 claim 之前（零业务副作用）。
   - **空输出不等于无配置**：单次 `vpc-show`/`display` 空段是工具单次 recv 等待的非权威结果，不当作「设备无配置」；terminal predeploy 只信「正向 scoped 证据为真」，缺证据即 `unknown`。真机核对只允许 ops-toolkit 对 `.5` 执行只读 `display`，不写设备。
@@ -309,7 +309,7 @@ reconcile(operation):
 ## 20. S1-017 增量（CR37 修订）
 
 - **CR37 解除 terminal L2 接入门禁对 L3 网关健康的隐式耦合**：
-  - **冻结 L2 必需条件**：`TERMINAL_L2_REQUIRED_CHECKS = (bgp_peer_established, vsi_exists, vsi_up, type3_present)`。明确不含 `vsi_interface_exists`/`l3_vni_present`（L3/网关维度，交由 complete 业务验证的 `l3_gateway_ready` 表达）。
+  - **冻结 L2 必需条件**：`TERMINAL_L2_REQUIRED_CHECKS = (bgp_peer_established, vsi_exists, vsi_up, type3_present)`。明确不含 `vsi_interface_exists`/`l3_vni_present`（L3/网关维度，交由 complete 业务验证的 `l3_gateway_ready` 表达）。S1-020 起 `vsi_up` 为动态必需（见 §22），其余三项始终必需。
   - **L2 原始命令映射**：`_terminal_l2_required_commands(vpc)` = `display bgp peer l2vpn evpn` + `display l2vpn vsi name {vsi_name} verbose` + `display bgp l2vpn evpn`。只检查这三条命令的成功/CLI 错误；Vsi-interface/L3VNI/ARP/MAC/Type-2 命令失败/缺失/CLI 错误不拖垮纯 L2 门禁。
   - **移除两处 L3 耦合**：不再要求整张快照 `validation_result == "active"`；不再遍历整张快照所有命令。`raw_has_error`（无 CLI 错误）按 L2 命令输出重算，不复用 collector 全量 all_text 的 `raw_has_error`（后者会把 Vsi-interface/L3VNI 的 CLI 错误错误地耦合到 L2）。
   - **网关/L3 健康继续独立表达**：complete/业务验证的 `l3_gateway_ready`（`vsi_interface_exists`+`l3_vni_present`）与 gateway ping 维度保留，不得用 L2 成功冒充 L3 成功。
@@ -323,3 +323,36 @@ reconcile(operation):
   - **保守失败**：无法可靠解析 / 缺少目标 RD 块 → False，由 `_l2_ready_status` 返回 `unknown`，不伪造成功。
   - **`_validate()` 接入**：`type3_present.ok = _type3_scoped(bgp_evpn_text, vpc.vni)`，替代 `"[3]" in bgp_evpn_text`。
   - **保留 S1-017 的 L2/L3 解耦、三条 L2 命令健康检查，以及 S1-016 的 TTL/version/因果/刷新失败零副作用**。
+
+## 22. S1-020 增量（首次接入自阻断修复 + .5 真机生命周期）
+
+- **问题**：collector 已表达 `vsi_up.required = bool(active/expanding 本地绑定)`，但 `_l2_ready_status` 忽略 `required`、无条件遍历固定四项，导致 fresh VPC 在目标 Leaf 尚无本地 AC/tunnel 时 `VSI State: Down`（`vsi_up.ok=False`）永远阻断第一个端口接入——控制流因果悖论。
+- **修复（统一两处语义）**：`_l2_ready_status` 在遍历 `TERMINAL_L2_REQUIRED_CHECKS` 时，动态查询当前 `status ∈ {active, expanding}` 的本地绑定决定 `vsi_up` 是否必需：
+  - 无 active/expanding 绑定 → `vsi_up` 不作为门禁（首次 AC bootstrap），`bgp_peer_established`/`vsi_exists`/`type3_present` 仍必需；
+  - 有 active/expanding 绑定 → `vsi_up` 仍必需，`Down` 保守阻断后续接入；
+  - `unbound`/`planned` 历史行不误判为「已有绑定」。
+- **不改动**：版本因果（`create.version == vpc.version`）、TTL 600s、配置完成时间、L2 三条命令完整性/CLI 错误、BGP peer、VSI 存在、目标 RD Type-3、execute force refresh 与失败零业务副作用；preview/execute 共用同一 `_l2_ready_status`，自动同语义。
+- **真机验收**：S1-019 真机测试不再把 predeploy 阻断断言为 PASS，改走 preview → execute → apply → readback GE1/0/10 service-instance/xconnect → complete（无主机诚实 degraded/unknown）→ access withdraw → VPC withdraw，并核对 operation/binding/deployment/attempt/claim 收尾与设备残留。
+
+## 23. S1-021 增量（真机生命周期安全 Runner 与交付口径修正，本轮未触真机）
+
+- **背景（两个复审阻断项）**：(1) S1-020 真机测试 docstring 与 review manifest 曾声称共享 `sdn_l3vpn`/VXLAN global「由 runner 兜底清理」，但仓库内没有该 runner；裸 pytest 的 `finally` 只尝试 VPC withdraw 且吞掉 withdraw 异常；实际 S1-020 运行后两个共享对象确有残留，由测试外的 ops-toolkit 精确清理。(2) readiness 曾提前宣称「Codex 已完成代码复审」，整体仍被本单阻断，不能提前写成复审通过。
+- **唯一宿主安全 runner**（`openspec/changes/next-s1-backend/qa/run_s1_019_real_lifecycle.sh`）：
+  - **默认拒绝真机**：`--integration` / `S1_019_REAL=1` / `S1_019_REAL_HOST` 精确 `192.168.100.5` / `--cleanup-shared`（单独显式共享清理确认门）四重门禁；目标非 `.5` 在**任何设备 I/O 前**退出（码 3）。凭据只从 `.env`/环境注入，不打印、不复制到文件。
+  - **设备 I/O 入口**：额外读取与兜底写入全部走 ops-toolkit 既有入口（`paramiko-batch-exec.sh`），不新增裸 SSH/paramiko；业务生命周期仍由 backend API/executor 执行。
+  - **基线所有权契约**：pytest 前读取并保存最小基线（设备身份 `1.1.1.4`/`S6850`、VSI 空、EVPN routes 0、无 `ip vpn-instance sdn_l3vpn`、无 `vxlan tunnel mac-learning disable`、GE1/0/10 `port link-mode bridge`+`combo enable fiber`）。**共享对象基线已存在 → 拒绝承担其所有权（码 5），绝不在 trap 中删除既有配置**。
+  - **trap 兜底清理**：进入可写阶段后安装 shell trap；无论 pytest 成功/失败/Ctrl-C/TERM 或后续步骤失败，只要基线证明两个共享对象原先不存在，就按恢复清单精确兜底清理——仅 `system-view` + `undo ip vpn-instance sdn_l3vpn` + `undo vxlan tunnel mac-learning disable` + `return`（无 `save`/startup-config/`.6`/管理口/GE1/0/1~3/underlay/OSPF/BGP 邻居）。
+  - **最终 readback**：cleanup 后始终执行最终 readback 确认 VSI/测试 VPC、测试 AC、共享对象均回基线；**命令返回码 0 ≠ 清理成功**（以 readback 证据为准）。
+  - **退出码语义**：保留 pytest 原始退出码；但 cleanup 或 final readback 失败时整体失败（码 6）并输出 `MANUAL-NEEDED` 指示人工。并发执行用本机 flock 锁（第二个 runner 在设备 I/O 前退出码 2）。
+  - **对抗测试**：`test_s1_021_runner_adversarial.py`（16 条）用 stub/fake 命令验证全部守卫行为，不启动生产网络、不读真实凭据、不连接设备。
+- **交付口径**：真机测试 docstring 与 review manifest 标准跑法改为唯一 runner；裸 pytest 只是 runner 内部实现，不承担共享对象清理。如实记录：S1-020 完整生命周期通过，但测试自身 VPC/access withdraw 完成后两个共享对象仍残留，由**测试外的 ops-toolkit** 监督精确兜底并最终 readback 干净（当时无自动 runner，不写成已有 runner 自动完成）。readiness 改为「等待 Codex 复审」，review manifest 完成只写 `READY_FOR_CODE_REVIEW` 不写 `CODE_REVIEW_PASSED`。本轮**未运行真机测试、无任何设备 I/O**。
+
+## 24. S1-022 增量（Runner 审计目录失效时仍必须安全清理，本轮未触真机）
+
+- **背景（Codex 复审阻断，业务代码无新问题）**：`RUNNER_ARTIFACT_DIR` 指向不可创建路径时，runner 在 baseline 文件写入失败后仍打印 `BASELINE-OK` 并进入可写阶段；退出时 `run_ops ... > cleanup.txt` 的重定向在命令启动前失败，导致两条共享 undo 根本没执行，只能报 `MANUAL-NEEDED`。违反「保存基线后才允许写」与「trap 必须实际尝试清理」。另有 `test_lock_prevents_concurrent_runners` 中 `assert not _has_undo(...) or True` 恒真。
+- **修复**：
+  - **启动审计目录探针（任何设备 I/O 前）**：`umask 077` + `setup_artifact_dir`（`mkdir -p` + 创建临时探针文件后删除）；失败直接退出码 6，不采集基线、不跑 pytest。
+  - **baseline 持久化门**：`baseline.txt` 写失败 → 退出码 4，在 pytest/可写阶段前终止；只有持久化成功才设置 `WRITE_PHASE`。
+  - **先执行后落盘（EXIT trap）**：cleanup 与 final readback 一律先用命令替换真实执行并捕获返回码/输出，再尽力写审计文件；审计目录被删除/变只读/写失败**不得阻止**精确清理或回读执行；审计写入失败置 `AUDIT_FAIL=1` → `MANUAL-NEEDED` + runner 最终非零（不替代 cleanup/readback）；cleanup 失败不跳过 final readback。
+  - **测试注入点**：`stub_pytest.sh` 增加 `STUB_PYTEST_HOOK`（pytest 期间删除/破坏审计目录）。
+- **对抗测试（新增 5 条，共 21 条）**：审计目录不可创建/不可写 → ops 调用 0 / pytest 未调用 / 非零退出；baseline 持久化失败 → 不进入 pytest/可写阶段；pytest 期间删除审计目录 → cleanup 两条精确 undo 仍实际调用 + final readback 仍实际调用 + runner 非零提示人工；cleanup 设备命令失败 + 审计目录失败 → 仍执行 final readback；并发锁测试真实断言（loser 无新增 ops 调用/undo）。本轮**未运行真机测试、无任何设备 I/O**。
