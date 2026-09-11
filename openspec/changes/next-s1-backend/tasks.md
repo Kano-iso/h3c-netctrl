@@ -193,3 +193,26 @@
 - [x] 25.6 QA（本轮未触真机）：`test_s1_021_runner_adversarial.py` = **21 passed**；S1-016~020 + validation/access/service/migration + runner 对抗 = **95 passed / 1 skipped**；`openspec validate --strict` valid、manifest JSON valid、`git diff --check` clean、凭据/越界命令扫描干净
 - [x] 25.7 同步 design/tasks/handoff/review-response/review-manifest/readiness 为 S1-022 口径（审计目录可靠性 + 先执行后落盘契约）
 - [x] 25.8 Codex 独立复跑与安全复审通过（95 passed / 1 skipped；stub 失效路径设备 I/O=0）
+
+## 26. S1-023（仓库凭据卫生与 ZTP 密码边界，本轮未触真机）
+
+- [x] 26.1 盘点全仓真实口令字面量（活动生产路径/模板/活动文档/测试/debug-*；值红化不落盘），确认唯一真实默认口令
+- [x] 26.2 `schemas.py`：ZtpOnboardRequest.password 必填无默认；ZtpRecoveryOverrideRequest.password Optional(None)
+- [x] 26.3 `ztp_recovery.py`：密码解析（显式→既有→ZTP_ADMIN_PASS，全缺明确 ValueError）+ state 0600 + GET/POST 响应 `_redact` 脱敏 + `password_set` 布尔
+- [x] 26.4 `entrypoint.sh`：ZTP_ADMIN_PASS `${VAR:?}` 必填 fail closed + autocfg.cfg 600 + 日志无口令
+- [x] 26.5 `ztp_runtime_render.py` / `ztp_onboard_callback.py`：`_require_admin_pass()` 只从环境/override 取密码，缺失明确 RuntimeError（fail closed）
+- [x] 26.6 模板与文档：`autocfg.cfg.j2` / `docs/ztp-stack.md` / `.env.example` / `openspec/specs/device-crud-ui/spec.md` 移除字面量，改为环境注入口径
+- [x] 26.7 前端：`ZtpRecovery.vue` 初始/加载 password 留空、留空提交 null、显式重输才提交；i18n 新增 `password_placeholder`（zh/en）
+- [x] 26.8 ops-toolkit `debug-v24-*.py`（5 个）确认为无入口临时脚本（REVIEW-v242 P2 债、docs 未收录、裸 ncclient 违反红线）→ 移除，不新建裸 SSH 路径
+- [x] 26.9 测试口令替换为 synthetic（test_device_api/test_ops_toolkit_paramiko/test_ztp_onboard/test_ztp_recovery/test_backup_integration/test_vpn_integration/test_split_integration/test_smoke 共 31 处）
+- [x] 26.10 新增对抗测试 `test_s1_023_credential_hygiene.py`（活动生产路径/测试无字面量、debug-* 已移除、ztp-stack 三脚本缺密码 fail closed、onboard 缺密码 422、state 0600/API 脱敏）+ `test_ztp_recovery.py` 扩展 + `ZtpRecovery.spec.js` 扩展；QA compose 只读挂载仓库根供静态扫描
+- [x] 26.11 QA（本轮未触真机）：ZTP+卫生 21 passed；受影响+S1 回归 = **181 passed / 16 skipped**（skip 全为 integration 门控）；前端 lint+type-check+build+vitest = **62 passed**（含 ZtpRecovery 4 条）；openspec strict / manifest JSON / git diff --check / 活动源码凭据扫描全部干净
+- [x] 26.12 同步 design/tasks/handoff/review-response/review-manifest/readiness 为 S1-023 口径；明确「历史已暴露，必须由用户在设备与 .env 外部轮换」（不改 archive/历史、不重写 Git 历史）
+
+## 27. S1-024（CR43：ZTP 渲染凭据边界加固，本轮未触真机）
+
+- [x] 27.1 `ztp_runtime_render.py`：新增 `_atomic_write_secret`——临时文件创建前 `umask 077` + `os.open(O_CREAT|O_EXCL, 0600)`，写入 flush+fsync，`os.replace` 原子替换，替换后显式 `os.chmod(0600)`；异常 unlink 临时文件（修复重渲染把 0600 变 0644）
+- [x] 27.2 `entrypoint.sh`：python3 -c 渲染块改环境注入——零 `$`/零单引号插值，全部渲染变量从 `os.environ` 读取；`ZTP_PLATFORM_LONG` 补 export；输出走 `mktemp`(0600) + chmod 600 + `mv -f` 原子替换 + trap 失败清理（修复特殊字符语法失败/注入 + 宽权限中间文件）
+- [x] 27.3 新增对抗测试 `test_s1_024_credential_hygiene.py`（6 条）：特殊字符密码原样渲染不执行注入（模块级 + entrypoint 全量运行级 stub dnsmasq/真实 jinja2）；首次与覆盖重渲染后均 0600；失败路径不残留宽权限/含口令临时文件；缺 env 写盘前明确失败；entrypoint 渲染块静态断言（os.environ 读取、mktemp/chmod/mv/trap）
+- [x] 27.4 QA（本轮未触真机）：S1-024 = **6 passed**；受影响+S1-023+回归 = **187 passed / 16 skipped**（skip 全为 integration 门控）；bash -n / openspec strict / manifest JSON / git diff --check / 活动源码凭据扫描全部干净
+- [x] 27.5 同步 design/tasks/handoff/review-response/review-manifest/readiness 为 S1-024/CR43 口径（package_id=S1-024）

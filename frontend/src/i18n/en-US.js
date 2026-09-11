@@ -512,6 +512,7 @@ export default {
     platform_rstn_desc: 'For V9850 and EVE-NG validation scenarios',
     username: 'Username',
     password: 'Password',
+    password_placeholder: 'Blank = keep existing / env-injected; type to change',
     hcl: 'Enable T7064P15 HCL password-change workaround',
     apply: 'Enable Recovery',
     saving: 'Saving…',

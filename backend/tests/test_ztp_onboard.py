@@ -41,7 +41,7 @@ def test_ztp_onboard_creates_device_and_asset(client, db):
         resp = client.post("/api/ztp/onboard", json={
             "host": "192.0.2.101",
             "username": "python",
-            "password": "Admin123!@#",
+            "password": "SyntheticTestPass!1",
             "platform": "lstn",
         })
 
@@ -75,7 +75,7 @@ def test_ztp_onboard_same_host_is_idempotent_update(client, db):
         "host": "192.0.2.102",
         "name": "ztp-old-name",
         "username": "python",
-        "password": "Admin123!@#",
+        "password": "SyntheticTestPass!1",
         "platform": "lstn",
     }
     with ssh_patch, netconf_patch:
@@ -104,7 +104,7 @@ def test_ztp_onboard_asset_collect_failure_returns_partial(client, db):
         resp = client.post("/api/ztp/onboard", json={
             "host": "192.0.2.103",
             "username": "python",
-            "password": "Admin123!@#",
+            "password": "SyntheticTestPass!1",
         })
 
     assert resp.status_code == 200
@@ -127,7 +127,7 @@ def test_ztp_onboard_probe_failure_does_not_create_device(client, db):
         resp = client.post("/api/ztp/onboard", json={
             "host": "192.0.2.104",
             "username": "python",
-            "password": "Admin123!@#",
+            "password": "SyntheticTestPass!1",
         })
 
     assert resp.status_code == 200
@@ -143,7 +143,7 @@ def test_ztp_onboard_crud_cleanup(client, db):
         onboard = client.post("/api/ztp/onboard", json={
             "host": "192.0.2.105",
             "username": "python",
-            "password": "Admin123!@#",
+            "password": "SyntheticTestPass!1",
         }).json()["data"]
 
     device_id = onboard["device"]["id"]

@@ -82,7 +82,11 @@ dhcp-range=192.168.100.151,192.168.100.190,12h
 `autocfg.cfg` 模板中所有占位符（`${ZTP_*}`）由 .env 注入：
 - 避免硬编码密码（user memory 红线）
 - 同一份模板可用于不同设备（仅 .env 变量不同）
-- v3.1.1 统一使用项目主账密变量：`ZTP_ADMIN_USER=python` / `ZTP_ADMIN_PASS=Admin123!@#`
+- v3.1.1 统一使用项目主账密变量：`ZTP_ADMIN_USER` / `ZTP_ADMIN_PASS`（值只存在于 `.env`，仓库无代码内口令）
+- **S1-023 凭据边界**：`ZTP_ADMIN_PASS` 必须由环境提供——entrypoint / ztp_runtime_render / ztp_onboard_callback 缺失时**明确失败（fail closed）**，不回退任何代码内默认口令；
+  recovery override 明文密码只落盘 `data/ztp/recovery_override.json`（git 忽略 + 权限 0600，仅 ztp-server 渲染读取）；
+  GET/POST `/api/ztp/recovery-override` 响应一律脱敏（不含 password 字段，仅返回 `password_set` 布尔），浏览器不接触明文；
+  前端加载已有 override 时密码框保持空白，修改需重新输入，留空提交表示沿用已有 / 环境注入
 
 ### 3.5 v3.1.1 验证顺序
 
@@ -118,7 +122,7 @@ ZTP_SYSNAME=
 # 本次要写入设备 OOB 口的 static 管理地址；验证下一台设备前手动/由控制器递增
 ZTP_MGMT_IP=192.168.100.101
 ZTP_ADMIN_USER=python
-ZTP_ADMIN_PASS=Admin123!@#
+ZTP_ADMIN_PASS=<your-value>   # 必须设置；缺失时 ztp-server fail closed（无代码内默认）
 ```
 
 ### 4.2 构建镜像

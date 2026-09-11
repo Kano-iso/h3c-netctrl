@@ -25,7 +25,7 @@ import pytest
 VPN_HOST = os.getenv("INTEGRATION_VPN_HOST", "192.168.100.177")
 VPN_PORT = int(os.getenv("INTEGRATION_VPN_PORT", "830"))
 VPN_USERNAME = os.getenv("INTEGRATION_VPN_USERNAME", "python")
-VPN_PASSWORD = os.getenv("INTEGRATION_VPN_PASSWORD", "Admin123!@#")
+VPN_PASSWORD = os.getenv("INTEGRATION_VPN_PASSWORD", "SyntheticTestPass!1")
 
 
 # ==================== 辅助函数 ====================

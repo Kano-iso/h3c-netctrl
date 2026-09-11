@@ -1,6 +1,10 @@
-# S1-022 交接记录（handoff）— CODE_REVIEW_PASSED（Runner 审计目录失效时仍安全清理）
+# S1-024 交接记录（handoff）— READY_FOR_CODE_REVIEW（CR43：ZTP 渲染凭据边界加固）
 
-> **最新复审状态（2026-09-10）：CODE_REVIEW_PASSED。** Codex 已完成独立复跑与安全复审；下方交付时的“等待 Codex 复审”说明保留为时间线记录，不再代表当前状态。
+> **复审状态时间线**：S1-022（2026-09-10）Codex 独立复跑 95 passed / 1 skipped 并完成安全复审 → **CODE_REVIEW_PASSED**。S1-023（凭据卫生）经 Codex 复审发现 **2 项阻断（CR43）**：渲染原子写权限回归 + entrypoint 密码注入。本轮 **S1-024 修复 CR43 后现提交复审：`READY_FOR_CODE_REVIEW`，等待 Codex 复审**（未提前宣称通过；结论见 review-response.md）。
+
+> **S1-024（本轮，窄整改，不连真机、无任何设备 I/O）**：修复 Codex 复审对 S1-023 的两项阻断——(1) `ztp_runtime_render.render_once` 原子写不彻底：`tmp.write_text` 受进程 umask 影响创建 0644，`tmp.replace` 用临时文件权限替换目标，运行中任何重渲染把 `autocfg.cfg` 从 0600 变回 0644；(2) `entrypoint.sh` 把 `ZTP_ADMIN_PASS` 等环境值直接插进 `python3 -c` 单引号源码，密码含单引号/反斜杠/换行等字符时语法失败甚至代码注入；且 `ZTP_PLATFORM_LONG` 只作 shell 变量未 export。**修复**：`_atomic_write_secret` 安全原子写（创建前 `umask 077` + `os.open(O_CREAT|O_EXCL, 0600)` 创建即 0600 → flush/fsync → `os.replace` → 显式 `os.chmod(0600)`，异常 unlink 临时文件）；entrypoint 渲染改纯环境注入（python3 -c 零 `$`/零单引号插值、全部渲染变量 `os.environ[...]` 读取、`ZTP_PLATFORM_LONG` 补 export、输出 `mktemp`(0600)+chmod 600+`mv -f` 原子替换+trap 清理，不经宽权限中间态）。**对抗测试**：新增 `test_s1_024_credential_hygiene.py`（6 条）——特殊字符密码原样渲染不执行注入（模块级 + entrypoint 全量运行级 stub dnsmasq/真实 jinja2）、首次与覆盖重渲染均 0600、失败路径不残留宽权限/含口令临时文件、缺 env 写盘前明确失败、entrypoint 渲染块静态断言。本轮**未运行真机测试、无任何设备 I/O**。
+
+> **S1-023（历史轮次，凭据卫生）**：灾备审计确认远端历史与活跃源码携带真实设备默认口令字面量。**本包不改设备、不重写 Git 历史、不轮换凭据**；目标是让活跃源码不再携带真实默认口令、ZTP recovery 查询接口不再把密码回显给浏览器。具体：(1) `schemas.py` 两个 ZTP password 字段去掉默认（onboard 必填 / recovery Optional(None)）；(2) ztp-stack 三脚本（entrypoint / ztp_runtime_render / ztp_onboard_callback）密码只从 `ZTP_ADMIN_PASS` 环境或 recovery override 注入，缺失明确 fail closed，不回退代码内口令；(3) recovery state 明文密码落盘 git 忽略目录且权限 `0600`（仅 ztp-server 渲染读取），GET/POST `/api/ztp/recovery-override` 响应递归脱敏（只回 `password_set` 布尔，浏览器不拿明文）；(4) 前端 `ZtpRecovery.vue` 加载已有 override 密码保持空白、留空提交 `null`（沿用已有/环境注入）、修改需重新输入；(5) 活动测试口令全替换为明显 synthetic；`ops-toolkit/scripts/debug-v24-*.py` 5 个无入口临时脚本（裸 ncclient + 硬编码凭据，REVIEW-v242 已列为 P2 清理债）按规则移除；(6) 活动模板/活动运维文档（`autocfg.cfg.j2`/`docs/ztp-stack.md`/`.env.example`/`openspec/specs/device-crud-ui/spec.md`）移除字面量。**历史已暴露，必须由用户在设备与 `.env` 外部轮换**；archive/ 历史 change 与 `RELEASE-NOTES-v2.3.1.md` 历史发布记录按「不改写历史」保留并显式登记（见 review-manifest）。
 
 > 状态：**READY_FOR_CODE_REVIEW**（**等待 Codex 复审**，未提前宣称复审通过）。S1-006～S1-018 全部 CR 闭环（CODE_REVIEW_PASSED）。S1-019 真机验证发现「首次接入自阻断」：collector 已表达 `vsi_up.required = bool(active/expanding 本地绑定)`，但 `_l2_ready_status` 忽略 required、无条件要求 `vsi_up=True`，fresh VPC 无下联 AC/tunnel 时 `VSI State: Down` 永远阻断第一个端口接入（控制流因果悖论）。S1-020 已修复（统一两处语义：无 active/expanding 绑定时 `vsi_up` 不作为门禁，首次 AC bootstrap 放行；有绑定时仍保守阻断），并于 2026-09-10 在 `.5 / 192.168.100.5 / SWC / S6850 T7064P15 / LSTN` 走完一轮**完整真机生命周期**（默认 skip 的 `test_s1_019_reallife.py`）：VPC create/apply ✅、真实 display + 目标 RD `1:20000` 块内 Type-3 `[3]` ✅、access preview/execute/apply ✅（GE1/0/10 `service-instance 3200` + `xconnect vsi` AC 回读确认）、complete 无主机诚实 `degraded`/`host_observed=False` ✅、access withdraw ✅（GE1/0/10 回读确认撤销）、VPC withdraw ✅、兜底清理 sdn_l3vpn/vxlan global ✅、最终 readback 残留为空 ✅。未伪造成功、未 save/改 startup-config、未触碰 GE1/0/1~3/MGE0/0/0/underlay/OSPF/BGP 邻居、未碰 `.6`；未推送/tag/归档/close stage、未重启既有服务。
 >
@@ -28,9 +32,12 @@
 `pytest tests/test_s1_016_adversarial.py -q` = **13 passed**。
 `pytest tests/test_s1_020_adversarial.py -q` = **9 passed**（修复前 5 failed / 4 passed 证明 S1-019 基线失败）。
 `pytest tests/test_s1_021_runner_adversarial.py -q` = **21 passed**（S1-021 16 条 + S1-022 新增 5 条，stub/fake 命令，未触真机；见下「S1-022 真机运行与恢复契约」）。
-`pytest tests/test_s1_019_doc_alias.py tests/test_s1_019_reallife.py tests/test_s1_016_adversarial.py tests/test_s1_017_adversarial.py tests/test_s1_018_adversarial.py tests/test_s1_020_adversarial.py tests/test_s1_021_runner_adversarial.py tests/test_sdn_validation_api.py tests/test_sdn_access_api.py tests/test_sdn_operation_service.py tests/test_sdn_migration.py -q` = **95 passed / 1 skipped**（skip=reallife 默认门；S1-020 时 74/1，S1-021 时 90/1）。
-真机一轮（S1-020 历史执行，完整生命周期）：`test_s1_019_reallife.py -m integration --integration` = **1 passed**（49.9s）。**S1-021/S1-022 均未跑真机。**
-`openspec validate --strict next-s1-backend` = **valid**；manifest JSON = **valid**；`git diff --check` = **clean**。
+`pytest tests/test_ztp_recovery.py tests/test_ztp_onboard.py tests/test_s1_023_credential_hygiene.py -q` = **21 passed**（S1-023 新增 11 条 + ZTP recovery 扩展 5 条 + onboard 5 条；未触真机；见下「CR42」）。
+`pytest tests/test_s1_024_credential_hygiene.py -q` = **6 passed**（S1-024/CR43：特殊字符密码原样渲染不执行注入（模块级 + entrypoint 全量运行级 stub dnsmasq/真实 jinja2）、首次与覆盖重渲染均 0600、失败路径不残留宽权限/含口令临时文件、缺 env 写盘前明确失败、entrypoint 渲染块静态断言；未触真机；见下「CR43」）。
+`pytest tests/test_s1_024_credential_hygiene.py tests/test_ztp_recovery.py tests/test_ztp_onboard.py tests/test_s1_023_credential_hygiene.py tests/test_device_api.py tests/test_ops_toolkit_paramiko.py tests/test_smoke.py tests/test_backup_integration.py tests/test_vpn_integration.py tests/test_split_integration.py tests/test_s1_019_doc_alias.py tests/test_s1_019_reallife.py tests/test_s1_016_adversarial.py tests/test_s1_017_adversarial.py tests/test_s1_018_adversarial.py tests/test_s1_020_adversarial.py tests/test_s1_021_runner_adversarial.py tests/test_sdn_validation_api.py tests/test_sdn_access_api.py tests/test_sdn_operation_service.py tests/test_sdn_migration.py -q` = **187 passed / 16 skipped**（skip 全为 integration 门控：reallife/backup/vpn/split/ops_toolkit_paramiko/smoke 的 `--integration` 用例；S1-020 时 74/1，S1-021 时 90/1，S1-022 时 95/1，S1-023 时 181/16）。
+前端（qa-frontend 镜像，隔离，无 .env）：lint + type-check + build + vitest = **62 passed**（8 文件，含 ZtpRecovery.spec.js 4 条：密码留空/提交 null/显式重输/无字面量）。
+真机一轮（S1-020 历史执行，完整生命周期）：`test_s1_019_reallife.py -m integration --integration` = **1 passed**（49.9s）。**S1-021/S1-022/S1-023/S1-024 均未跑真机、无任何设备 I/O。**
+`openspec validate --strict next-s1-backend` = **valid**；manifest JSON = **valid**；`git diff --check` = **clean**；活动源码凭据扫描（真实默认口令前缀（含截断变体））= **干净**（仅 archive/ 历史与 `RELEASE-NOTES-v2.3.1.md` 按「不改写历史」保留并登记）。
 
 ## CR1-CR10（S1-006 已闭环，回归仍绿）
 
@@ -146,6 +153,18 @@
 |---|---|---|---|
 | CR41 审计目录可靠性 + 先执行后落盘契约 | ✅ | `run_s1_019_real_lifecycle.sh`：(1) 任何设备 I/O 前 `setup_artifact_dir`（`umask 077` + `mkdir -p` + 临时探针文件后删除），失败直接退出码 6（不采集基线、不跑 pytest）；(2) baseline 成功持久化（`baseline.txt` 写失败→退出码 4）后才进入可写阶段；(3) EXIT trap 中 cleanup/final readback 一律「先真实执行并捕获返回码/输出（命令替换），再尽力写审计文件」——审计目录被删除/变只读/写失败不得阻止精确清理或回读执行；审计写入失败置 `AUDIT_FAIL=1` → `MANUAL-NEEDED` + runner 最终非零，但不替代 cleanup/readback；(4) cleanup 失败不跳过 final readback；(5) `stub_pytest.sh` 增加 `STUB_PYTEST_HOOK`（pytest 期间破坏审计目录的注入点） | `test_s1_021_runner_adversarial.py` 新增 5 条：`test_artifact_dir_uncreatable_fails_before_io` + `test_artifact_dir_is_a_file_fails_before_io`（ops 调用 0/pytest 未调用/非零）、`test_baseline_persist_failure_stops_before_pytest`（只 1 次基线只读、无 undo、无 pytest）、`test_artifact_dir_removed_during_pytest_cleanup_still_runs`（cleanup 两条精确 undo 仍实际调用 + final readback 仍实际调用 + runner 非零 + MANUAL-NEEDED）、`test_cleanup_device_failure_and_audit_failure_still_readback`（cleanup 设备失败 + 审计目录失败仍执行 final readback）；`test_lock_prevents_concurrent_runners` 去掉 `or True` 恒真断言，真实断言 loser 无新增 ops 调用/undo |
 
+## CR42（S1-023 本轮：仓库凭据卫生与 ZTP 密码边界）
+
+| CR | 状态 | 代码 | 测试 |
+|---|---|---|---|
+| CR42 活跃源码无真实口令字面量 + ZTP 密码边界（显式提交/环境注入、缺密码明确失败、state 0600、API 脱敏、前端留空） | ✅ | `schemas.py`（onboard password 必填 / recovery Optional(None)）；`ztp_recovery.py`（密码解析 显式→既有→`ZTP_ADMIN_PASS` 环境，全缺 `ValueError`；state 0600；GET/POST `_redact` 递归脱敏 + `password_set`）；`entrypoint.sh`（`${ZTP_ADMIN_PASS:?}` fail closed；autocfg.cfg 600；日志无口令）；`ztp_runtime_render.py`/`ztp_onboard_callback.py`（`_require_admin_pass()` 只从环境/override 取，缺失 `RuntimeError`）；`autocfg.cfg.j2`/`docs/ztp-stack.md`/`.env.example`/`openspec/specs/device-crud-ui/spec.md`（移除字面量，环境注入口径）；`ZtpRecovery.vue`（初始/加载留空、留空提交 null、显式重输）；移除 `ops-toolkit/scripts/debug-v24-*.py`（5 个无入口临时脚本，REVIEW-v242 P2 债 + 裸 ncclient 违反红线） | `test_s1_023_credential_hygiene.py`（11 条：活动生产路径/活动测试无真实默认口令前缀字面量、debug-* 已移除、ztp-stack 三脚本缺密码 fail closed、onboard 缺密码 422、state 0600/API 脱敏）；`test_ztp_recovery.py` 扩展 5 条（脱敏/0600/缺密码明确失败/环境注入/沿用已有）+ schema 无默认；`ZtpRecovery.spec.js` 3 条（留空/提交 null/显式重输/无字面量）；活动测试口令全替换 synthetic（31 处） |
+
+## CR43（S1-024 本轮：ZTP 渲染凭据边界加固——安全原子写 + 环境注入渲染）
+
+| CR | 状态 | 代码 | 测试 |
+|---|---|---|---|
+| CR43 渲染原子写权限回归 + entrypoint 密码注入 | ✅ | `ztp_runtime_render.py`：`_atomic_write_secret`——临时文件创建前 `umask 077` + `os.open(O_CREAT\|O_EXCL, 0600)`（创建即 0600，规避进程 umask 放宽）→ `os.fdopen` 写入 + flush + fsync → `os.replace` 原子替换 → 显式 `os.chmod(0600)`；任何异常 `unlink` 临时文件（不残留宽权限/含口令中间文件）。`entrypoint.sh`：python3 -c 渲染块改纯环境注入——零 `$`/零单引号插值，全部渲染变量（`ZTP_PLATFORM`/`ZTP_PLATFORM_LONG`/`ZTP_MGMT_IP`/`ZTP_SYSNAME`/`ZTP_ADMIN_USER`/`ZTP_ADMIN_PASS`/`ZTP_HCL_T7064P15`/`ZTP_DATE`/`ZTP_AUTOCFG_TEMPLATE`）`os.environ[...]` 读取；`ZTP_PLATFORM_LONG` 补 export；输出 `mktemp`（创建即 0600）+ 显式 `chmod 600` + `mv -f` 原子替换 + trap 失败清理，不经宽权限中间态 | `test_s1_024_credential_hygiene.py`（6 条）：`test_renderer_special_char_password_verbatim_no_injection`（特殊字符密码模块级原样渲染、无注入、0600）、`test_entrypoint_full_run_special_char_password_verbatim_no_injection`（entrypoint 全量运行级：stub dnsmasq + 真实 jinja2，env 注入渲染原样、无注入、0600、无中间文件）、`test_renderer_first_and_rerender_keep_0600`（首次与覆盖重渲染均 0600，直击 0644 回归）、`test_renderer_failure_leaves_no_wide_secret_temp`（os.replace 失败路径不残留 .tmp/含口令中间文件）、`test_renderer_missing_env_fails_before_any_write`、`test_entrypoint_render_snippet_is_env_only_no_shell_interpolation`（静态断言 os.environ 读取/mktemp/chmod/mv/trap） |
+
 ## schema 变化
 
 `openspec/changes/next-s1-backend/` 的 012 migration 已扩展：`sdn_operations` 新增 `active_attempt_id`（Integer, nullable）与 `active_started_at`（DateTime, nullable）两列；`_create_table_if_missing` 对已存在表幂等补列，ORM `SdnOperation` 同步。令牌/租约仅存于数据库持久状态，无进程内锁。
@@ -198,8 +217,9 @@ S1_019_REAL=1 S1_019_REAL_HOST=192.168.100.5 \
 
 ## 下一轮待办
 
-1. 等待 Codex 复审；若再审提出新 CR，在本 worktree 继续修正（不新建 change）。
-2. 真机验证轮次须走 `qa/run_s1_019_real_lifecycle.sh`（唯一 runner），不再裸跑 pytest。
-3. 清理 __pycache__/logs（每轮结尾已执行）。
+1. 等待 Codex 复审（S1-024 已修复 CR43 两项阻断）；若再审提出新 CR，在本 worktree 继续修正（不新建 change）。
+2. **凭据轮换（外部，用户执行）**：历史已暴露——用户须在**设备**与 `.env`（`DEVICE_PASSWORD`/`ZTP_ADMIN_PASS`）外部轮换真实口令；本包不改设备、不重写 Git 历史、不改 archive/ 历史 change 与 `RELEASE-NOTES-v2.3.1.md` 历史发布记录。
+3. 真机验证轮次须走 `qa/run_s1_019_real_lifecycle.sh`（唯一 runner），不再裸跑 pytest；`ZTP_ADMIN_PASS` 缺失时 ztp-server 按契约 fail closed（先设 `.env` 再启）。
+4. 清理 __pycache__/logs（每轮结尾已执行）。
 
 真机链路已按 S1-020 走完完整生命周期（见上表）；仅剩无下联主机导致的数据面边界（跨 leaf/网关 ping/主机 ARP-MAC）为「未验证」而非「伪造成功」。

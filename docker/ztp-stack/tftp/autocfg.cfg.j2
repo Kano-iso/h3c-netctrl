@@ -4,7 +4,7 @@
 # 生成时间: {{ ztp_date }}
 # 用途: 新设备首次上线 / 已有设备恢复上线基础配置（sysname + OOB VRF/IP + SSH + NETCONF + 凭据）
 # IP 映射: offset 50 跨池（DHCP .151-.190 ↔ static .101-.140，gap .141-.150）
-# 凭据: python / Admin123!@#（项目主账密统一，user 2026-07-18 拍板）
+# 凭据: ZTP_ADMIN_USER / ZTP_ADMIN_PASS（环境注入，渲染时写入；仓库无代码内口令）
 # 模板版本: v3.1.1（zinja2 通用 + 2 平台条件分支 + HCL 子分支）
 #
 
@@ -47,7 +47,7 @@ scp server enable
 ssh server authentication-timeout 300
 {% endif %}
 
-# === 本地用户（项目主账密 python/Admin123!@#，统一 network-admin，禁止第二账号）===
+# === 本地用户（ZTP_ADMIN_USER / ZTP_ADMIN_PASS 环境注入；统一 network-admin，禁止第二账号）===
 local-user {{ admin_user }} class manage
  password simple {{ admin_pass }}
  service-type ssh terminal

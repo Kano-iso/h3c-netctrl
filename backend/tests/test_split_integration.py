@@ -40,7 +40,7 @@ def split_devices(db):
     for d in SPLIT_DEVICES:
         dev = Device(
             id=d["id"], name=d["name"], host=d["host"], port=d["port"],
-            username="python", password_encrypted=encrypt_password("Admin123!@#"),
+            username="python", password_encrypted=encrypt_password("SyntheticTestPass!1"),
         )
         db.add(dev)
     db.commit()

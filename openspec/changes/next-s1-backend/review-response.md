@@ -1,5 +1,39 @@
 # 复审响应（review-response）
 
+## Codex 最终复审结论（S1-024，2026-09-11）
+
+**CODE_REVIEW_PASSED**。CR43 两项阻断已闭环：运行时重渲染使用 0600 安全原子写，entrypoint 渲染变量全部经环境读取，不再把密码拼入 Python 源码或命令行。Codex 已复核实现与对抗测试，并再次通过 `bash -n`、OpenSpec strict、manifest JSON、`git diff --check` 和活动源码凭据扫描；本轮未连接真机、未执行设备 I/O。
+
+该结论允许形成 Git 灾备检查点；历史中已暴露的设备口令仍必须在设备和运行环境中外部轮换。
+
+## S1-024（CR43：ZTP 渲染凭据边界加固，最新；本轮未触真机）
+
+> 本轮为 Codex 复审（S1-023）2 项阻断的修复，**不连真机、无任何设备 I/O、不改设备、不重写 Git 历史、不轮换凭据**。已修复：**CR43-1 渲染原子写权限回归**——`ztp_runtime_render.render_once` 旧实现 `tmp.write_text` 受 umask 影响创建 0644、`tmp.replace` 用临时文件权限替换目标，重渲染把 `autocfg.cfg` 从 0600 变 0644；现改 `_atomic_write_secret`（创建前 `umask 077` + `os.open(O_CREAT|O_EXCL, 0600)` 创建即 0600 → flush/fsync → `os.replace` → 显式 `os.chmod(0600)`，异常 unlink 临时文件）。**CR43-2 entrypoint 密码注入**——旧实现把 `ZTP_ADMIN_PASS` 等环境值直接插进 `python3 -c` 单引号源码（特殊字符语法失败/注入）；现改纯环境注入（python3 -c 零 `$`/零单引号插值、全部渲染变量 `os.environ[...]` 读取、`ZTP_PLATFORM_LONG` 补 export、输出 mktemp(0600)+chmod 600+mv 原子替换+trap 清理）。
+
+**QA（隔离容器，未触真机）：**
+- `test_s1_024_credential_hygiene.py` = **6 passed**（特殊字符密码原样渲染不执行注入——模块级 + entrypoint 全量运行级 stub dnsmasq/真实 jinja2；首次与覆盖重渲染后均 0600；os.replace 失败路径不残留宽权限/含口令临时文件；缺 env 写盘前明确失败；entrypoint 渲染块静态断言）。
+- 受影响文件 + S1-023 + S1-016~022 + validation/access/service/migration + runner 对抗 = **187 passed / 16 skipped**（skip 全为 integration 门控）。
+- 前端 lint + type-check + build + vitest = **62 passed**（8 文件，含 ZtpRecovery 4 条；本轮前端未改动）。
+- `bash -n`、`openspec validate --strict` valid、manifest JSON valid、`git diff --check` clean、活动源码凭据扫描干净。
+
+**请 Codex 复审重点**：1) `_atomic_write_secret` 的 umask 收紧 + O_EXCL + replace 后 chmod 是否彻底解决「重渲染放宽权限」且失败不留中间文件；2) entrypoint python3 -c 环境注入是否仍有任何秘密拼入源码/命令行的路径；3) 特殊字符密码对抗测试（含 entrypoint 全量运行级）是否足以证明无注入。
+
+---
+
+## S1-023（仓库凭据卫生与 ZTP 密码边界；本轮未触真机）
+
+> 本轮为凭据卫生整改，**不连真机、无任何设备 I/O、不改设备、不重写 Git 历史、不轮换凭据**。已修复：活跃源码真实口令字面量移除（`schemas.py` 去默认 / ztp-stack 三脚本 fail closed / 模板与活动文档去字面量 / 前端留空）；recovery state 0600 + API 递归脱敏（GET/POST 不回显密码，只回 `password_set`）；活动测试口令全替换 synthetic；`ops-toolkit/scripts/debug-v24-*.py`（5 个无入口临时脚本，裸 ncclient + 硬编码凭据）按规则移除。**历史已暴露，必须由用户在设备与 `.env` 外部轮换**；archive/ 历史 change 与 `RELEASE-NOTES-v2.3.1.md` 历史发布记录按「不改写历史」保留并登记。
+
+**QA（隔离容器，未触真机）：**
+- `test_ztp_recovery.py` + `test_ztp_onboard.py` + `test_s1_023_credential_hygiene.py` = **21 passed**（ZTP recovery 脱敏/权限/缺密码明确失败/环境注入/沿用已有 + onboard + 静态扫描 + ztp-stack fail closed + debug-* 移除）。
+- 受影响文件 + S1-016~022 + validation/access/service/migration + runner 对抗 = **181 passed / 16 skipped**（skip 全为 integration 门控）。
+- 前端 lint + type-check + build + vitest = **62 passed**（8 文件，含 ZtpRecovery 4 条）。
+- `openspec validate --strict` valid；manifest JSON valid；`git diff --check` clean；活动源码凭据扫描干净（真实默认口令前缀（含截断变体））。
+
+**请 Codex 复审重点**：1) ZTP 写操作密码解析（显式→既有→`ZTP_ADMIN_PASS` 环境，全缺明确失败）与 entrypoint/渲染/回调的 fail-closed 是否符合「缺失不回退代码内口令」；2) recovery state 0600 与 GET/POST 递归脱敏是否足以让浏览器不接触明文；3) 前端「加载 override 留空、修改重输、留空提交 null」是否符合预期；4) debug-v24-* 移除（无入口临时脚本）是否符合项目规则。
+
+---
+
 ## Codex 最终复审结论（S1-022，2026-09-10）
 
 **CODE_REVIEW_PASSED**。Codex 独立复跑 S1-016～S1-022、validation/access/service/migration 共 **95 passed / 1 skipped**；另以 stub 重放审计目录不可创建反例，确认退出码 6、设备调用 0、pytest 调用 0。`bash -n`、QA Compose 解析、OpenSpec strict、manifest JSON、`git diff --check` 与凭据/越界命令扫描均通过。本轮复审未连接真机、未执行设备 I/O。

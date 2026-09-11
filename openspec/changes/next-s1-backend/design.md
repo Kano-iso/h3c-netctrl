@@ -356,3 +356,26 @@ reconcile(operation):
   - **先执行后落盘（EXIT trap）**：cleanup 与 final readback 一律先用命令替换真实执行并捕获返回码/输出，再尽力写审计文件；审计目录被删除/变只读/写失败**不得阻止**精确清理或回读执行；审计写入失败置 `AUDIT_FAIL=1` → `MANUAL-NEEDED` + runner 最终非零（不替代 cleanup/readback）；cleanup 失败不跳过 final readback。
   - **测试注入点**：`stub_pytest.sh` 增加 `STUB_PYTEST_HOOK`（pytest 期间删除/破坏审计目录）。
 - **对抗测试（新增 5 条，共 21 条）**：审计目录不可创建/不可写 → ops 调用 0 / pytest 未调用 / 非零退出；baseline 持久化失败 → 不进入 pytest/可写阶段；pytest 期间删除审计目录 → cleanup 两条精确 undo 仍实际调用 + final readback 仍实际调用 + runner 非零提示人工；cleanup 设备命令失败 + 审计目录失败 → 仍执行 final readback；并发锁测试真实断言（loser 无新增 ops 调用/undo）。本轮**未运行真机测试、无任何设备 I/O**。
+
+## 25. S1-023 增量（仓库凭据卫生与 ZTP 密码边界，本轮未触真机）
+
+- **背景**：灾备审计发现远端历史与活跃源码携带真实设备默认口令字面量。历史泄露只能靠用户外部轮换（本包不改设备、不重写 Git 历史）；本包目标 = 活跃源码不再携带真实默认口令，ZTP recovery 查询接口不再把密码回显给浏览器。
+- **生产路径移除真实密码字面量**：
+  - `backend/app/schemas.py`：`ZtpOnboardRequest.password` 改必填 `Field(..., min_length=1)`（无默认）；`ZtpRecoveryOverrideRequest.password` 改 `Optional[str] default=None`（留空 = 沿用已有 / 环境注入）。
+  - `docker/ztp-stack/entrypoint.sh`：`ZTP_ADMIN_PASS` 改 `${VAR:?}` 必填（缺失 fail closed，无代码内口令）；渲染产物 `autocfg.cfg` 权限收紧 600；日志行不打印口令。
+  - `docker/ztp-stack/ztp_runtime_render.py` / `ztp_onboard_callback.py`：新增 `_require_admin_pass()`，密码只来自环境/override，缺失明确 `RuntimeError`（fail closed）。
+  - `docker/ztp-stack/tftp/autocfg.cfg.j2` + `docs/ztp-stack.md` + `.env.example`：注释/示例移除字面量，改为「环境注入、仓库无代码内口令」。
+- **ZTP 密码边界（写操作）**：`ztp_recovery.write_recovery_override` 密码优先级 = 请求显式提交 → 既有 override → `ZTP_ADMIN_PASS` 环境；全缺失 → 明确 `ValueError`。
+- **recovery state 与 API 脱敏**：明文密码仅落盘 git 忽略的 `ZTP_STATE_DIR/recovery_override.json` 且权限 `0600`（仅 ztp-server 渲染读取）；GET/POST `/api/ztp/recovery-override` 响应一律 `_redact`（递归剔除 password，仅返回 `password_set` 布尔），浏览器不接触明文。
+- **前端**：`ZtpRecovery.vue` 初始/加载 override 时 password 保持空白（不填充 API 值）；留空提交 `null`（沿用已有 / 环境注入），显式重输才提交；i18n 新增 `password_placeholder` 提示。
+- **ops-toolkit debug-***：确认无入口临时脚本（REVIEW-v242 已列为 P2 清理债、docs/ops-toolkit.md 未收录、裸 ncclient 直连设备违反红线）→ 移除 5 个 `debug-v24-*.py`，不新建裸 SSH 路径。
+- **测试**：活动测试文件真实口令字面量全部替换为明显 synthetic（`SyntheticTestPass!1`，非可用默认口令）；新增 `test_s1_023_credential_hygiene.py`（静态扫描活动生产路径/测试无字面量 + debug-* 已移除 + ztp-stack 三脚本缺密码 fail closed + onboard 缺密码 422 + state 0600/API 脱敏）；`test_ztp_recovery.py` 扩展脱敏/权限/缺密码/env 注入/沿用已有断言；`ZtpRecovery.spec.js` 断言密码留空/提交 null/无字面量。
+- **历史边界（明确不改）**：archive/ 下历史 change、`RELEASE-NOTES-v2.3.1.md`（历史发布记录）仍含已暴露口令文本 → 不重写历史；handoff/readiness 明确「历史已暴露，必须由用户在设备与 `.env` 外部轮换」。本轮**未运行真机测试、无任何设备 I/O**。
+
+## 26. S1-024 增量（CR43：ZTP 渲染凭据边界加固，本轮未触真机）
+
+- **背景（Codex 复审阻断）**：S1-023 移除字面量后仍有两处凭据边界缺口——(1) `ztp_runtime_render.render_once` 的原子写不彻底：`tmp.write_text` 受进程 umask 影响创建 0644，`tmp.replace` 用临时文件权限替换目标，运行中任何一次重渲染都会把 `autocfg.cfg` 从 0600 变回 0644；(2) `entrypoint.sh` 把 `ZTP_ADMIN_PASS` 等环境值直接插进 `python3 -c` 的单引号源码，密码含单引号/反斜杠/换行等字符时语法失败甚至代码注入；且 `ZTP_PLATFORM_LONG` 只作 shell 变量未 export，env-only 渲染读不到。
+- **修复**：
+  - **安全原子写 `_atomic_write_secret`**（`ztp_runtime_render.py`）：临时文件创建前收紧 `umask 077` + `os.open(..., O_CREAT|O_EXCL, 0o600)`（创建即 0600）→ `os.fdopen` 写入 + flush + fsync → `os.replace` 原子替换 → 替换后显式 `os.chmod(0600)`；任何异常 `unlink` 临时文件（不残留宽权限或含口令中间文件）。
+  - **entrypoint.sh 环境注入渲染**：python3 -c 块内零 `$`、零单引号插值，全部渲染变量（`ZTP_PLATFORM`/`ZTP_PLATFORM_LONG`/`ZTP_MGMT_IP`/`ZTP_SYSNAME`/`ZTP_ADMIN_USER`/`ZTP_ADMIN_PASS`/`ZTP_HCL_T7064P15`/`ZTP_DATE`/`ZTP_AUTOCFG_TEMPLATE`）一律 `os.environ[...]` 读取；`ZTP_PLATFORM_LONG` 补 `export`；输出走 `mktemp`（创建即 0600）+ 显式 `chmod 600` + `mv -f` 原子替换 + `trap` 失败清理，不经宽权限中间态。
+- **对抗测试（新增 `test_s1_024_credential_hygiene.py`，6 条）**：特殊字符密码（单引号/反斜杠/换行/`$()`/反引号/通配符/中文）模块级与 entrypoint 全量运行级（stub dnsmasq + 真实 jinja2）均原样渲染、不执行注入；runtime 首次与覆盖重渲染后均 0600（直击 0644 回归）；`os.replace` 失败路径不残留 `.tmp`/含口令中间文件；缺环境变量在写盘前明确失败；entrypoint 渲染块静态断言（无 `$` 插值、`os.environ` 读取、mktemp/chmod/mv/trap 契约）。本轮**未运行真机测试、无任何设备 I/O**。

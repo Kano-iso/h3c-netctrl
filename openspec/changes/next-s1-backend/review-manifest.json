@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "package_id": "S1-022",
+  "package_id": "S1-024",
   "change_id": "next-s1-backend",
   "baseline_sha": "6cd19fbfca9fab47896236debbb37816310eb915",
   "worktree": "/root/workpace/h3c-netctrl/.agent-worktrees/next-s1-backend",
@@ -50,110 +50,289 @@
     "openspec/changes/next-s1-backend/qa/test_stubs/stub_ops.sh",
     "openspec/changes/next-s1-backend/qa/test_stubs/stub_pytest.sh",
     "docs/ops-toolkit.md",
-    "openspec/changes/next-s1-backend/"
+    "openspec/changes/next-s1-backend/",
+    "backend/app/services/ztp_recovery.py",
+    "docker/ztp-stack/entrypoint.sh",
+    "docker/ztp-stack/tftp/autocfg.cfg.j2",
+    "docker/ztp-stack/ztp_onboard_callback.py",
+    "docker/ztp-stack/ztp_runtime_render.py",
+    "frontend/src/views/ZtpRecovery.vue",
+    "frontend/src/i18n/en-US.js",
+    "frontend/src/i18n/zh-CN.js",
+    "frontend/src/__tests__/ZtpRecovery.spec.js",
+    "docs/ztp-stack.md",
+    ".env.example",
+    "backend/tests/test_s1_023_credential_hygiene.py",
+    "backend/tests/test_ztp_onboard.py",
+    "backend/tests/test_ztp_recovery.py",
+    "backend/tests/test_device_api.py",
+    "backend/tests/test_ops_toolkit_paramiko.py",
+    "backend/tests/test_smoke.py",
+    "backend/tests/test_backup_integration.py",
+    "backend/tests/test_vpn_integration.py",
+    "backend/tests/test_split_integration.py",
+    "openspec/specs/device-crud-ui/spec.md",
+    "ops-toolkit/scripts/debug-v24-177-full.py (deleted)",
+    "ops-toolkit/scripts/debug-v24-bugfix-ns.py (deleted)",
+    "ops-toolkit/scripts/debug-v24-filter-test.py (deleted)",
+    "ops-toolkit/scripts/debug-v24-filter-wrap.py (deleted)",
+    "ops-toolkit/scripts/debug-v24-iface-100.py (deleted)",
+    "backend/tests/test_s1_024_credential_hygiene.py"
   ],
   "requirements": [
+    {
+      "id": "CR43",
+      "summary": "ZTP 渲染凭据边界加固：安全原子写（重渲染不放宽 0600）+ entrypoint 环境注入渲染（无秘密拼入源码/命令行）（S1-024）",
+      "implementation": "ztp_runtime_render.py：新增 _atomic_write_secret——临时文件创建前 os.umask(0o077) + os.open(O_CREAT|O_EXCL, 0600)（创建即 0600，规避进程 umask 放宽）→ os.fdopen 写入 + flush + fsync → os.replace 原子替换 → 替换后显式 os.chmod(0600)；任何异常 unlink 临时文件（不残留宽权限或含口令中间文件）。entrypoint.sh：python3 -c 渲染块改纯环境注入——零 $/零单引号插值，全部渲染变量（ZTP_PLATFORM/ZTP_PLATFORM_LONG/ZTP_MGMT_IP/ZTP_SYSNAME/ZTP_ADMIN_USER/ZTP_ADMIN_PASS/ZTP_HCL_T7064P15/ZTP_DATE/ZTP_AUTOCFG_TEMPLATE）os.environ[...] 读取；ZTP_PLATFORM_LONG 补 export；输出 mktemp（创建即 0600）+ 显式 chmod 600 + mv -f 原子替换 + trap 失败清理，不经宽权限中间态",
+      "tests": [
+        "test_renderer_special_char_password_verbatim_no_injection",
+        "test_entrypoint_full_run_special_char_password_verbatim_no_injection",
+        "test_renderer_first_and_rerender_keep_0600",
+        "test_renderer_failure_leaves_no_wide_secret_temp",
+        "test_renderer_missing_env_fails_before_any_write",
+        "test_entrypoint_render_snippet_is_env_only_no_shell_interpolation"
+      ]
+    },
+    {
+      "id": "CR42",
+      "summary": "活跃源码凭据卫生 + ZTP 密码边界：显式提交/环境注入、缺密码明确失败、state 0600、API 递归脱敏、前端留空（S1-023）",
+      "implementation": "schemas.py：ZtpOnboardRequest.password 必填 Field(..., min_length=1) 无默认；ZtpRecoveryOverrideRequest.password Optional(None)（留空=沿用已有/环境注入）。ztp_recovery.py：密码解析 显式→既有 override→ZTP_ADMIN_PASS 环境，全缺 ValueError；state 写临时文件 chmod 0600 + os.replace + 终态 0600；GET/POST 响应 _redact 递归剔除 password 仅回 password_set 布尔。entrypoint.sh：ZTP_ADMIN_PASS ${VAR:?} 必填（缺失 fail closed，无代码内口令）；autocfg.cfg 权限 600；日志不打印口令。ztp_runtime_render.py / ztp_onboard_callback.py：_require_admin_pass() 只从环境/override 取密码，缺失 RuntimeError（fail closed）。autocfg.cfg.j2 / docs/ztp-stack.md / .env.example / openspec/specs/device-crud-ui/spec.md：移除真实口令字面量，改为环境注入口径。ZtpRecovery.vue：初始/加载 override 密码保持空白、留空提交 null（沿用已有/环境注入）、显式重输才提交；i18n password_placeholder。ops-toolkit/scripts/debug-v24-*.py（5 个无入口临时脚本，REVIEW-v242 P2 债、docs 未收录、裸 ncclient 硬编码凭据）按规则移除。archive/ 历史与 RELEASE-NOTES-v2.3.1.md 历史发布记录不改写，登记为「用户须外部轮换」",
+      "tests": [
+        "test_active_production_paths_have_no_real_password_literal",
+        "test_active_test_files_have_no_real_password_literal",
+        "test_debug_v24_temporary_scripts_removed",
+        "test_runtime_render_default_context_fails_without_admin_pass",
+        "test_runtime_render_default_context_uses_env_when_set",
+        "test_runtime_render_load_override_fails_without_password_and_env",
+        "test_onboard_callback_payload_fails_without_password_and_env",
+        "test_onboard_callback_payload_uses_env_when_override_password_missing",
+        "test_ztp_onboard_missing_password_is_rejected",
+        "test_recovery_state_file_permissions",
+        "test_ztp_recovery_schema_has_no_password_default",
+        "test_ztp_recovery_override_write_read_clear",
+        "test_ztp_recovery_missing_password_without_env_fails_clearly",
+        "test_ztp_recovery_missing_password_injects_env",
+        "test_ztp_recovery_blank_password_keeps_existing",
+        "test_ztp_recovery_override_rejects_invalid_ip",
+        "ZtpRecovery.spec.js (4: 密码留空/提交 null/显式重输/无字面量)"
+      ]
+    },
     {
       "id": "CR41",
       "summary": "审计目录失效时仍必须安全清理：先执行后落盘 + baseline 持久化门 + 启动探针（S1-022）",
       "implementation": "run_s1_019_real_lifecycle.sh：(1) 任何设备 I/O 前 setup_artifact_dir（umask 077 + mkdir -p + 临时探针文件后删除），失败直接退出码 6（不采集基线、不跑 pytest）；(2) baseline 成功持久化（baseline.txt 写失败→码 4）后才进入可写阶段；(3) EXIT trap 中 cleanup/final readback 一律「先真实执行并捕获返回码/输出（命令替换），再尽力写审计文件」——审计目录被删除/变只读/写失败不得阻止精确清理或回读执行；审计写入失败置 AUDIT_FAIL=1 → MANUAL-NEEDED + runner 最终非零，但不替代 cleanup/readback；(4) cleanup 失败不跳过 final readback；(5) stub_pytest.sh 增加 STUB_PYTEST_HOOK（pytest 期间破坏审计目录的注入点）；test_lock_prevents_concurrent_runners 去掉 or True 恒真断言，真实断言 loser 无新增 ops 调用/undo",
-      "tests": ["test_artifact_dir_uncreatable_fails_before_io", "test_artifact_dir_is_a_file_fails_before_io", "test_baseline_persist_failure_stops_before_pytest", "test_artifact_dir_removed_during_pytest_cleanup_still_runs", "test_cleanup_device_failure_and_audit_failure_still_readback", "test_lock_prevents_concurrent_runners"]
+      "tests": [
+        "test_artifact_dir_uncreatable_fails_before_io",
+        "test_artifact_dir_is_a_file_fails_before_io",
+        "test_baseline_persist_failure_stops_before_pytest",
+        "test_artifact_dir_removed_during_pytest_cleanup_still_runs",
+        "test_cleanup_device_failure_and_audit_failure_still_readback",
+        "test_lock_prevents_concurrent_runners"
+      ]
     },
     {
       "id": "CR40",
       "summary": "唯一宿主安全 runner 包装 S1-019/S1-020 真机 pytest + 诚实清理契约（S1-021）",
       "implementation": "openspec/changes/next-s1-backend/qa/run_s1_019_real_lifecycle.sh：默认拒绝真机（--integration/S1_019_REAL=1/精确 192.168.100.5/--cleanup-shared 四重门禁，目标非 .5 设备 I/O 前退出）；凭据仅 .env/环境注入不落盘；额外设备读写走 ops-toolkit 既有入口；pytest 前保存最小基线（身份/VSI/EVPN/共享对象/GE1/0/10），共享对象基线已存在→拒绝承担所有权绝不 trap 删除；进入可写阶段装 trap，成功/失败/Ctrl-C/TERM 都按恢复清单精确兜底清理（仅 system-view + undo ip vpn-instance sdn_l3vpn + undo vxlan tunnel mac-learning disable + return，无 save/越界）+ 最终 readback 回基线（返回码 0 ≠ 清理成功）；保留 pytest 原始退出码但 cleanup/readback 失败整体失败并输出 MANUAL-NEEDED；本机 flock 锁防并发；compose 只读挂载 qa 目录。真机测试 docstring/review-manifest 标准跑法改为唯一 runner（裸 pytest 只是 runner 内部实现，不承担共享对象清理）；readiness 去掉提前的 Codex 复审结论改「等待 Codex 复审」；如实记录 S1-020 历史共享残留由测试外 ops-toolkit 精确兜底（当时无自动 runner）",
-      "tests": ["test_missing_integration_gate_refuses_before_io", "test_missing_real_env_refuses_before_io", "test_wrong_target_refuses_before_io", "test_missing_cleanup_shared_gate_refuses_before_io", "test_baseline_shared_present_refuses_no_undo", "test_baseline_vsi_present_refuses", "test_baseline_ac_present_refuses", "test_pytest_success_enters_cleanup_and_readback", "test_pytest_failure_preserves_code_but_cleans", "test_cleanup_write_failure_runner_fails", "test_cleanup_rc0_but_readback_residue_runner_fails", "test_final_readback_failure_runner_fails", "test_cleanup_commands_exact_no_save", "test_interrupt_triggers_trap_cleanup", "test_sigterm_triggers_trap_cleanup", "test_lock_prevents_concurrent_runners"]
+      "tests": [
+        "test_missing_integration_gate_refuses_before_io",
+        "test_missing_real_env_refuses_before_io",
+        "test_wrong_target_refuses_before_io",
+        "test_missing_cleanup_shared_gate_refuses_before_io",
+        "test_baseline_shared_present_refuses_no_undo",
+        "test_baseline_vsi_present_refuses",
+        "test_baseline_ac_present_refuses",
+        "test_pytest_success_enters_cleanup_and_readback",
+        "test_pytest_failure_preserves_code_but_cleans",
+        "test_cleanup_write_failure_runner_fails",
+        "test_cleanup_rc0_but_readback_residue_runner_fails",
+        "test_final_readback_failure_runner_fails",
+        "test_cleanup_commands_exact_no_save",
+        "test_interrupt_triggers_trap_cleanup",
+        "test_sigterm_triggers_trap_cleanup",
+        "test_lock_prevents_concurrent_runners"
+      ]
     },
     {
       "id": "CR39",
       "summary": "统一 _l2_ready_status 与 collector 的 vsi_up.required = bool(active/expanding 本地绑定) 语义，修复首次接入自阻断",
       "implementation": "_l2_ready_status 动态查询目标 Leaf status ∈ {active, expanding} 本地绑定：无绑定 → vsi_up 不作为门禁（首次 AC bootstrap 放行），有绑定 → vsi_up 仍必需、Down 保守阻断；unbound/planned 历史行不误判；其余三项 + 版本因果/TTL/配置完成时间/命令完整性/CLI 错误/BGP peer/VSI 存在/目标 RD Type-3 门禁不删不放宽；preview/execute 共用同一 _l2_ready_status，force refresh 与失败零业务副作用保留；S1-017 test_l2_condition_false_blocks 参数化移除 vsi_up；S1-019 真机测试改为走完整生命周期（preview→execute→apply→readback AC→complete→access withdraw→VPC withdraw）",
-      "tests": ["test_no_local_binding_vsi_up_down_is_ready", "test_active_binding_vsi_up_down_blocks", "test_active_binding_vsi_up_true_ready", "test_unbound_or_planned_binding_does_not_require_vsi_up", "test_preview_uses_dynamic_vsi_up_semantics", "test_execute_uses_dynamic_vsi_up_semantics", "test_execute_active_binding_vsi_up_down_blocks_without_side_effects"]
+      "tests": [
+        "test_no_local_binding_vsi_up_down_is_ready",
+        "test_active_binding_vsi_up_down_blocks",
+        "test_active_binding_vsi_up_true_ready",
+        "test_unbound_or_planned_binding_does_not_require_vsi_up",
+        "test_preview_uses_dynamic_vsi_up_semantics",
+        "test_execute_uses_dynamic_vsi_up_semantics",
+        "test_execute_active_binding_vsi_up_down_blocks_without_side_effects"
+      ]
     },
     {
       "id": "CR38",
       "summary": "Type-3 证据按目标 VPC 的 Route distinguisher 归属校验",
       "implementation": "SdnValidationCollector._type3_scoped(text, vni)：按 Route distinguisher: 分块、逐块精确 RD 等值比较，只在目标 1:{vni} 块中发现 [3] 才为真；替代 [3] in text；多 RD 正确分块、1:2000 与 1:20000 不串匹配、目标 RD 缺失/只有 [2]/无法解析 → false（_l2_ready_status 返回 unknown）；_validate() 的 type3_present.ok 改用之；清理 CR36/CR37 冲突口径与已重命名测试",
-      "tests": ["test_type3_scoped_target_rd_has_type3_true", "test_type3_scoped_other_rd_type3_target_type2_false", "test_type3_scoped_target_rd_missing_false", "test_type3_scoped_vni_substring_no_false_match", "test_type3_scoped_multi_rd_target_middle_true", "test_type3_scoped_multi_rd_target_last_true", "test_validate_type3_is_scoped_to_target_rd", "test_terminal_gate_unknown_when_type3_not_in_target_rd"]
+      "tests": [
+        "test_type3_scoped_target_rd_has_type3_true",
+        "test_type3_scoped_other_rd_type3_target_type2_false",
+        "test_type3_scoped_target_rd_missing_false",
+        "test_type3_scoped_vni_substring_no_false_match",
+        "test_type3_scoped_multi_rd_target_middle_true",
+        "test_type3_scoped_multi_rd_target_last_true",
+        "test_validate_type3_is_scoped_to_target_rd",
+        "test_terminal_gate_unknown_when_type3_not_in_target_rd"
+      ]
     },
     {
       "id": "CR37",
       "summary": "解除 terminal L2 接入门禁对 L3 网关健康的隐式耦合",
       "implementation": "冻结 L2 必需条件 TERMINAL_L2_REQUIRED_CHECKS=(bgp_peer_established, vsi_exists, vsi_up, type3_present) + L2 所需命令映射 _terminal_l2_required_commands（BGP peer / VSI / Type-3）；移除「整张快照 validation_result==active」与「遍历整张快照所有命令」两处 L3 耦合；raw_has_error 按 L2 命令输出重算；无关 L3/Vsi-interface/ARP 命令失败不拖垮纯 L2 门禁，支撑 L2 的命令缺失/失败/CLI 错误仍 conservative unknown；网关/L3 健康继续由 complete l3_gateway_ready + ping 表达",
-      "tests": ["test_l2_ready_with_degraded_overall_and_healthy_l2", "test_l2_ready_with_l3_command_failure", "test_l2_condition_false_blocks", "test_l2_command_missing_blocks", "test_l2_command_failed_blocks", "test_l2_command_cli_error_blocks", "test_complete_still_expresses_l3_unhealth_as_degraded"]
+      "tests": [
+        "test_l2_ready_with_degraded_overall_and_healthy_l2",
+        "test_l2_ready_with_l3_command_failure",
+        "test_l2_condition_false_blocks",
+        "test_l2_command_missing_blocks",
+        "test_l2_command_failed_blocks",
+        "test_l2_command_cli_error_blocks",
+        "test_complete_still_expresses_l3_unhealth_as_degraded"
+      ]
     },
     {
       "id": "CR36",
       "summary": "真实设备证据门禁与前置部署语义闭环",
       "implementation": "两套门禁语义分离（SdnPreflight create「VNI 应不存在」deferred vs terminal predeploy「VSI 必须存在」）；_l2_ready_status 收紧（绝对新鲜度 600s + 采集晚于配置完成）；VPC 版本因果（create.version == vpc.version，_create_sdn_deployment 固化）；execute 证据不足强制重新取证（只读 display），采集失败在消费 plan 前阻断（零业务副作用）；SdnPreflight deferred success=True 明确为 create 路径 blocker/后续项。命令/校验 scoping 由 CR37（L2/L3 解耦）与 CR38（type3 按目标 RD 归属）收紧；CR36 当时口径的 validation_result=active/全命令遍历/raw_has_error 已被取代",
-      "tests": ["test_predeploy_fresh_scoped_healthy_snapshot_ready", "test_predeploy_stale_snapshot_blocked", "test_predeploy_snapshot_predates_config_blocked", "test_predeploy_validation_result_not_a_l2_gate", "test_predeploy_command_failed_blocked", "test_predeploy_command_cli_error_blocked", "test_predeploy_display_error_in_output_blocked", "test_predeploy_validation_details_missing_key_blocked", "test_predeploy_validation_details_invalid_json_blocked", "test_predeploy_vpc_version_change_blocked", "test_execute_collection_failure_blocks_without_side_effects", "test_terminal_predeploy_requires_vsi_exists_not_create_semantics"]
+      "tests": [
+        "test_predeploy_fresh_scoped_healthy_snapshot_ready",
+        "test_predeploy_stale_snapshot_blocked",
+        "test_predeploy_snapshot_predates_config_blocked",
+        "test_predeploy_validation_result_not_a_l2_gate",
+        "test_predeploy_command_failed_blocked",
+        "test_predeploy_command_cli_error_blocked",
+        "test_predeploy_display_error_in_output_blocked",
+        "test_predeploy_validation_details_missing_key_blocked",
+        "test_predeploy_validation_details_invalid_json_blocked",
+        "test_predeploy_vpc_version_change_blocked",
+        "test_execute_collection_failure_blocks_without_side_effects",
+        "test_terminal_predeploy_requires_vsi_exists_not_create_semantics"
+      ]
     },
     {
       "id": "CR35",
       "summary": "收紧 stale takeover 的 active attempt 身份与终态保护",
       "implementation": "唯一 phase→kind 映射 ACTIVE_PHASE_EXPECTED_KIND；可接管状态仅 claimed/running；claim_stale_takeover 单条原子 UPDATE + EXISTS 同时证明 op phase/token/lease 与 active attempt 的 operation/kind/status；条件式 mark_attempt_stale（rowcount==1 才继续，零行回滚接管）",
-      "tests": ["test_cr35_applying_with_validate_token_rejected", "test_cr35_validating_with_succeeded_execute_token_rejected", "test_cr35_withdrawing_with_terminal_withdraw_token_rejected", "test_cr35_applying_with_terminal_execute_token_rejected", "test_cr35_stale_takeover_allows_active_attempt", "test_cr35_cas_rejects_when_attempt_terminalized_between_read_and_cas"]
+      "tests": [
+        "test_cr35_applying_with_validate_token_rejected",
+        "test_cr35_validating_with_succeeded_execute_token_rejected",
+        "test_cr35_withdrawing_with_terminal_withdraw_token_rejected",
+        "test_cr35_applying_with_terminal_execute_token_rejected",
+        "test_cr35_stale_takeover_allows_active_attempt",
+        "test_cr35_cas_rejects_when_attempt_terminalized_between_read_and_cas"
+      ]
     },
     {
       "id": "CR32",
       "summary": "stale takeover 正确归属 active attempt，与设备副作用 attempt 分离",
       "implementation": "reconcile 拆分 active_attempt（按 old_active_attempt_id 查询且必须 operation_id==op.id，只标它及其 started unit 为 unknown 并写 stale_takeover 证据；token 无效/跨 operation 保守拒绝）与 effect_attempt（execute/withdraw，已确定终态不降级）；validate 失联按 port_bind 回读恢复到 awaiting_validation",
-      "tests": ["test_cr32_stale_validating_takeover_preserves_succeeded_execute", "test_cr32_stale_applying_takeover_marks_started_unit_unknown", "test_cr32_stale_withdrawing_takeover_resolves_via_readback", "test_cr32_stale_takeover_rejects_invalid_token", "test_cr32_stale_takeover_rejects_other_operation_token"]
+      "tests": [
+        "test_cr32_stale_validating_takeover_preserves_succeeded_execute",
+        "test_cr32_stale_applying_takeover_marks_started_unit_unknown",
+        "test_cr32_stale_withdrawing_takeover_resolves_via_readback",
+        "test_cr32_stale_takeover_rejects_invalid_token",
+        "test_cr32_stale_takeover_rejects_other_operation_token"
+      ]
     },
     {
       "id": "CR30",
       "summary": "动作代际令牌：收尾 CAS 绑定具体 attempt/token（owner-aware），杜绝 phase-only CAS 的 ABA",
       "implementation": "sdn_operations 新增 active_attempt_id/active_started_at 持久列；claim_action_admission 绑定 phase+token+time；finish_action 匹配 operation_id+phase+active_attempt_id 且成功原子清空 token；apply 用原 execute attempt、validate/withdraw/reconcile 用各自新 attempt；准入输家回滚临时 attempt",
-      "tests": ["test_cr30_aba_validate_generation_token", "test_cr30_aba_withdraw_generation_token", "test_cr30_aba_apply_generation_token"]
+      "tests": [
+        "test_cr30_aba_validate_generation_token",
+        "test_cr30_aba_withdraw_generation_token",
+        "test_cr30_aba_apply_generation_token"
+      ]
     },
     {
       "id": "CR31",
       "summary": "reconcile 参与动作仲裁，区分活跃任务与失联任务",
       "implementation": "普通 reconcile 仅从 unknown 原子准入 reconciling（绑定 token，与 applying/validating/withdrawing/reconciling 互斥）；active phase 走 claim_stale_takeover（active_started_at + 300s lease）；终态写入/deployment/binding/claims 在持有 reconciling+token 时发生；collector 失败条件收尾到 unknown；withdrawn 不可变",
-      "tests": ["test_cr31_reconcile_rejected_during_live_validate", "test_cr31_reconcile_rejected_during_live_apply", "test_cr31_reconcile_rejected_during_live_withdraw", "test_cr31_unknown_reconcile_single_winner", "test_cr31_stale_takeover_rejected_within_lease", "test_cr31_stale_takeover_succeeds_past_lease", "test_cr31_reconcile_collector_fail_keeps_claims", "test_cr31_reconcile_late_finish_does_not_overwrite_withdrawn"]
+      "tests": [
+        "test_cr31_reconcile_rejected_during_live_validate",
+        "test_cr31_reconcile_rejected_during_live_apply",
+        "test_cr31_reconcile_rejected_during_live_withdraw",
+        "test_cr31_unknown_reconcile_single_winner",
+        "test_cr31_stale_takeover_rejected_within_lease",
+        "test_cr31_stale_takeover_succeeds_past_lease",
+        "test_cr31_reconcile_collector_fail_keeps_claims",
+        "test_cr31_reconcile_late_finish_does_not_overwrite_withdrawn"
+      ]
     },
     {
       "id": "CR29",
       "summary": "apply 纳入同一 operation 动作仲裁（apply/withdraw/validate 共享持久化 CAS 准入与条件收尾）",
       "implementation": "applying 中间态；apply 设备 I/O 前原子 CAS awaiting_wiring→applying（claim_action_admission，与 validating/withdrawing 互斥）；收尾条件 CAS applying→awaiting_validation|failed|unknown；deployment CAS 失败（SDN_DEPLOYMENT_NOT_PENDING）即停不推导 unknown/不误标 claims；并发 apply 单赢家；auto_apply 内联 claimed 阶段兼容阻挡 complete/withdraw",
-      "tests": ["test_cr29_apply_wins_withdraw_blocked", "test_cr29_withdraw_wins_apply_blocked", "test_cr29_concurrent_apply_single_winner", "test_cr29_late_apply_does_not_overwrite_withdrawn"]
+      "tests": [
+        "test_cr29_apply_wins_withdraw_blocked",
+        "test_cr29_withdraw_wins_apply_blocked",
+        "test_cr29_concurrent_apply_single_winner",
+        "test_cr29_late_apply_does_not_overwrite_withdrawn"
+      ]
     },
     {
       "id": "CR28",
       "summary": "同一 operation 的 validate 与 withdraw 跨动作互斥 + 终态不被迟到请求覆盖",
       "implementation": "claim_action_admission 泛化为 from_statuses→to_status 单行 CAS + withdrawing 中间态；withdraw 设备 I/O 前 CAS 准入（WITHDRAW_FROM_STATUSES，排除 withdrawn/validating/withdrawing）；validate 在 validating/withdrawing 下返回 in-progress；finish_action 条件收尾 CAS（WHERE status=from_status）零行不覆盖现状、不误释放 claims + late completion 诊断；withdrawn 不可逆幂等",
-      "tests": ["test_cr28_validate_wins_withdraw_blocked", "test_cr28_withdraw_wins_complete_blocked", "test_cr28_late_complete_does_not_overwrite_withdrawn"]
+      "tests": [
+        "test_cr28_validate_wins_withdraw_blocked",
+        "test_cr28_withdraw_wins_complete_blocked",
+        "test_cr28_late_complete_does_not_overwrite_withdrawn"
+      ]
     },
     {
       "id": "CR27",
       "summary": "同一 operation 同时至多一个活跃 validate attempt（complete/validate 并发准入）",
       "implementation": "claim_action_admission 单行 UPDATE CAS（awaiting_validation|unknown→validating）；赢者同事务建 validate attempt + claims 后 commit 才进入 collector/ping；输家/读到 validating 返回 sdn.operation_in_progress（新增 error key）；准入后崩溃留 validating+claimed 痕迹不回退不重放",
-      "tests": ["test_cr27_concurrent_complete_single_winner", "test_cr27_concurrent_unknown_recovery_single_winner", "test_cr27_validating_stuck_not_replayed"]
+      "tests": [
+        "test_cr27_concurrent_complete_single_winner",
+        "test_cr27_concurrent_unknown_recovery_single_winner",
+        "test_cr27_validating_stuck_not_replayed"
+      ]
     },
     {
       "id": "CR24",
       "summary": "显式 reconcile 必须采到待对账目标接口（真实链路）",
       "implementation": "SdnValidationCollector.sync 增加 scope_bindings 参数；_commands 对 scope binding 无论 status 都追加 display current-configuration interface；reconcile_operation 传 binding scope；普通周期采集不传 scope",
-      "tests": ["test_cr24_reconcile_port_bind_collects_target_interface", "test_cr24_reconcile_port_unbind_collects_target_interface", "test_cr24_periodic_collection_excludes_planned_binding"]
+      "tests": [
+        "test_cr24_reconcile_port_bind_collects_target_interface",
+        "test_cr24_reconcile_port_unbind_collects_target_interface",
+        "test_cr24_periodic_collection_excludes_planned_binding"
+      ]
     },
     {
       "id": "CR25",
       "summary": "unknown validation 存在可恢复路径（幂等仅限确定完成）",
       "implementation": "complete_access 幂等仅限 latest validate attempt 为 succeeded/failed_known；unknown + port_bind 执行已成功（success+config_completed_at）允许显式重试新建 validate attempt，旧 attempt 历史保留；不自动重放设备写",
-      "tests": ["test_cr25_unknown_validation_recovers_on_retry"]
+      "tests": [
+        "test_cr25_unknown_validation_recovers_on_retry"
+      ]
     },
     {
       "id": "CR26",
       "summary": "CLI 错误从 output 与结构化字段共同识别",
       "implementation": "_scoped_port_evidence 复用 SdnValidationCollector._has_display_error(output)，success=true/error=null 且 output 含 % Wrong parameter/Unrecognized command/Incomplete command 判 insufficient",
-      "tests": ["test_cr26_port_unbind_cli_error_in_output_not_success[% Wrong parameter...]", "test_cr26_port_unbind_cli_error_in_output_not_success[Unrecognized command...]", "test_cr26_port_unbind_cli_error_in_output_not_success[Incomplete command...]"]
+      "tests": [
+        "test_cr26_port_unbind_cli_error_in_output_not_success[% Wrong parameter...]",
+        "test_cr26_port_unbind_cli_error_in_output_not_success[Unrecognized command...]",
+        "test_cr26_port_unbind_cli_error_in_output_not_success[Incomplete command...]"
+      ]
     },
     {
       "id": "CR1-CR23",
       "summary": "前序四轮复审阻断项（S1-006..S1-008）已闭环",
       "implementation": "见 review-response.md 与 handoff.md 的 CR1-CR23 映射",
-      "tests": ["test_s1_006_adversarial.py (14)", "test_s1_007_adversarial.py (21)", "test_s1_008_adversarial.py (15)"]
+      "tests": [
+        "test_s1_006_adversarial.py (14)",
+        "test_s1_007_adversarial.py (21)",
+        "test_s1_008_adversarial.py (15)"
+      ]
     }
   ],
   "invariants": [
@@ -176,7 +355,13 @@
     "complete 幂等仅限确定完成的 validate attempt；unknown validation 可显式重试且不自动重放设备写",
     "准入后崩溃留 validating+claimed 痕迹，不回退 awaiting_validation、不重放",
     "主机观测 IP/端口必须来自同一条本地记录",
-    "claim 互斥（含 ambiguous）独占资源，mutation 前 owner-aware 获取/复用"
+    "claim 互斥（含 ambiguous）独占资源，mutation 前 owner-aware 获取/复用",
+    "ZTP 密码只来自环境注入或 recovery override：onboard 必填显式提交；recovery 缺密码且无既有 override 且无 ZTP_ADMIN_PASS → 明确失败（不回退代码内口令）",
+    "recovery state 明文密码仅落盘 git 忽略目录且权限 0600；GET/POST /api/ztp/recovery-override 响应递归脱敏（无 password 字段，仅 password_set）",
+    "活跃源码（生产路径/活动文档/测试）不携带真实设备默认口令字面量；archive/ 历史与历史发布记录不改写（用户外部轮换）",
+    "ZTP 渲染输出（autocfg.cfg）始终 0600：临时文件创建即 0600（umask 077 + O_EXCL）、os.replace 后显式 chmod，重渲染不得放宽权限",
+    "ztp-stack 渲染脚本不把任何秘密拼入 python 源码/命令行：所有渲染变量经 os.environ 传递，特殊字符（单引号/反斜杠/换行等）原样渲染、不执行注入",
+    "失败/中断不残留宽权限或含口令的中间文件（trap/unlink 清理）"
   ],
   "tests": [
     {
@@ -226,6 +411,36 @@
       "environment": "S1-021 起的标准真机跑法（唯一宿主安全 runner：四重门禁 + 基线核对 + trap 精确兜底清理 + 最终 readback + 本机锁）；**本轮未运行**（禁止真机 I/O），此处为契约记录",
       "result": "S1-020 历史真机一轮 = 1 passed（49.9s，完整生命周期：create/apply/display+Type-3/preview/execute/apply/readback AC/complete degraded/access withdraw/VPC withdraw；共享残留当时由测试外 ops-toolkit 精确兜底）",
       "baseline_failed": false
+    },
+    {
+      "command": "docker compose -f openspec/changes/next-s1-backend/qa/docker-compose.qa.yml run --rm qa-backend python -m pytest tests/test_ztp_recovery.py tests/test_ztp_onboard.py tests/test_s1_023_credential_hygiene.py -q",
+      "environment": "qa-backend 容器（S1-023 新增：静态扫描经 /opt/s1-repo 只读挂载仓库根；ztp-stack 模块经 /opt/s1-repo/docker/ztp-stack 导入，jinja2 注入最小 stub；不触真机、不读真实凭据）",
+      "result": "21 passed（ZTP recovery 脱敏/0600/缺密码明确失败/环境注入/沿用已有 + onboard + 静态扫描 + ztp-stack fail closed + debug-* 移除）",
+      "baseline_failed": false
+    },
+    {
+      "command": "docker compose -f openspec/changes/next-s1-backend/qa/docker-compose.qa.yml run --rm -v <worktree>/ops-toolkit/scripts:/opt/ops-toolkit-scripts:ro qa-backend python -m pytest tests/test_ztp_recovery.py tests/test_ztp_onboard.py tests/test_s1_023_credential_hygiene.py tests/test_device_api.py tests/test_ops_toolkit_paramiko.py tests/test_smoke.py tests/test_backup_integration.py tests/test_vpn_integration.py tests/test_split_integration.py tests/test_s1_019_doc_alias.py tests/test_s1_019_reallife.py tests/test_s1_016_adversarial.py tests/test_s1_017_adversarial.py tests/test_s1_018_adversarial.py tests/test_s1_020_adversarial.py tests/test_s1_021_runner_adversarial.py tests/test_sdn_validation_api.py tests/test_sdn_access_api.py tests/test_sdn_operation_service.py tests/test_sdn_migration.py -q",
+      "environment": "qa-backend 容器（+ops-toolkit scripts 挂载；S1-023 受影响文件 + S1-016~022 + validation/access/service/migration + runner 对抗）",
+      "result": "181 passed / 16 skipped（skip 全为 integration 门控：reallife/backup/vpn/split/ops_toolkit_paramiko/smoke 的 --integration 用例；S1-020 时 74/1、S1-021 时 90/1、S1-022 时 95/1）",
+      "baseline_failed": false
+    },
+    {
+      "command": "docker run --rm (h3c-netctrl-qa-frontend:latest, 挂载 frontend 源码，无 env_file) sh -c 'npm run lint && npm run type-check && npm run build && npm run test:unit'",
+      "environment": "qa-frontend 镜像（隔离，无凭据 env；临时容器，未触生产服务）",
+      "result": "62 passed（8 测试文件，含 ZtpRecovery.spec.js 4 条：密码留空/提交 null/显式重输/无字面量）；lint/type-check/build 均通过",
+      "baseline_failed": false
+    },
+    {
+      "command": "docker compose -f openspec/changes/next-s1-backend/qa/docker-compose.qa.yml run --rm qa-backend python -m pytest tests/test_s1_024_credential_hygiene.py -q",
+      "environment": "qa-backend 容器（S1-024/CR43 新增：模块级 + entrypoint 全量运行级 stub dnsmasq/真实 jinja2(pip)；不触真机、不读真实凭据）",
+      "result": "6 passed（特殊字符密码原样渲染不执行注入、首次与覆盖重渲染均 0600、失败路径不残留宽权限/含口令临时文件、缺 env 写盘前明确失败、entrypoint 渲染块静态断言）",
+      "baseline_failed": false
+    },
+    {
+      "command": "docker compose -f openspec/changes/next-s1-backend/qa/docker-compose.qa.yml run --rm -v <worktree>/ops-toolkit/scripts:/opt/ops-toolkit-scripts:ro qa-backend python -m pytest tests/test_s1_024_credential_hygiene.py tests/test_ztp_recovery.py tests/test_ztp_onboard.py tests/test_s1_023_credential_hygiene.py tests/test_device_api.py tests/test_ops_toolkit_paramiko.py tests/test_smoke.py tests/test_backup_integration.py tests/test_vpn_integration.py tests/test_split_integration.py tests/test_s1_019_doc_alias.py tests/test_s1_019_reallife.py tests/test_s1_016_adversarial.py tests/test_s1_017_adversarial.py tests/test_s1_018_adversarial.py tests/test_s1_020_adversarial.py tests/test_s1_021_runner_adversarial.py tests/test_sdn_validation_api.py tests/test_sdn_access_api.py tests/test_sdn_operation_service.py tests/test_sdn_migration.py -q",
+      "environment": "qa-backend 容器（+ops-toolkit scripts 挂载；S1-024/S1-023 受影响文件 + S1-016~022 + validation/access/service/migration + runner 对抗）",
+      "result": "187 passed / 16 skipped（skip 全为 integration 门控：reallife/backup/vpn/split/ops_toolkit_paramiko/smoke 的 --integration 用例；S1-020 时 74/1、S1-021 时 90/1、S1-022 时 95/1、S1-023 时 181/16）",
+      "baseline_failed": false
     }
   ],
   "migrations": [
@@ -238,7 +453,7 @@
   ],
   "device_io": [
     {
-      "round": "S1-020（历史执行 2026-09-10；S1-021/S1-022 均未触真机、无任何设备 I/O）",
+      "round": "S1-020（历史执行 2026-09-10；S1-021/S1-022/S1-023/S1-024 均未触真机、无任何设备 I/O）",
       "target": "192.168.100.5 (SWC / S6850 T7064P15 / LSTN)",
       "mode": "write（走 backend API/executor，LSTN→SSH22 CLI）+ ops-toolkit 只读 readback / 测试外精确兜底清理",
       "operations": [
@@ -264,7 +479,11 @@
     "未触碰 .6 / GE1/0/1~3 / MGE0/0/0 / underlay / OSPF / BGP 邻居 / startup-config",
     "未 save",
     "S1-021 本轮未运行真机测试、未执行任何设备 I/O（runner 与对抗测试仅用 stub/fake 命令验证）",
-    "S1-022 本轮未运行真机测试、未执行任何设备 I/O（审计目录失效安全清理全部以 stub/fake 命令验证）"
+    "S1-022 本轮未运行真机测试、未执行任何设备 I/O（审计目录失效安全清理全部以 stub/fake 命令验证）",
+    "S1-023 本轮未运行真机测试、未执行任何设备 I/O（静态扫描/ztp-stack 模块/API 测试全部在隔离 QA 容器验证）",
+    "S1-023 未修改设备口令、未轮换凭据（历史已暴露，用户须在设备与 .env 外部轮换；本包不重写 Git 历史、不改 archive/ 历史 change 与历史发布记录）",
+    "S1-024 本轮未运行真机测试、未执行任何设备 I/O（CR43 修复与对抗测试全部在隔离 QA 容器验证）",
+    "S1-024 未修改设备口令、未轮换凭据（历史已暴露，用户须在设备与 .env 外部轮换；本包不重写 Git 历史、不改 archive/ 历史 change 与历史发布记录）"
   ],
   "ready_for_code_review": true,
   "code_review_passed": true

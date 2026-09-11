@@ -24,6 +24,15 @@ def getenv_int(name: str, default: int) -> int:
         return default
 
 
+
+def _require_admin_pass() -> str:
+    """密码只允许来自环境；缺失 → 明确失败（fail closed，不回退代码内口令）。"""
+    value = os.getenv("ZTP_ADMIN_PASS")
+    if not value:
+        raise RuntimeError("ZTP_ADMIN_PASS 未配置，拒绝发起 ZTP onboard（不回退代码内口令）")
+    return value
+
+
 def tcp_open(host: str, port: int, timeout: float = 2.0) -> bool:
     try:
         with socket.create_connection((host, port), timeout=timeout):
@@ -62,7 +71,7 @@ def current_payload(netconf_port: int) -> dict:
         "host": host,
         "name": override.get("sysname") or os.getenv("ZTP_SYSNAME") or None,
         "username": override.get("username") or os.getenv("ZTP_ADMIN_USER", "python"),
-        "password": override.get("password") or os.getenv("ZTP_ADMIN_PASS", "Admin123!@#"),
+        "password": override.get("password") or _require_admin_pass(),
         "port": int(override.get("netconf_port") or netconf_port),
         "platform": override.get("platform") or os.getenv("ZTP_PLATFORM") or None,
         "collect_asset": override.get(
@@ -100,7 +109,11 @@ def main() -> int:
 
     deadline = time.time() + timeout
     while time.time() < deadline:
-        payload = current_payload(netconf_port)
+        try:
+            payload = current_payload(netconf_port)
+        except RuntimeError as e:
+            print(f"[ztp-onboard] {e}", file=sys.stderr, flush=True)
+            return 1
         host = payload["host"]
         port = payload["port"]
         ssh_ok = tcp_open(host, 22)

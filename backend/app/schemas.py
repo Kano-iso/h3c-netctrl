@@ -129,7 +129,9 @@ class ZtpOnboardRequest(BaseModel):
     host: str = Field(..., min_length=1)
     name: Optional[str] = Field(default=None, max_length=100)
     username: str = Field(default="python", min_length=1)
-    password: str = Field(default="Admin123!@#", min_length=1)
+    # S1-023：写操作密码必须显式提交（ztp-server 从 ZTP_ADMIN_PASS 注入）。
+    # 绝不提供代码内默认口令——缺失时由调用方/后端明确失败。
+    password: str = Field(..., min_length=1)
     port: int = Field(default=830, ge=1, le=65535)
     platform: Optional[str] = Field(default=None, pattern="^(lstn|rstn)$")
     collect_asset: bool = True
@@ -142,7 +144,10 @@ class ZtpRecoveryOverrideRequest(BaseModel):
     platform: str = Field(default="lstn", pattern="^(lstn|rstn)$")
     hcl_t7064p15: bool = False
     username: str = Field(default="python", min_length=1)
-    password: str = Field(default="Admin123!@#", min_length=1)
+    # S1-023：password 可为空（None）——留空表示「沿用已有 override 密码」；
+    # 无既有 override 时由后端从 ZTP_ADMIN_PASS 环境注入；两者都缺失 → 明确失败。
+    # 绝无代码内默认口令；API 响应也不回显明文密码（见 ztp_recovery 脱敏）。
+    password: Optional[str] = Field(default=None, min_length=1)
     netconf_port: int = Field(default=830, ge=1, le=65535)
     collect_asset: bool = False
 

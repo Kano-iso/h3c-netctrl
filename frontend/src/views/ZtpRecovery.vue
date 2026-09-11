@@ -19,7 +19,7 @@ const form = ref({
   platform: 'lstn',
   hcl_t7064p15: false,
   username: 'python',
-  password: 'Admin123!@#',
+  password: '',
 })
 
 const activeOverride = computed(() => status.value?.override || null)
@@ -31,7 +31,7 @@ function loadOverrideToForm(data) {
   form.value.platform = data.platform || 'lstn'
   form.value.hcl_t7064p15 = !!data.hcl_t7064p15
   form.value.username = data.username || 'python'
-  form.value.password = data.password || 'Admin123!@#'
+  form.value.password = ''   // S1-023: 加载 override 时密码保持空白，修改需重新输入
 }
 
 async function loadStatus() {
@@ -54,7 +54,7 @@ function payload() {
     platform: form.value.platform,
     hcl_t7064p15: !!form.value.hcl_t7064p15,
     username: String(form.value.username || '').trim(),
-    password: form.value.password,
+    password: String(form.value.password || '').trim() || null,
     netconf_port: 830,
     collect_asset: false,
   }
@@ -156,7 +156,7 @@ onMounted(loadStatus)
             </label>
             <label class="block">
               <span class="text-xs font-medium text-ink-600">{{ t('ztp.password') }}</span>
-              <input v-model="form.password" type="password" class="input mt-1.5 font-mono" />
+              <input v-model="form.password" type="password" class="input mt-1.5 font-mono" :placeholder="t('ztp.password_placeholder')" />
             </label>
           </div>
 

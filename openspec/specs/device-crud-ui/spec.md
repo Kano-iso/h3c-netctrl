@@ -8,7 +8,7 @@ TBD - created by archiving change device-asset-crud-ui. Update Purpose after arc
 `frontend/src/views/Devices.vue` 顶部 MUST 显示"新增设备"按钮，点击 MUST 打开 `DeviceFormModal`（mode='create'）。提交时 MUST 调 `POST /api/devices`，必填校验（name / host / username / password）失败 MUST 在 Modal 内显示中文错误，不关闭 Modal。
 
 #### Scenario: 新增成功
-- **WHEN** 用户在新增设备 Modal 填写 name="Spine-02"、host="192.168.100.101"、username="admin"、password="Admin123!@#" 并提交
+- **WHEN** 用户在新增设备 Modal 填写 name="Spine-02"、host="192.168.100.101"、username="admin"、password="SyntheticTestPass!1" 并提交
 - **THEN** 前端调 `deviceApi.create({name, host, port, username, password, protected_interfaces})`；后端返回 `success=true` 后 Modal 关闭、`loadDevices()` 自动刷新、表格新增一行
 
 #### Scenario: 必填字段缺失

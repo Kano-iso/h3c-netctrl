@@ -23,7 +23,7 @@ import pytest
 BACKUP_HOST = os.getenv("INTEGRATION_BACKUP_HOST", "192.168.100.177")
 BACKUP_PORT = int(os.getenv("INTEGRATION_BACKUP_PORT", "22"))
 BACKUP_USERNAME = os.getenv("INTEGRATION_BACKUP_USERNAME", "python")
-BACKUP_PASSWORD = os.getenv("INTEGRATION_BACKUP_PASSWORD", "Admin123!@#")
+BACKUP_PASSWORD = os.getenv("INTEGRATION_BACKUP_PASSWORD", "SyntheticTestPass!1")
 
 
 # ==================== 辅助函数 ====================

@@ -79,7 +79,7 @@ def test_run_commands_single_success():
     ]
     with patch.object(mod, "SSHExecutor", return_value=fake_executor):
         summary = mod.run_commands(
-            "192.168.100.177", 22, "python", "Admin123!@#",
+            "192.168.100.177", 22, "python", "SyntheticTestPass!1",
             ["display version"], timeout=30, retries=0, continue_on_error=True,
         )
 
@@ -107,7 +107,7 @@ def test_run_commands_batch_mixed_results():
     ]
     with patch.object(mod, "SSHExecutor", return_value=fake_executor):
         summary = mod.run_commands(
-            "192.168.100.5", 22, "python", "Admin123!@#",
+            "192.168.100.5", 22, "python", "SyntheticTestPass!1",
             ["display version", "bad-cmd xyz", "display vlan 1"],
             timeout=30, retries=0, continue_on_error=True,
         )
@@ -137,7 +137,7 @@ def test_run_commands_stop_on_error():
         # stop_on_error 行为通过 main() 的 continue_on_error 标志实现
         # 这里只测 run_commands 函数本身（它不解析 continue_on_error）
         summary = mod.run_commands(
-            "192.168.100.5", 22, "python", "Admin123!@#",
+            "192.168.100.5", 22, "python", "SyntheticTestPass!1",
             ["failing-cmd"], timeout=30, retries=0, continue_on_error=False,
         )
 
@@ -157,7 +157,7 @@ def test_run_commands_ssh_connection_error():
     fake_executor.execute_commands.side_effect = ConnectionError("Connection refused")
     with patch.object(mod, "SSHExecutor", return_value=fake_executor):
         summary = mod.run_commands(
-            "192.168.100.5", 22, "python", "Admin123!@#",
+            "192.168.100.5", 22, "python", "SyntheticTestPass!1",
             ["display version", "display vlan 1"],
             timeout=30, retries=0, continue_on_error=True,
         )
@@ -190,7 +190,7 @@ def test_run_commands_retry_on_failure():
 
     with patch.object(mod, "SSHExecutor", return_value=fake_executor):
         summary = mod.run_commands(
-            "192.168.100.5", 22, "python", "Admin123!@#",
+            "192.168.100.5", 22, "python", "SyntheticTestPass!1",
             ["cmd1"], timeout=30, retries=2, continue_on_error=True,
         )
 
@@ -214,7 +214,7 @@ def test_run_commands_retry_exhausted():
     ]
     with patch.object(mod, "SSHExecutor", return_value=fake_executor):
         summary = mod.run_commands(
-            "192.168.100.5", 22, "python", "Admin123!@#",
+            "192.168.100.5", 22, "python", "SyntheticTestPass!1",
             ["cmd1"], timeout=30, retries=1, continue_on_error=True,
         )
 
@@ -234,7 +234,7 @@ def test_run_commands_empty_after_strip():
     fake_executor.execute_commands.return_value = []
     with patch.object(mod, "SSHExecutor", return_value=fake_executor):
         summary = mod.run_commands(
-            "192.168.100.5", 22, "python", "Admin123!@#",
+            "192.168.100.5", 22, "python", "SyntheticTestPass!1",
             ["", "  ", ""], timeout=30, retries=0, continue_on_error=True,
         )
 
@@ -276,7 +276,7 @@ def test_main_missing_commands():
     env = os.environ.copy()
     env["_PMK_HOST"] = "192.168.100.177"
     env["_PMK_USER"] = "python"
-    env["_PMK_PASS"] = "Admin123!@#"
+    env["_PMK_PASS"] = "SyntheticTestPass!1"
     env["_PMK_COMMANDS_JSON"] = "[]"
 
     with patch.dict(os.environ, env, clear=True):
@@ -301,7 +301,7 @@ def test_main_json_output_format(capsys):
         "_PMK_HOST": "192.168.100.177",
         "_PMK_PORT": "22",
         "_PMK_USER": "python",
-        "_PMK_PASS": "Admin123!@#",
+        "_PMK_PASS": "SyntheticTestPass!1",
         "_PMK_COMMANDS_JSON": '["display version"]',
         "_PMK_TIMEOUT": "30",
         "_PMK_OUTPUT_FORMAT": "json",

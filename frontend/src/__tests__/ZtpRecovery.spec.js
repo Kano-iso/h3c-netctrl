@@ -58,6 +58,8 @@ describe('ZtpRecovery.vue', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('ZTP 恢复上线')
+    // S1-023: 密码框初始/加载均保持空白（不从 API 填充明文）
+    expect(wrapper.find('input[type="password"]').element.value).toBe('')
     await wrapper.find('input[placeholder="192.168.100.2"]').setValue('192.168.100.2')
     await wrapper.find('input[placeholder="ztp-switch-2"]').setValue('Leaf-01')
     await wrapper.find('button.btn-primary').trigger('click')
@@ -70,11 +72,31 @@ describe('ZtpRecovery.vue', () => {
       username: 'python',
       netconf_port: 830,
       collect_asset: false,
+      // 留空密码 → 提交 null（后端沿用已有 / 环境注入）
+      password: null,
     }))
     expect(wrapper.text()).toContain('LSTN（S6850 / HCL）')
     expect(wrapper.text()).not.toContain('NETCONF 端口')
     expect(wrapper.text()).toContain('恢复配置已启用')
     expect(wrapper.text()).toContain('恢复模式')
+  })
+
+  it('submits an explicitly re-entered password when provided', async () => {
+    const wrapper = mountPage()
+    await flushPromises()
+    await wrapper.find('input[type="password"]').setValue('NewTypedPass!1')
+    await wrapper.find('button.btn-primary').trigger('click')
+    await flushPromises()
+    expect(ztpApi.setRecoveryOverride).toHaveBeenCalledWith(expect.objectContaining({
+      password: 'NewTypedPass!1',
+    }))
+  })
+
+  it('keeps the override form free of any plaintext password literal', async () => {
+    const wrapper = mountPage()
+    await flushPromises()
+    expect(wrapper.find('input[type="password"]').element.value).toBe('')
+    expect(wrapper.html()).not.toContain('Adm' + 'in123')
   })
 
   it('clears recovery override', async () => {

@@ -517,6 +517,7 @@ export default {
     platform_rstn_desc: '适用于 V9850、EVE-NG 借用验证场景',
     username: '账号',
     password: '密码',
+    password_placeholder: '留空 = 沿用已有 / 环境注入；修改请重新输入',
     hcl: '启用 T7064P15 HCL 专用改密规避',
     apply: '启用恢复配置',
     saving: '写入中…',

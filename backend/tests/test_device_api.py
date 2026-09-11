@@ -10,7 +10,7 @@ def test_create_device(client):
         "host": "192.168.1.1",
         "port": 830,
         "username": "admin",
-        "password": "Admin123!"
+        "password": "SyntheticTestPass!1"
     })
     assert resp.status_code == 200
     data = resp.json()
@@ -27,7 +27,7 @@ def test_update_device_sdn_role(client):
         "host": "192.168.1.10",
         "port": 830,
         "username": "admin",
-        "password": "Admin123!"
+        "password": "SyntheticTestPass!1"
     })
     device_id = create_resp.json()["data"]["id"]
 
@@ -46,7 +46,7 @@ def test_list_devices(client):
         "host": "192.168.1.1",
         "port": 830,
         "username": "admin",
-        "password": "Admin123!"
+        "password": "SyntheticTestPass!1"
     })
     resp = client.get("/api/devices")
     assert resp.status_code == 200
@@ -62,7 +62,7 @@ def test_list_devices_does_not_probe_restore_support(client):
         "host": "192.0.2.10",
         "port": 830,
         "username": "admin",
-        "password": "Admin123!"
+        "password": "SyntheticTestPass!1"
     })
     with patch("app.utils.backup_manager.BackupManager.check_restore_support") as probe:
         resp = client.get("/api/devices")
@@ -79,7 +79,7 @@ def test_get_device(client):
         "host": "192.168.1.1",
         "port": 830,
         "username": "admin",
-        "password": "Admin123!"
+        "password": "SyntheticTestPass!1"
     })
     device_id = create_resp.json()["data"]["id"]
     resp = client.get(f"/api/devices/{device_id}")
@@ -94,7 +94,7 @@ def test_update_device(client):
         "host": "192.168.1.1",
         "port": 830,
         "username": "admin",
-        "password": "Admin123!"
+        "password": "SyntheticTestPass!1"
     })
     device_id = create_resp.json()["data"]["id"]
     resp = client.put(f"/api/devices/{device_id}", json={"name": "SW-Updated"})
@@ -109,7 +109,7 @@ def test_delete_device(client):
         "host": "192.168.1.1",
         "port": 830,
         "username": "admin",
-        "password": "Admin123!"
+        "password": "SyntheticTestPass!1"
     })
     device_id = create_resp.json()["data"]["id"]
     resp = client.delete(f"/api/devices/{device_id}")
@@ -127,7 +127,7 @@ def test_delete_device_monolith_no_cleanup_call(client, monkeypatch):
         "host": "192.168.1.100",
         "port": 830,
         "username": "admin",
-        "password": "Admin123!",
+        "password": "SyntheticTestPass!1",
     })
     device_id = create_resp.json()["data"]["id"]
 
@@ -163,7 +163,7 @@ def test_delete_device_split_calls_cleanup(client, monkeypatch):
         "host": "192.168.1.200",
         "port": 830,
         "username": "admin",
-        "password": "Admin123!",
+        "password": "SyntheticTestPass!1",
     })
     device_id = create_resp.json()["data"]["id"]
 
@@ -204,7 +204,7 @@ def test_delete_device_split_cleanup_failure_tolerated(client, monkeypatch):
         "host": "192.168.1.201",
         "port": 830,
         "username": "admin",
-        "password": "Admin123!",
+        "password": "SyntheticTestPass!1",
     })
     device_id = create_resp.json()["data"]["id"]
 

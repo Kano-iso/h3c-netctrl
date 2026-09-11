@@ -27,7 +27,7 @@ if [ "$ZTP_SYSNAME" = "ztp-device" ]; then
     ZTP_SYSNAME="ztp-switch-${ZTP_MGMT_LAST_OCTET}"
 fi
 ZTP_ADMIN_USER="${ZTP_ADMIN_USER:-python}"
-ZTP_ADMIN_PASS="${ZTP_ADMIN_PASS:-Admin123!@#}"
+ZTP_ADMIN_PASS="${ZTP_ADMIN_PASS:?ZTP_ADMIN_PASS 必须在环境中提供（拒绝代码内默认口令）}"
 ZTP_STATE_DIR="${ZTP_STATE_DIR:-/ztp-state}"
 export ZTP_PLATFORM ZTP_HCL_T7064P15 ZTP_MGMT_IP ZTP_SYSNAME ZTP_ADMIN_USER ZTP_ADMIN_PASS ZTP_STATE_DIR
 
@@ -61,6 +61,7 @@ case "$ZTP_PLATFORM" in
         ZTP_PLATFORM_LONG="V9850 V9850-256H/R7643P02"
         ;;
 esac
+export ZTP_PLATFORM_LONG   # 渲染变量经环境传递（Python 从 os.environ 读取）
 
 # === 1. 渲染 dnsmasq.conf（sed 简单变量替换）===
 echo "=== 渲染 dnsmasq.conf ==="
@@ -82,31 +83,36 @@ if ! python3 -c "import jinja2" 2>/dev/null; then
     exit 1
 fi
 
-ZTP_DATE=$(date +%Y-%m-%d)
-HCL_FLAG="False"
-if [ "$ZTP_HCL_T7064P15" = "true" ]; then
-    HCL_FLAG="True"
-fi
+# CR43: 渲染变量只经环境传递——Python 一律从 os.environ 读取，
+# 不把 ZTP_ADMIN_PASS 等秘密拼进源码/命令行（特殊字符不再语法失败/代码注入）。
+export ZTP_AUTOCFG_TEMPLATE="$AUTOCFG_J2"
+export ZTP_DATE="$(date +%Y-%m-%d)"
 
-python3 -c "
+# CR43: 输出含明文密码——安全临时文件（mktemp 创建即 0600）+ 原子替换，
+# 替换后显式 chmod 600；失败/中断经 trap 清理，不残留宽权限或含口令的中间文件。
+AUTOCFG_TMP="$(mktemp "${TFTP_DIR}/autocfg.cfg.XXXXXX")"
+trap 'rm -f "$AUTOCFG_TMP"' EXIT
+python3 -c '
 import os
 from jinja2 import Template
 
-with open('${AUTOCFG_J2}') as f:
+with open(os.environ["ZTP_AUTOCFG_TEMPLATE"], encoding="utf-8") as f:
     tmpl = Template(f.read())
 
 print(tmpl.render(
-    platform='${ZTP_PLATFORM}',
-    platform_long='${ZTP_PLATFORM_LONG}',
-    mgmt_ip='${ZTP_MGMT_IP}',
-    sysname='${ZTP_SYSNAME}',
-    admin_user='${ZTP_ADMIN_USER}',
-    admin_pass='${ZTP_ADMIN_PASS}',
-    hcl_t7064p15=${HCL_FLAG},
-    ztp_date='${ZTP_DATE}',
+    platform=os.environ["ZTP_PLATFORM"],
+    platform_long=os.environ["ZTP_PLATFORM_LONG"],
+    mgmt_ip=os.environ["ZTP_MGMT_IP"],
+    sysname=os.environ["ZTP_SYSNAME"],
+    admin_user=os.environ["ZTP_ADMIN_USER"],
+    admin_pass=os.environ["ZTP_ADMIN_PASS"],
+    hcl_t7064p15=os.environ.get("ZTP_HCL_T7064P15", "false").lower() in {"1", "true", "yes", "on"},
+    ztp_date=os.environ["ZTP_DATE"],
 ))
-" > "$AUTOCFG_OUT"
-chmod 644 "$AUTOCFG_OUT"
+' > "$AUTOCFG_TMP"
+chmod 600 "$AUTOCFG_TMP"
+mv -f "$AUTOCFG_TMP" "$AUTOCFG_OUT"
+trap - EXIT
 
 # === 3. 启动日志 ===
 echo "=== dnsmasq 启动 ==="
@@ -117,7 +123,7 @@ echo "  TFTP server: ${ZTP_HOST_IP}"
 echo "  TFTP root:   ${TFTP_DIR}"
 echo "  autocfg.cfg sysname:  ${ZTP_SYSNAME}"
 echo "  autocfg.cfg mgmt IP:  ${ZTP_MGMT_IP}"
-echo "  autocfg.cfg 平台分支: 物理 OOB 口 + 凭据（python/Admin123!@#）"
+echo "  autocfg.cfg 平台分支: 物理 OOB 口 + 凭据（ZTP_ADMIN_USER / ZTP_ADMIN_PASS 环境注入，无代码内口令）"
 echo ""
 echo "=== autocfg.cfg 渲染前 10 行 ==="
 head -10 "$AUTOCFG_OUT"

@@ -459,7 +459,7 @@ def test_link_mode_switch_real_device():
     host = os.environ.get("INTEGRATION_VPN_HOST", "192.168.100.177")
     port = int(os.environ.get("INTEGRATION_VPN_PORT", "830"))
     user = os.environ.get("INTEGRATION_VPN_USER", "python")
-    pwd = os.environ.get("INTEGRATION_VPN_PASS", "Admin123!@#")
+    pwd = os.environ.get("INTEGRATION_VPN_PASS", "SyntheticTestPass!1")
 
     # 先检查设备可达
     import socket as _s

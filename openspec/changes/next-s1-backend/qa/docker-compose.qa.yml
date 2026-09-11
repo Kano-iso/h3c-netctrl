@@ -38,6 +38,9 @@ services:
       PYTEST_ADDOPTS: "-p no:cacheprovider"
       # S1-021: runner 对抗测试定位唯一宿主安全 runner 与 stub
       S1_021_QA_DIR: /opt/s1-qa
+      # S1-023: 凭据卫生对抗测试定位仓库根（静态扫描）与 ztp-stack 模块
+      S1_023_REPO_DIR: /opt/s1-repo
+      S1_023_ZTP_STACK_DIR: /opt/s1-repo/docker/ztp-stack
     tmpfs:
       - /tmp
     volumes:
@@ -50,3 +53,7 @@ services:
       # 供 test_s1_021_runner_adversarial.py 以 stub/fake 命令验证 runner 守卫行为
       # （不触真机、不读真实凭据）。
       - .:/opt/s1-qa:ro
+      # S1-023: 只读挂载仓库根（静态扫描前端/文档/ztp-stack 源码与移除的 debug-* 校验），
+      # 无凭据/无 .env（compose 无 env_file）。ztp-stack 模块经 /opt/s1-repo/docker/ztp-stack 导入，
+      # jinja2 在 qa-backend 镜像不可用 → 测试内注入最小 stub。
+      - ../../../../:/opt/s1-repo:ro

@@ -18,6 +18,15 @@ STATE_DIR = Path(os.getenv("ZTP_STATE_DIR", "/ztp-state"))
 OVERRIDE_PATH = STATE_DIR / "recovery_override.json"
 
 
+
+def _require_admin_pass(reason: str) -> str:
+    """密码只允许来自环境；缺失 → 明确失败（fail closed，不回退代码内口令）。"""
+    value = os.getenv("ZTP_ADMIN_PASS")
+    if not value:
+        raise RuntimeError(f"ZTP_ADMIN_PASS 未配置，无法{reason}——拒绝回退代码内口令")
+    return value
+
+
 def env_bool(name: str, default: bool = False) -> bool:
     value = os.getenv(name)
     if value is None:
@@ -50,7 +59,7 @@ def default_context() -> dict:
         "mgmt_ip": mgmt_ip,
         "sysname": sysname,
         "admin_user": os.getenv("ZTP_ADMIN_USER", "python"),
-        "admin_pass": os.getenv("ZTP_ADMIN_PASS", "Admin123!@#"),
+        "admin_pass": _require_admin_pass("渲染默认 autocfg"),
         "hcl_t7064p15": hcl,
         "ztp_date": time.strftime("%Y-%m-%d"),
     }
@@ -81,10 +90,37 @@ def load_override() -> dict | None:
         "mgmt_ip": mgmt_ip,
         "sysname": data.get("sysname") or f"ztp-switch-{last}",
         "admin_user": data.get("username") or os.getenv("ZTP_ADMIN_USER", "python"),
-        "admin_pass": data.get("password") or os.getenv("ZTP_ADMIN_PASS", "Admin123!@#"),
+        "admin_pass": data.get("password") or _require_admin_pass("渲染 recovery override"),
         "hcl_t7064p15": hcl,
         "ztp_date": time.strftime("%Y-%m-%d"),
     }
+
+
+def _atomic_write_secret(path: Path, content: str) -> None:
+    """安全原子写（内容含明文密码）：
+    - 临时文件创建即 0600（创建前临时收紧 umask 077，规避进程 umask 放宽）
+    - os.replace 原子替换；替换后显式 chmod 0600，杜绝重渲染把权限放宽
+    - 异常/中断清理临时文件，不残留宽权限或含口令的中间文件
+    """
+    tmp = path.with_name(f".{path.name}.tmp.{os.getpid()}")
+    prev_umask = os.umask(0o077)
+    try:
+        try:
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        finally:
+            os.umask(prev_umask)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(content)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+        os.chmod(path, 0o600)
+    except BaseException:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
 
 
 def render_once() -> str:
@@ -93,9 +129,7 @@ def render_once() -> str:
         content = Template(f.read()).render(**context)
     old = OUTPUT_PATH.read_text(encoding="utf-8") if OUTPUT_PATH.exists() else None
     if old != content:
-        tmp = OUTPUT_PATH.with_suffix(".tmp")
-        tmp.write_text(content, encoding="utf-8")
-        tmp.replace(OUTPUT_PATH)
+        _atomic_write_secret(OUTPUT_PATH, content)
         print(
             f"[ztp-runtime] rendered autocfg.cfg mode={context['mode']} "
             f"platform={context['platform']} ip={context['mgmt_ip']} sysname={context['sysname']}",
