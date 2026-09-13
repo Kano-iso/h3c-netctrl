@@ -93,7 +93,7 @@ const Icons = {
   <div class="min-h-screen flex flex-col">
     <!-- 顶部 nav：分类下拉 -->
     <header class="sticky top-0 z-40 backdrop-blur-2xl bg-canvas/70 border-b border-canvas-300/70" ref="navRef">
-      <div class="max-w-[1200px] mx-auto px-8 h-[52px] flex items-center gap-2">
+      <div class="app-nav-inner max-w-[1200px] mx-auto px-8 h-[52px] flex items-center gap-2">
         <!-- Logo -->
         <RouterLink :to="{ name: 'dashboard' }" class="flex items-center gap-2.5 shrink-0 mr-4">
           <div class="size-7 rounded-[10px] bg-gradient-to-br from-accent-400 via-accent-500 to-accent-700 flex items-center justify-center shadow-sm">
@@ -106,7 +106,7 @@ const Icons = {
         </RouterLink>
 
         <!-- 总览（独立 tab） -->
-        <RouterLink :to="{ name: 'dashboard' }"
+        <RouterLink :to="{ name: 'dashboard' }" class="app-desktop-nav"
           :class="['nav-item', currentName === 'dashboard' ? 'active' : '']">
           {{ t('nav.dashboard') }}
         </RouterLink>
@@ -114,7 +114,7 @@ const Icons = {
         <!-- 三大分组（下拉） -->
         <div
           v-for="g in groups" :key="g.key"
-          class="relative"
+          class="app-desktop-nav relative"
           @mouseenter="open(g.key)"
           @mouseleave="close"
         >
@@ -166,7 +166,7 @@ const Icons = {
         <div class="flex-1"></div>
 
         <!-- 右侧工具 -->
-        <div class="flex items-center gap-1.5">
+        <div class="app-nav-tools flex items-center gap-1.5">
           <button class="size-8 rounded-full hover:bg-canvas-200/80 flex items-center justify-center text-ink-700 transition">
             <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
           </button>
@@ -223,4 +223,10 @@ const Icons = {
 
 .dropdown-enter-active, .dropdown-leave-active { transition: opacity .15s ease, transform .18s cubic-bezier(.2,.8,.2,1); }
 .dropdown-enter-from, .dropdown-leave-to { opacity: 0; transform: translateY(-4px); }
+
+@media (max-width: 720px) {
+  .app-nav-inner { padding-left: 14px; padding-right: 14px; }
+  .app-desktop-nav { display: none; }
+  .app-nav-tools { margin-left: auto; }
+}
 </style>

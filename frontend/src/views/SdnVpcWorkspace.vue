@@ -1,631 +1,313 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import PageHeader from '../components/PageHeader.vue'
 import { deviceApi, interfaceApi, sdnApi } from '../api/index.js'
 
 const { t } = useI18n()
-
 const loading = ref(true)
+const contextLoading = ref(false)
 const busy = ref('')
 const error = ref('')
 const message = ref('')
-
 const tenants = ref([])
 const vpcs = ref([])
 const devices = ref([])
-const interfaces = ref([])
-const bindings = ref([])
-const deployments = ref([])
-const validation = ref(null)
+const overview = ref({ bindings: [], operations: [], latest_validation: [], observations: [] })
 const selectedVpcId = ref(null)
-const selectedDeviceId = ref(null)
+const selectedObject = ref(null)
+const inspectorTab = ref('summary')
 
+const accessOpen = ref(false)
+const accessStep = ref('form')
+const accessInterfaces = ref([])
+const accessForm = ref({ device_id: '', if_index: '', interface_name: '', service_instance: 3200, expected_host_ip: '' })
+const accessPlan = ref(null)
+const currentOperation = ref(null)
+
+const resourcesOpen = ref(false)
 const tenantForm = ref({ name: '', description: '' })
-const vpcForm = ref({ name: '', tenant_id: '', cidr: '192.168.10.0/24', description: '' })
-const bindForm = ref({ if_index: '', interface_name: '', service_instance: '', expected_host_ip: '' })
-const autoApply = ref(false)
-const guideOpen = ref(false)
+const vpcForm = ref({ name: '', tenant_id: '', cidr: '192.168.10.0/24' })
+const fabricDeviceId = ref('')
+const fabricAutoApply = ref(false)
 
-const selectedVpc = computed(() => vpcs.value.find((v) => v.id === selectedVpcId.value) || null)
-const sdnDevices = computed(() => devices.value.filter(isSdnFabricMember))
-const hasSdnTargets = computed(() => sdnDevices.value.length > 0)
-const selectedBindings = computed(() => bindings.value.filter((b) => b.vpc_id === selectedVpcId.value))
-const selectedDeployments = computed(() => deployments.value.filter((d) => d.vpc_id === selectedVpcId.value).slice(0, 8))
-const latestExpansionBinding = computed(() => selectedBindings.value.find((b) => b.status === 'expanding') || selectedBindings.value[0] || null)
+const selectedVpc = computed(() => vpcs.value.find((item) => item.id === Number(selectedVpcId.value)) || null)
+const leafs = computed(() => devices.value.filter((item) => String(item.sdn_role || '').toLowerCase() === 'evpn_leaf'))
+const bindings = computed(() => overview.value.bindings || [])
+const operations = computed(() => overview.value.operations || [])
+const observations = computed(() => overview.value.observations || [])
+const previewBlocked = computed(() => (accessPlan.value?.blocking || []).length > 0)
+const selectedLeaf = computed(() => leafs.value.find((item) => item.id === Number(accessForm.value.device_id)) || null)
 
-const stats = computed(() => {
-  const active = vpcs.value.filter((v) => v.status === 'active').length
-  const planned = vpcs.value.filter((v) => ['planned', 'pending', 'withdraw_planned'].includes(v.status)).length
-  const degraded = vpcs.value.filter((v) => ['degraded', 'failed'].includes(v.status)).length
-  return {
-    tenants: tenants.value.length,
-    vpcs: vpcs.value.length,
-    active,
-    planned,
-    degraded,
-    bindings: bindings.value.length,
-  }
-})
-
-const selectedStatusHint = computed(() => {
-  if (!selectedVpc.value) return ''
-  return t(`sdn.status_hint.${selectedVpc.value.status}`) === `sdn.status_hint.${selectedVpc.value.status}`
-    ? t('sdn.status_hint.unknown')
-    : t(`sdn.status_hint.${selectedVpc.value.status}`)
-})
-
-const guideSections = computed(() => [
-  {
-    title: t('sdn.guide_new_vpc_title'),
-    steps: [
-      t('sdn.guide_new_vpc_1'),
-      t('sdn.guide_new_vpc_2'),
-      t('sdn.guide_new_vpc_3'),
-      t('sdn.guide_new_vpc_4'),
-      t('sdn.guide_new_vpc_5'),
-    ],
-  },
-  {
-    title: t('sdn.guide_expand_title'),
-    steps: [
-      t('sdn.guide_expand_1'),
-      t('sdn.guide_expand_2'),
-      t('sdn.guide_expand_3'),
-      t('sdn.guide_expand_4'),
-    ],
-  },
-  {
-    title: t('sdn.guide_troubleshoot_title'),
-    steps: [
-      t('sdn.guide_troubleshoot_1'),
-      t('sdn.guide_troubleshoot_2'),
-      t('sdn.guide_troubleshoot_3'),
-    ],
-  },
-])
-
-function isSdnFabricMember(device) {
-  return String(device.sdn_role || '').toLowerCase() === 'evpn_leaf'
+function statusMeta(status) {
+  const key = String(status || 'unknown').toLowerCase()
+  const good = ['active', 'success', 'succeeded', 'validated', 'online', 'ready']
+  const warn = ['planned', 'pending', 'awaiting_wiring', 'awaiting_validation', 'expanding', 'applying', 'validating', 'reconciling']
+  const bad = ['failed', 'failed_known', 'degraded', 'offline']
+  const tone = good.includes(key) ? 'good' : warn.includes(key) ? 'warn' : bad.includes(key) ? 'bad' : 'mute'
+  const translated = t(`sdn.next.status.${key}`)
+  return { tone, label: translated === `sdn.next.status.${key}` ? (status || t('sdn.next.status.unknown')) : translated }
 }
 
-function statusClass(status) {
-  if (['active', 'success', 'online'].includes(status)) return 'chip-good'
-  if (['degraded', 'failed', 'offline'].includes(status)) return 'chip-bad'
-  if (['deploying', 'withdrawing', 'expanding', 'pending', 'planned', 'withdraw_planned'].includes(status)) return 'chip-warn'
-  return 'chip-mute'
+function deviceById(id) { return devices.value.find((item) => item.id === Number(id)) || null }
+function bindingForLeaf(id) { return bindings.value.filter((item) => item.device_id === id && item.status !== 'unbound') }
+function formatTime(value) {
+  if (!value) return t('common.dash')
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
 }
+function clearNotice() { error.value = ''; message.value = '' }
 
-function deviceName(id) {
-  const d = devices.value.find((item) => item.id === id)
-  return d ? `${d.name} (${d.host})` : `#${id}`
-}
-
-function ifaceName(binding) {
-  return binding.interface_name || `if_index ${binding.if_index}`
-}
-
-function selectedDeviceIds() {
-  return selectedDeviceId.value ? [selectedDeviceId.value] : []
-}
-
-function ensureSelectedSdnDevice() {
-  if (sdnDevices.value.some((device) => device.id === selectedDeviceId.value)) return
-  selectedDeviceId.value = sdnDevices.value[0]?.id || null
-}
-
-function clearNotice() {
-  error.value = ''
-  message.value = ''
-}
-
-function handleResult(result, successText) {
-  if (!result.success) {
-    error.value = result.error || t('sdn.msg_failed')
-    return false
-  }
-  message.value = successText
-  return true
-}
-
-async function loadAll(resetNotice = true) {
+async function loadBase() {
   loading.value = true
-  if (resetNotice) clearNotice()
-  const [tenantRes, vpcRes, deviceRes, bindingRes, deploymentRes] = await Promise.all([
-    sdnApi.listTenants(),
-    sdnApi.listVpcs(),
-    deviceApi.list(),
-    sdnApi.listPortBindings(),
-    sdnApi.listDeployments(),
-  ])
-
+  clearNotice()
+  const [tenantResult, vpcResult, deviceResult] = await Promise.all([sdnApi.listTenants(), sdnApi.listVpcs(), deviceApi.list()])
   loading.value = false
-  if (!tenantRes.success || !vpcRes.success || !deviceRes.success || !bindingRes.success || !deploymentRes.success) {
-    error.value = tenantRes.error || vpcRes.error || deviceRes.error || bindingRes.error || deploymentRes.error || t('sdn.load_failed')
+  if (!tenantResult.success || !vpcResult.success || !deviceResult.success) {
+    error.value = tenantResult.error || vpcResult.error || deviceResult.error || t('sdn.load_failed')
     return
   }
-
-  tenants.value = tenantRes.data?.tenants || []
-  vpcs.value = vpcRes.data?.vpcs || []
-  devices.value = deviceRes.data || []
-  bindings.value = bindingRes.data?.port_bindings || []
-  deployments.value = deploymentRes.data?.deployments || []
-
-  if (!selectedVpcId.value && vpcs.value.length > 0) selectedVpcId.value = vpcs.value[0].id
-  ensureSelectedSdnDevice()
-  if (!vpcForm.value.tenant_id && tenants.value.length > 0) vpcForm.value.tenant_id = tenants.value[0].id
+  tenants.value = tenantResult.data?.tenants || []
+  vpcs.value = vpcResult.data?.vpcs || []
+  devices.value = deviceResult.data || []
+  if (!selectedVpcId.value && vpcs.value.length) selectedVpcId.value = vpcs.value[0].id
+  if (!vpcForm.value.tenant_id && tenants.value.length) vpcForm.value.tenant_id = tenants.value[0].id
 }
 
-async function loadVpcRelated() {
+async function loadContext() {
   if (!selectedVpcId.value) return
-  const [bindingRes, deploymentRes] = await Promise.all([
-    sdnApi.listPortBindings({ vpc_id: selectedVpcId.value }),
-    sdnApi.listDeployments({ vpc_id: selectedVpcId.value }),
-  ])
-  if (bindingRes.success) bindings.value = mergeById(bindings.value, bindingRes.data?.port_bindings || [])
-  if (deploymentRes.success) deployments.value = mergeById(deployments.value, deploymentRes.data?.deployments || [])
+  contextLoading.value = true
+  const result = await sdnApi.accessOverview(selectedVpcId.value)
+  contextLoading.value = false
+  if (!result.success) return void (error.value = result.error || t('sdn.next.context_failed'))
+  overview.value = result.data || { bindings: [], operations: [], latest_validation: [], observations: [] }
 }
 
-function mergeById(oldList, newList) {
-  const map = new Map(oldList.map((item) => [item.id, item]))
-  for (const item of newList) map.set(item.id, item)
-  return Array.from(map.values()).sort((a, b) => b.id - a.id)
+async function refreshAll() { await loadBase(); await loadContext(); message.value = t('sdn.next.refreshed') }
+function selectObject(kind, value) { selectedObject.value = { kind, value }; inspectorTab.value = 'summary' }
+
+async function openOperation(summary) {
+  busy.value = `operation-${summary.operation_id}`
+  const result = await sdnApi.getOperation(summary.operation_id)
+  busy.value = ''
+  if (!result.success) return void (error.value = result.error || t('sdn.next.action_failed'))
+  currentOperation.value = result.data
+  selectObject('operation', result.data)
 }
 
-async function loadInterfaces() {
-  interfaces.value = []
-  if (!selectedDeviceId.value) return
-  const result = await interfaceApi.list(selectedDeviceId.value)
-  if (result.success) interfaces.value = result.data || []
+async function loadAccessInterfaces() {
+  accessInterfaces.value = []
+  if (!accessForm.value.device_id) return
+  const result = await interfaceApi.list(accessForm.value.device_id)
+  if (result.success) accessInterfaces.value = result.data || []
+}
+
+async function openAccess() {
+  clearNotice()
+  accessStep.value = 'form'
+  accessPlan.value = null
+  currentOperation.value = null
+  accessForm.value = { device_id: leafs.value[0]?.id || '', if_index: '', interface_name: '', service_instance: 3200, expected_host_ip: '' }
+  accessOpen.value = true
+  await loadAccessInterfaces()
+}
+
+function chooseInterface(event) {
+  const item = accessInterfaces.value.find((entry) => String(entry.if_index) === event.target.value)
+  if (!item) return
+  accessForm.value.if_index = item.if_index
+  accessForm.value.interface_name = item.name || item.interface_name || ''
+}
+
+function accessPayload() {
+  return {
+    device_id: Number(accessForm.value.device_id), if_index: Number(accessForm.value.if_index),
+    interface_name: accessForm.value.interface_name.trim(), access_vlan: null,
+    service_instance: Number(accessForm.value.service_instance),
+    expected_host_ip: accessForm.value.expected_host_ip.trim() || null, mode: 'l2',
+  }
+}
+
+function makeIdempotencyKey() {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID()
+  return `access-${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+async function previewAccess() {
+  busy.value = 'preview'; clearNotice()
+  const result = await sdnApi.previewAccess(selectedVpc.value.id, accessPayload())
+  busy.value = ''
+  if (!result.success) return void (error.value = result.error || t('sdn.next.preview_failed'))
+  accessPlan.value = result.data
+  accessStep.value = 'preview'
+}
+
+async function executeAccess() {
+  if (!accessPlan.value || previewBlocked.value) return
+  busy.value = 'execute'
+  const result = await sdnApi.executeAccess(selectedVpc.value.id, {
+    ...accessPayload(), plan_id: accessPlan.value.plan_id,
+    idempotency_key: makeIdempotencyKey(), auto_apply: true,
+  })
+  busy.value = ''
+  if (!result.success) return void (error.value = result.error || t('sdn.next.execute_failed'))
+  currentOperation.value = result.data
+  accessStep.value = 'operation'
+  await loadContext()
+}
+
+async function runOperation(action) {
+  const operation = currentOperation.value || (selectedObject.value?.kind === 'operation' ? selectedObject.value.value : null)
+  if (!operation) return
+  busy.value = action
+  let result
+  if (action === 'complete') result = await sdnApi.completeOperation(operation.operation_id, { force_validation: true })
+  if (action === 'reconcile') result = await sdnApi.reconcileOperation(operation.operation_id)
+  if (action === 'withdraw') result = await sdnApi.withdrawOperation(operation.operation_id, t('sdn.next.withdraw_reason'))
+  busy.value = ''
+  if (!result?.success) return void (error.value = result?.error || t('sdn.next.action_failed'))
+  message.value = t(`sdn.next.${action}_submitted`)
+  const detail = await sdnApi.getOperation(operation.operation_id)
+  if (detail.success) {
+    currentOperation.value = detail.data
+    if (selectedObject.value?.kind === 'operation') selectedObject.value.value = detail.data
+  }
+  await loadContext()
 }
 
 async function createTenant() {
   if (!tenantForm.value.name.trim()) return
   busy.value = 'tenant'
-  clearNotice()
-  const result = await sdnApi.createTenant({
-    name: tenantForm.value.name.trim(),
-    description: tenantForm.value.description.trim() || null,
-  })
+  const result = await sdnApi.createTenant({ name: tenantForm.value.name.trim(), description: tenantForm.value.description.trim() || null })
   busy.value = ''
-  if (handleResult(result, t('sdn.tenant_created'))) {
-    tenantForm.value = { name: '', description: '' }
-    await loadAll(false)
-  }
+  if (!result.success) return void (error.value = result.error || t('sdn.msg_failed'))
+  tenantForm.value = { name: '', description: '' }; message.value = t('sdn.tenant_created'); await loadBase()
 }
 
 async function createVpc() {
   if (!vpcForm.value.name.trim() || !vpcForm.value.tenant_id || !vpcForm.value.cidr.trim()) return
   busy.value = 'vpc'
-  clearNotice()
-  const result = await sdnApi.createVpc({
-    name: vpcForm.value.name.trim(),
-    tenant_id: Number(vpcForm.value.tenant_id),
-    cidr: vpcForm.value.cidr.trim(),
-    description: vpcForm.value.description.trim() || null,
-  })
+  const result = await sdnApi.createVpc({ name: vpcForm.value.name.trim(), tenant_id: Number(vpcForm.value.tenant_id), cidr: vpcForm.value.cidr.trim() })
   busy.value = ''
-  if (handleResult(result, t('sdn.vpc_created'))) {
-    selectedVpcId.value = result.data?.id || selectedVpcId.value
-    vpcForm.value.name = ''
-    vpcForm.value.description = ''
-    await loadAll(false)
-  }
+  if (!result.success) return void (error.value = result.error || t('sdn.msg_failed'))
+  selectedVpcId.value = result.data?.id || selectedVpcId.value; vpcForm.value.name = ''; message.value = t('sdn.vpc_created'); await loadBase()
 }
 
-async function deployVpc() {
-  if (!selectedVpc.value) return
-  busy.value = 'deploy'
-  clearNotice()
-  const result = await sdnApi.deployVpc(selectedVpc.value.id, {
-    device_ids: selectedDeviceIds(),
-    auto_apply: autoApply.value,
-    include_port_bindings: true,
-  })
+async function changeFabric(action) {
+  if (!selectedVpc.value || !fabricDeviceId.value) return
+  busy.value = `fabric-${action}`
+  const payload = { device_ids: [Number(fabricDeviceId.value)], auto_apply: fabricAutoApply.value, include_port_bindings: true }
+  const result = action === 'deploy' ? await sdnApi.deployVpc(selectedVpc.value.id, payload) : await sdnApi.withdrawVpc(selectedVpc.value.id, payload)
   busy.value = ''
-  if (handleResult(result, autoApply.value ? t('sdn.deploy_submitted') : t('sdn.deploy_planned'))) await loadAll(false)
+  if (!result.success) return void (error.value = result.error || t('sdn.msg_failed'))
+  message.value = t(fabricAutoApply.value ? `sdn.${action}_submitted` : `sdn.${action}_planned`)
 }
 
-async function withdrawVpc() {
-  if (!selectedVpc.value) return
-  busy.value = 'withdraw'
-  clearNotice()
-  const result = await sdnApi.withdrawVpc(selectedVpc.value.id, {
-    device_ids: selectedDeviceIds(),
-    auto_apply: autoApply.value,
-    include_port_bindings: true,
-  })
-  busy.value = ''
-  if (handleResult(result, autoApply.value ? t('sdn.withdraw_submitted') : t('sdn.withdraw_planned'))) await loadAll(false)
-}
-
-async function createBinding() {
-  if (!selectedVpc.value || !selectedDeviceId.value || !bindForm.value.if_index || !bindForm.value.interface_name.trim()) return
-  busy.value = 'binding'
-  clearNotice()
-  const result = await sdnApi.createPortBinding({
-    vpc_id: selectedVpc.value.id,
-    device_id: Number(selectedDeviceId.value),
-    if_index: Number(bindForm.value.if_index),
-    interface_name: bindForm.value.interface_name.trim(),
-    service_instance: bindForm.value.service_instance ? Number(bindForm.value.service_instance) : null,
-  })
-  busy.value = ''
-  if (handleResult(result, t('sdn.binding_created'))) {
-    bindForm.value = { if_index: '', interface_name: '', service_instance: '', expected_host_ip: '' }
-    await loadVpcRelated()
-  }
-}
-
-async function startExpansion() {
-  if (!selectedVpc.value || !selectedDeviceId.value || !bindForm.value.if_index || !bindForm.value.interface_name.trim()) return
-  busy.value = 'expansion'
-  clearNotice()
-  const result = await sdnApi.startExpansion(selectedVpc.value.id, {
-    device_id: Number(selectedDeviceId.value),
-    if_index: Number(bindForm.value.if_index),
-    interface_name: bindForm.value.interface_name.trim(),
-    service_instance: bindForm.value.service_instance ? Number(bindForm.value.service_instance) : null,
-    expected_host_ip: bindForm.value.expected_host_ip.trim() || null,
-    auto_apply: autoApply.value,
-  })
-  busy.value = ''
-  if (handleResult(result, t('sdn.expansion_started'))) {
-    await loadAll(false)
-  }
-}
-
-async function completeExpansion() {
-  if (!selectedVpc.value || !latestExpansionBinding.value) return
-  busy.value = 'complete'
-  clearNotice()
-  const result = await sdnApi.completeExpansion(selectedVpc.value.id, latestExpansionBinding.value.id, {
-    expected_host_ip: bindForm.value.expected_host_ip.trim() || null,
-    force_validation: true,
-  })
-  busy.value = ''
-  if (handleResult(result, result.data?.success ? t('sdn.expansion_success') : t('sdn.expansion_degraded'))) {
-    validation.value = result.data?.validation || validation.value
-    await loadAll(false)
-  }
-}
-
-async function syncValidation(force = true) {
-  if (!selectedVpc.value || !selectedDeviceId.value) return
-  busy.value = 'validation'
-  clearNotice()
-  const result = await sdnApi.syncValidation(selectedVpc.value.id, selectedDeviceId.value, force)
-  busy.value = ''
-  if (handleResult(result, t('sdn.validation_synced'))) validation.value = result.data
-}
-
-async function loadLatestValidation() {
-  validation.value = null
-  if (!selectedVpc.value || !selectedDeviceId.value) return
-  const result = await sdnApi.latestValidation(selectedVpc.value.id, selectedDeviceId.value)
-  if (result.success) validation.value = result.data
-}
-
-function onInterfaceChange() {
-  const iface = interfaces.value.find((item) => Number(item.if_index) === Number(bindForm.value.if_index))
-  if (!iface) return
-  bindForm.value.interface_name = iface.name || bindForm.value.interface_name
-}
+const canComplete = (op) => ['awaiting_validation', 'degraded'].includes(op?.status)
+const canReconcile = (op) => ['unknown', 'applying', 'validating', 'withdrawing', 'reconciling'].includes(op?.status)
+const canWithdraw = (op) => !['withdrawn', 'withdrawing'].includes(op?.status)
 
 watch(selectedVpcId, async () => {
-  await loadVpcRelated()
-  await loadLatestValidation()
+  selectedObject.value = selectedVpc.value ? { kind: 'vpc', value: selectedVpc.value } : null
+  await loadContext()
 })
-
-watch(selectedDeviceId, async () => {
-  await loadInterfaces()
-  await loadLatestValidation()
-})
-
-onMounted(async () => {
-  await loadAll()
-  await loadInterfaces()
-  await loadLatestValidation()
-})
+watch(() => accessForm.value.device_id, loadAccessInterfaces)
+onMounted(loadBase)
 </script>
 
 <template>
-  <div v-if="loading" class="max-w-[1200px] mx-auto px-8 py-16 text-center text-ink-500">{{ t('common.loading') }}</div>
-  <template v-else>
-    <PageHeader :title="t('sdn.title')" :subtitle="t('sdn.subtitle')" badge="v3.4">
-      <template #actions>
-        <button class="btn-outline" @click="guideOpen = true">{{ t('sdn.best_practice') }}</button>
-        <button class="btn-outline" @click="loadAll">{{ t('sdn.refresh') }}</button>
-        <button class="btn-primary" :disabled="busy === 'validation' || !selectedVpc || !selectedDeviceId" @click="syncValidation(true)">
-          {{ busy === 'validation' ? t('sdn.syncing') : t('sdn.sync_validation') }}
+  <main class="next-workbench">
+    <header class="workbench-bar">
+      <div><p class="eyebrow">NEXT / ATLAS</p><h1>{{ t('sdn.next.title') }}</h1><p>{{ t('sdn.next.subtitle') }}</p></div>
+      <div class="header-actions">
+        <button class="icon-button" :title="t('sdn.refresh')" :disabled="loading" @click="refreshAll">↻</button>
+        <button class="secondary" @click="resourcesOpen = true">{{ t('sdn.next.resource_tools') }}</button>
+        <button class="primary" :disabled="!selectedVpc || !leafs.length" @click="openAccess">+ {{ t('sdn.next.connect_terminal') }}</button>
+      </div>
+    </header>
+    <p v-if="error" class="notice error">{{ error }}</p><p v-if="message" class="notice success">{{ message }}</p>
+
+    <section v-if="loading" class="empty-state">{{ t('common.loading') }}</section>
+    <section v-else class="workspace-grid">
+      <aside class="scope-pane">
+        <div class="section-heading"><div><span>01</span><h2>{{ t('sdn.next.business_scope') }}</h2></div><b>{{ vpcs.length }}</b></div>
+        <button v-for="vpc in vpcs" :key="vpc.id" class="vpc-option" :class="{ selected: selectedVpcId === vpc.id }" @click="selectedVpcId = vpc.id">
+          <span class="vpc-mark">{{ vpc.name.slice(0, 2).toUpperCase() }}</span><span class="vpc-copy"><strong>{{ vpc.name }}</strong><small>{{ vpc.cidr }}</small></span><span class="status-dot" :class="statusMeta(vpc.status).tone"></span>
         </button>
-      </template>
-    </PageHeader>
+        <div v-if="!vpcs.length" class="pane-empty"><strong>{{ t('sdn.no_vpcs') }}</strong><button class="text-button" @click="resourcesOpen = true">{{ t('sdn.create_vpc') }}</button></div>
+        <div class="legend"><span><i class="good"></i>{{ t('sdn.next.observed') }}</span><span><i class="warn"></i>{{ t('sdn.next.pending') }}</span><span><i></i>{{ t('sdn.next.unknown') }}</span></div>
+      </aside>
 
-    <div class="max-w-[1440px] mx-auto px-4 md:px-6 xl:px-8 pb-16 space-y-4">
-      <div v-if="error" class="rounded-xl border border-bad/30 bg-bad/5 px-4 py-3 text-sm text-bad">{{ error }}</div>
-      <div v-if="message" class="rounded-xl border border-good/30 bg-good/5 px-4 py-3 text-sm text-good">{{ message }}</div>
-
-      <div class="grid grid-cols-2 md:grid-cols-6 gap-3">
-        <div class="panel p-4" v-for="item in [
-          { label: t('sdn.kpi_tenants'), value: stats.tenants },
-          { label: t('sdn.kpi_vpcs'), value: stats.vpcs },
-          { label: t('sdn.kpi_active'), value: stats.active },
-          { label: t('sdn.kpi_planned'), value: stats.planned },
-          { label: t('sdn.kpi_degraded'), value: stats.degraded },
-          { label: t('sdn.kpi_bindings'), value: stats.bindings },
-        ]" :key="item.label">
-          <div class="text-[10px] uppercase tracking-wider text-ink-500">{{ item.label }}</div>
-          <div class="kpi-num mt-1">{{ item.value }}</div>
-        </div>
-      </div>
-
-      <div class="grid grid-cols-1 xl:grid-cols-[340px_minmax(0,1fr)] gap-4 items-start">
-        <aside class="panel p-4 space-y-4">
-          <div class="flex items-center justify-between">
-            <div class="text-sm font-semibold text-ink-900">{{ t('sdn.vpc_inventory') }}</div>
-            <span class="chip-mute">{{ vpcs.length }}</span>
+      <section class="atlas-pane">
+        <template v-if="selectedVpc">
+          <div class="vpc-context">
+            <div><p class="eyebrow">VPC CONTEXT</p><h2>{{ selectedVpc.name }}</h2><p>{{ selectedVpc.tenant_name }} · {{ selectedVpc.cidr }}</p></div>
+            <div class="context-facts"><span><small>{{ t('sdn.next.gateway') }}</small><b>{{ selectedVpc.gateway_ip || '—' }}</b></span><span><small>VNI</small><b>{{ selectedVpc.vni }}</b></span><span><small>VSI</small><b>{{ selectedVpc.vsi_name }}</b></span><span class="status-chip" :class="statusMeta(selectedVpc.status).tone">{{ statusMeta(selectedVpc.status).label }}</span></div>
           </div>
-
-          <div class="space-y-2 max-h-[420px] overflow-auto pr-1">
-            <button
-              v-for="vpc in vpcs"
-              :key="vpc.id"
-              type="button"
-              :class="['w-full text-left rounded-xl p-3 ring-1 transition', selectedVpcId === vpc.id ? 'bg-accent/8 ring-accent/25' : 'bg-canvas-100 ring-canvas-300 hover:bg-canvas-200']"
-              @click="selectedVpcId = vpc.id"
-            >
-              <div class="flex items-center justify-between gap-2">
-                <span class="font-semibold text-sm text-ink-900 truncate">{{ vpc.name }}</span>
-                <span :class="['chip', statusClass(vpc.status)]">{{ vpc.status }}</span>
-              </div>
-              <div class="mt-1 text-xs text-ink-500 font-mono break-all">{{ vpc.cidr }} · VNI {{ vpc.vni }}</div>
-            </button>
-            <div v-if="vpcs.length === 0" class="text-sm text-ink-500 py-8 text-center">{{ t('sdn.no_vpcs') }}</div>
+          <div class="fabric-stage" :class="{ loading: contextLoading }">
+            <div class="stage-label"><span>02</span>{{ t('sdn.next.access_map') }}</div>
+            <div v-if="!leafs.length" class="empty-state compact">{{ t('sdn.no_evpn_targets') }}</div>
+            <div v-else class="leaf-grid">
+              <article v-for="leaf in leafs" :key="leaf.id" class="leaf-node" @click="selectObject('device', leaf)">
+                <header><span class="device-glyph">L</span><span><strong>{{ leaf.name }}</strong><small>{{ leaf.host }}</small></span><i class="online-dot"></i></header>
+                <div class="fabric-link"><span></span><b>EVPN</b><span></span></div>
+                <button v-for="binding in bindingForLeaf(leaf.id)" :key="binding.id" class="port-node" @click.stop="selectObject('binding', binding)"><span class="port-icon"></span><span><strong>{{ binding.interface_name || `if_index ${binding.if_index}` }}</strong><small>{{ statusMeta(binding.status).label }}</small></span></button>
+                <div v-if="!bindingForLeaf(leaf.id).length" class="no-binding">{{ t('sdn.next.no_binding_on_leaf') }}</div>
+              </article>
+            </div>
           </div>
-        </aside>
-
-        <main class="space-y-4">
-          <section class="panel p-5">
-            <div class="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <div class="text-lg font-semibold text-ink-900">{{ selectedVpc?.name || t('sdn.no_selected_vpc') }}</div>
-                <div v-if="selectedVpc" class="text-xs text-ink-500 mt-1 font-mono break-all">
-                  {{ selectedVpc.cidr }} · {{ selectedVpc.vsi_name }} · Vsi-interface{{ selectedVpc.vsi_interface }}
-                </div>
-              </div>
-              <span v-if="selectedVpc" :class="['chip', statusClass(selectedVpc.status)]">{{ selectedVpc.status }}</span>
-            </div>
-
-            <div v-if="selectedVpc" class="mt-5 grid grid-cols-2 md:grid-cols-4 gap-3">
-              <div class="rounded-xl bg-canvas-100 p-3" v-for="item in [
-                { label: 'Tenant', value: selectedVpc.tenant_name },
-                { label: 'Gateway', value: selectedVpc.gateway_ip },
-                { label: 'Gateway MAC', value: selectedVpc.gateway_mac },
-                { label: 'VLAN', value: selectedVpc.vlan_id },
-                { label: 'VNI', value: selectedVpc.vni },
-                { label: 'VSI', value: selectedVpc.vsi_name },
-                { label: 'VSI IF', value: selectedVpc.vsi_interface },
-                { label: 'Bindings', value: selectedBindings.length },
-              ]" :key="item.label">
-                <div class="text-[10px] uppercase tracking-wider text-ink-500">{{ item.label }}</div>
-                <div class="mt-1 text-sm font-mono text-ink-900 break-all">{{ item.value ?? '-' }}</div>
-              </div>
-            </div>
-
-            <div v-if="selectedVpc" class="mt-4 rounded-xl bg-canvas-100 ring-1 ring-canvas-300 px-4 py-3">
-              <div class="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <div class="text-xs font-semibold text-ink-900">{{ t('sdn.status_explain_title') }}</div>
-                  <div class="text-xs text-ink-600 mt-1">{{ selectedStatusHint }}</div>
-                </div>
-                <button class="text-xs font-medium text-accent hover:underline" @click="guideOpen = true">{{ t('sdn.view_best_practice') }}</button>
-              </div>
-            </div>
+          <section class="terminal-strip">
+            <div class="section-heading inline"><div><span>03</span><h2>{{ t('sdn.next.terminals') }}</h2></div><b>{{ observations.length }}</b></div>
+            <div v-if="observations.length" class="terminal-list">
+              <button v-for="item in observations" :key="item.operation_id" @click="openOperation({ operation_id: item.operation_id })"><span class="host-glyph">H</span><span><strong>{{ item.expected_host_ip }}</strong><small>{{ deviceById(item.device_id)?.name || `#${item.device_id}` }}</small></span><span class="status-chip" :class="item.host_observed ? 'good' : 'mute'">{{ item.host_observed ? t('sdn.next.observed') : t('sdn.next.not_observed') }}</span></button>
+            </div><p v-else class="quiet-copy">{{ t('sdn.next.no_host_evidence') }}</p>
           </section>
-
-          <section class="panel p-5">
-            <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
-              <div>
-                <div class="text-sm font-semibold text-ink-900">{{ t('sdn.fabric_actions') }}</div>
-                <div class="text-xs text-ink-500 mt-0.5">{{ t('sdn.fabric_actions_hint') }}</div>
-              </div>
-              <label class="inline-flex items-center gap-2 text-xs text-ink-700">
-                <input v-model="autoApply" name="sdn_auto_apply" type="checkbox" class="size-4 rounded border-canvas-400 text-accent focus:ring-accent/30" />
-                <span>{{ t('sdn.auto_apply') }}</span>
-              </label>
-            </div>
-            <div v-if="selectedVpc" class="mb-3 rounded-xl bg-accent/8 ring-1 ring-accent/20 px-3 py-2 text-xs text-ink-700">
-              {{ t('sdn.fabric_current_vpc', { name: selectedVpc.name, cidr: selectedVpc.cidr }) }}
-            </div>
-
-            <div class="grid grid-cols-1 md:grid-cols-[1fr_auto_auto] gap-3 items-end">
-              <label>
-                <span class="text-xs font-medium text-ink-600">{{ t('sdn.target_leaf') }}</span>
-                <select v-model="selectedDeviceId" name="sdn_target_device" class="input mt-1.5">
-                  <option v-if="hasSdnTargets" :value="null">{{ t('sdn.all_leafs') }}</option>
-                  <option v-else :value="null">{{ t('sdn.no_evpn_targets_short') }}</option>
-                  <option v-for="d in sdnDevices" :key="d.id" :value="d.id">{{ d.name }} · {{ d.host }}</option>
-                </select>
-              </label>
-              <button class="btn-outline" :disabled="busy === 'deploy' || !selectedVpc || !hasSdnTargets" @click="deployVpc">{{ t('sdn.deploy_plan') }}</button>
-              <button class="btn-outline text-bad" :disabled="busy === 'withdraw' || !selectedVpc || !hasSdnTargets" @click="withdrawVpc">{{ t('sdn.withdraw_plan') }}</button>
-            </div>
-            <div v-if="!hasSdnTargets" class="mt-3 rounded-xl bg-warn/8 ring-1 ring-warn/25 px-3 py-2 text-xs text-ink-700">
-              <span>{{ t('sdn.no_evpn_targets') }}</span>
-              <RouterLink :to="{ name: 'devices' }" class="ml-2 font-medium text-accent hover:underline">{{ t('sdn.go_mark_device') }}</RouterLink>
-            </div>
+          <section class="pulse-panel">
+            <div class="section-heading inline"><div><span>04</span><h2>{{ t('sdn.next.activity') }}</h2></div><b>{{ operations.length }}</b></div>
+            <div class="operation-table"><button v-for="operation in operations" :key="operation.operation_id" @click="openOperation(operation)"><span class="operation-id">#{{ operation.operation_id }}</span><span><strong>{{ operation.expected_host_ip || t('sdn.next.terminal_access') }}</strong><small>{{ formatTime(operation.updated_at) }}</small></span><span class="status-chip" :class="statusMeta(operation.status).tone">{{ statusMeta(operation.status).label }}</span></button><p v-if="!operations.length" class="quiet-copy">{{ t('sdn.next.no_operations') }}</p></div>
           </section>
+        </template><div v-else class="empty-state">{{ t('sdn.no_selected_vpc') }}</div>
+      </section>
 
-          <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <section class="panel p-5">
-              <div class="mb-4">
-                <div class="text-sm font-semibold text-ink-900">{{ t('sdn.create_section') }}</div>
-                <div class="text-xs text-ink-500 mt-0.5">{{ t('sdn.create_section_hint') }}</div>
-              </div>
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <input v-model="tenantForm.name" name="sdn_tenant_name" class="input" :placeholder="t('sdn.tenant_name')" />
-                <input v-model="tenantForm.description" name="sdn_tenant_description" class="input" :placeholder="t('sdn.description')" />
-                <button class="btn-outline md:col-span-2" :disabled="busy === 'tenant'" @click="createTenant">{{ t('sdn.create_tenant') }}</button>
-                <div class="md:col-span-2 h-px bg-canvas-300"></div>
-                <input v-model="vpcForm.name" name="sdn_vpc_name" class="input" :placeholder="t('sdn.vpc_name')" />
-                <select v-model="vpcForm.tenant_id" name="sdn_vpc_tenant" class="input">
-                  <option v-for="tenant in tenants" :key="tenant.id" :value="tenant.id">{{ tenant.name }}</option>
-                </select>
-                <input v-model="vpcForm.cidr" name="sdn_vpc_cidr" class="input font-mono md:col-span-2" placeholder="192.168.10.0/24" />
-                <input v-model="vpcForm.description" name="sdn_vpc_description" class="input md:col-span-2" :placeholder="t('sdn.description')" />
-                <button class="btn-primary md:col-span-2" :disabled="busy === 'vpc'" @click="createVpc">{{ t('sdn.create_vpc') }}</button>
-              </div>
-            </section>
-
-            <section class="panel p-5">
-              <div class="mb-4">
-                <div class="text-sm font-semibold text-ink-900">{{ t('sdn.access_section') }}</div>
-                <div class="text-xs text-ink-500 mt-0.5">{{ t('sdn.access_section_hint') }}</div>
-              </div>
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <label>
-                  <span class="text-xs font-medium text-ink-600">{{ t('sdn.target_leaf') }}</span>
-                  <select v-model="selectedDeviceId" name="sdn_access_target_device" class="input mt-1.5" :disabled="!hasSdnTargets">
-                    <option v-if="hasSdnTargets" :value="null">{{ t('sdn.select_evpn_target') }}</option>
-                    <option v-else :value="null">{{ t('sdn.no_evpn_targets_short') }}</option>
-                    <option v-for="d in sdnDevices" :key="d.id" :value="d.id">{{ d.name }} · {{ d.host }}</option>
-                  </select>
-                </label>
-                <label>
-                  <span class="text-xs font-medium text-ink-600">{{ t('sdn.interface') }}</span>
-                  <select v-model="bindForm.if_index" name="sdn_access_interface" class="input mt-1.5" :disabled="!selectedDeviceId || interfaces.length === 0" @change="onInterfaceChange">
-                    <option value="">{{ interfaces.length === 0 ? t('sdn.no_interfaces_loaded') : t('sdn.select_interface') }}</option>
-                    <option v-for="iface in interfaces" :key="iface.if_index" :value="iface.if_index">{{ iface.name }} · #{{ iface.if_index }}</option>
-                  </select>
-                </label>
-                <label>
-                  <span class="text-xs font-medium text-ink-600">{{ t('sdn.if_index') }}</span>
-                  <input v-model="bindForm.if_index" name="sdn_access_if_index" class="input mt-1.5 font-mono" inputmode="numeric" placeholder="3" :disabled="!selectedDeviceId" />
-                </label>
-                <label>
-                  <span class="text-xs font-medium text-ink-600">{{ t('sdn.interface_name') }}</span>
-                  <input v-model="bindForm.interface_name" name="sdn_access_interface_name" class="input mt-1.5 font-mono" placeholder="GigabitEthernet1/0/3" :disabled="!selectedDeviceId" />
-                </label>
-                <label>
-                  <span class="text-xs font-medium text-ink-600">{{ t('sdn.service_instance') }}</span>
-                  <input v-model="bindForm.service_instance" name="sdn_access_service_instance" class="input mt-1.5 font-mono" placeholder="3100" :disabled="!selectedDeviceId" />
-                </label>
-                <label>
-                  <span class="text-xs font-medium text-ink-600">{{ t('sdn.expected_host') }}</span>
-                  <input v-model="bindForm.expected_host_ip" name="sdn_access_expected_host" class="input mt-1.5 font-mono" placeholder="192.168.1.3" :disabled="!selectedDeviceId" />
-                </label>
-              </div>
-              <div class="mt-3 text-[11px] text-ink-500">{{ t('sdn.interface_manual_hint') }}</div>
-              <div class="mt-4 flex flex-wrap gap-2">
-                <button class="btn-outline" :disabled="busy === 'binding' || !selectedVpc || !selectedDeviceId" @click="createBinding">{{ t('sdn.create_binding') }}</button>
-                <button class="btn-primary" :disabled="busy === 'expansion' || !selectedVpc || !selectedDeviceId" @click="startExpansion">{{ t('sdn.start_expansion') }}</button>
-                <button class="btn-outline" :disabled="busy === 'complete' || !latestExpansionBinding" @click="completeExpansion">{{ t('sdn.complete_expansion') }}</button>
-              </div>
-            </section>
-          </div>
-
-          <section class="panel p-5">
-            <div class="text-sm font-semibold text-ink-900 mb-4">{{ t('sdn.overview_section') }}</div>
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-              <div>
-                <div class="text-xs font-semibold text-ink-700 mb-3">{{ t('sdn.port_bindings') }}</div>
-                <div class="space-y-2 max-h-[260px] overflow-auto pr-1">
-                  <div v-for="b in selectedBindings" :key="b.id" class="rounded-xl bg-canvas-100 p-3">
-                    <div class="flex items-center justify-between gap-2">
-                      <span class="text-sm font-semibold text-ink-900 break-all">{{ ifaceName(b) }}</span>
-                      <span :class="['chip', statusClass(b.status)]">{{ b.status }}</span>
-                    </div>
-                    <div class="mt-1 text-xs text-ink-500 font-mono break-all">{{ deviceName(b.device_id) }} · SI {{ b.service_instance || '-' }} · VLAN {{ b.access_vlan || '-' }}</div>
-                  </div>
-                  <div v-if="selectedBindings.length === 0" class="text-sm text-ink-500 py-6 text-center">{{ t('sdn.no_bindings') }}</div>
-                </div>
-              </div>
-
-              <div>
-                <div class="text-xs font-semibold text-ink-700 mb-3">{{ t('sdn.deployments') }}</div>
-                <div class="space-y-2 max-h-[260px] overflow-auto pr-1">
-                  <div v-for="d in selectedDeployments" :key="d.id" class="rounded-xl bg-canvas-100 p-3">
-                    <div class="flex items-center justify-between gap-2">
-                      <span class="text-sm font-semibold text-ink-900">#{{ d.id }} · {{ d.action }}</span>
-                      <span :class="['chip', statusClass(d.status)]">{{ d.status }}</span>
-                    </div>
-                    <div class="mt-1 text-xs text-ink-500 font-mono break-all">{{ deviceName(d.device_id) }} · {{ d.unit }}</div>
-                  </div>
-                  <div v-if="selectedDeployments.length === 0" class="text-sm text-ink-500 py-6 text-center">{{ t('sdn.no_deployments') }}</div>
-                </div>
-              </div>
-
-              <div>
-                <div class="text-xs font-semibold text-ink-700 mb-3">{{ t('sdn.validation') }}</div>
-                <div v-if="validation" class="space-y-3">
-                  <div class="flex items-center justify-between gap-3">
-                    <span class="text-xs text-ink-500">{{ t('sdn.validation_result') }}</span>
-                    <span :class="['chip', statusClass(validation.validation_result)]">{{ validation.validation_result }}</span>
-                  </div>
-                  <div class="flex items-center justify-between gap-3">
-                    <span class="text-xs text-ink-500">{{ t('sdn.cached') }}</span>
-                    <span class="text-xs font-mono text-ink-900">{{ validation.cached ? 'true' : 'false' }}</span>
-                  </div>
-                  <div class="rounded-xl bg-canvas-100 p-3 text-[11px] text-ink-600 font-mono max-h-[180px] overflow-auto whitespace-pre-wrap break-all">{{ JSON.stringify(validation.validation_details || validation.snapshot_data || validation, null, 2) }}</div>
-                </div>
-                <div v-else class="text-sm text-ink-500 py-6 text-center">{{ t('sdn.no_validation') }}</div>
-              </div>
-            </div>
-          </section>
-
-          <section class="panel p-5">
-            <div class="text-sm font-semibold text-ink-900 mb-4">{{ t('sdn.light_topology') }}</div>
-            <div class="relative h-[280px] rounded-2xl bg-canvas-100 ring-1 ring-canvas-300 overflow-hidden">
-              <div class="absolute inset-0 opacity-[0.08]" style="background-image: linear-gradient(rgba(0,0,0,0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(0,0,0,0.5) 1px, transparent 1px); background-size: 28px 28px;"></div>
-              <div class="absolute top-5 left-1/2 -translate-x-1/2 rounded-xl bg-white px-4 py-2 shadow-sm ring-1 ring-canvas-300 text-center">
-                <div class="text-xs font-semibold text-ink-900">{{ selectedVpc?.name || 'VPC' }}</div>
-                <div class="text-[10px] text-ink-500 font-mono">VNI {{ selectedVpc?.vni || '-' }}</div>
-              </div>
-              <div class="absolute bottom-5 left-4 right-4 grid grid-cols-2 gap-2">
-                <div v-for="d in sdnDevices.slice(0, 4)" :key="d.id" class="rounded-xl bg-white p-2 shadow-sm ring-1 ring-canvas-300">
-                  <div class="text-[11px] font-semibold text-ink-900 truncate">{{ d.name }}</div>
-                  <div class="text-[10px] text-ink-500 font-mono break-all">{{ d.host }}</div>
-                  <div class="mt-1 h-1 rounded-full bg-accent/30"></div>
-                </div>
-              </div>
-            </div>
-          </section>
-        </main>
-      </div>
-    </div>
+      <aside class="inspector-pane">
+        <div class="section-heading"><div><span>05</span><h2>{{ t('sdn.next.inspector') }}</h2></div></div>
+        <div v-if="!selectedObject" class="pane-empty"><strong>{{ t('sdn.next.select_object') }}</strong><p>{{ t('sdn.next.select_object_detail') }}</p></div>
+        <template v-else>
+          <div class="inspector-tabs"><button :class="{ active: inspectorTab === 'summary' }" @click="inspectorTab = 'summary'">{{ t('sdn.next.summary') }}</button><button :class="{ active: inspectorTab === 'technical' }" @click="inspectorTab = 'technical'">{{ t('sdn.next.technical') }}</button></div>
+          <div v-if="inspectorTab === 'summary'" class="inspector-content">
+            <template v-if="selectedObject.kind === 'vpc'"><p class="object-type">VPC</p><h3>{{ selectedObject.value.name }}</h3><dl><dt>{{ t('sdn.next.network') }}</dt><dd>{{ selectedObject.value.cidr }}</dd><dt>{{ t('sdn.next.gateway') }}</dt><dd>{{ selectedObject.value.gateway_ip }}</dd><dt>{{ t('sdn.tenant_name') }}</dt><dd>{{ selectedObject.value.tenant_name }}</dd></dl></template>
+            <template v-else-if="selectedObject.kind === 'device'"><p class="object-type">EVPN LEAF</p><h3>{{ selectedObject.value.name }}</h3><dl><dt>{{ t('sdn.next.management_ip') }}</dt><dd>{{ selectedObject.value.host }}</dd><dt>{{ t('sdn.next.platform') }}</dt><dd>{{ selectedObject.value.platform || '—' }}</dd><dt>{{ t('sdn.next.access_count') }}</dt><dd>{{ bindingForLeaf(selectedObject.value.id).length }}</dd></dl></template>
+            <template v-else-if="selectedObject.kind === 'binding'"><p class="object-type">ACCESS PORT</p><h3>{{ selectedObject.value.interface_name }}</h3><dl><dt>{{ t('sdn.next.device') }}</dt><dd>{{ deviceById(selectedObject.value.device_id)?.name || selectedObject.value.device_id }}</dd><dt>if_index</dt><dd>{{ selectedObject.value.if_index }}</dd><dt>Service instance</dt><dd>{{ selectedObject.value.service_instance }}</dd></dl></template>
+            <template v-else><p class="object-type">OPERATION</p><h3>#{{ selectedObject.value.operation_id }}</h3><span class="status-chip large" :class="statusMeta(selectedObject.value.status).tone">{{ statusMeta(selectedObject.value.status).label }}</span><dl><dt>{{ t('sdn.next.host') }}</dt><dd>{{ selectedObject.value.expected_host_ip || '—' }}</dd><dt>{{ t('sdn.next.updated') }}</dt><dd>{{ formatTime(selectedObject.value.updated_at) }}</dd></dl><div class="operation-actions"><button v-if="canComplete(selectedObject.value)" class="primary" @click="runOperation('complete')">{{ t('sdn.next.verify_now') }}</button><button v-if="canReconcile(selectedObject.value)" class="secondary" @click="runOperation('reconcile')">{{ t('sdn.next.reconcile') }}</button><button v-if="canWithdraw(selectedObject.value)" class="danger-text" @click="runOperation('withdraw')">{{ t('sdn.next.withdraw_access') }}</button></div></template>
+          </div><pre v-else class="technical-view">{{ JSON.stringify(selectedObject.value, null, 2) }}</pre>
+        </template>
+      </aside>
+    </section>
 
     <Teleport to="body">
-      <Transition name="modal">
-        <div v-if="guideOpen" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-ink-950/40 backdrop-blur-sm" @click.self="guideOpen = false">
-          <div class="panel w-full max-w-4xl p-6 max-h-[86vh] overflow-auto">
-            <div class="flex items-start justify-between gap-4 mb-5">
-              <div>
-                <div class="text-lg font-semibold text-ink-900">{{ t('sdn.best_practice_title') }}</div>
-                <div class="text-sm text-ink-600 mt-1">{{ t('sdn.best_practice_desc') }}</div>
-              </div>
-              <button class="btn-soft !px-2 !py-1" @click="guideOpen = false">{{ t('common.close') }}</button>
-            </div>
+      <div v-if="accessOpen" class="modal-backdrop" @click.self="accessOpen = false"><section class="modal access-modal">
+        <header><div><p class="eyebrow">TERMINAL ACCESS</p><h2>{{ t('sdn.next.connect_terminal') }}</h2></div><button class="icon-button" :title="t('common.close')" @click="accessOpen = false">×</button></header>
+        <div class="steps"><span :class="{ active: accessStep === 'form' }">1 {{ t('sdn.next.step_location') }}</span><span :class="{ active: accessStep === 'preview' }">2 {{ t('sdn.next.step_preview') }}</span><span :class="{ active: accessStep === 'operation' }">3 {{ t('sdn.next.step_validate') }}</span></div>
+        <form v-if="accessStep === 'form'" class="form-grid" @submit.prevent="previewAccess">
+          <label class="full">{{ t('sdn.target_leaf') }}<select v-model="accessForm.device_id" required><option disabled value="">{{ t('sdn.select_evpn_target') }}</option><option v-for="leaf in leafs" :key="leaf.id" :value="leaf.id">{{ leaf.name }} · {{ leaf.host }}</option></select></label>
+          <label class="full">{{ t('sdn.next.business_port') }}<select name="sdn_access_interface" :disabled="!accessInterfaces.length" @change="chooseInterface"><option value="">{{ accessInterfaces.length ? t('sdn.select_interface') : t('sdn.no_interfaces_loaded') }}</option><option v-for="item in accessInterfaces" :key="item.if_index" :value="item.if_index">{{ item.name || item.interface_name }} · {{ item.status }}</option></select></label>
+          <label>if_index<input v-model="accessForm.if_index" name="sdn_access_if_index" type="number" min="1" required></label><label>{{ t('sdn.interface_name') }}<input v-model="accessForm.interface_name" placeholder="GigabitEthernet1/0/3" required></label><label>Service instance<input v-model="accessForm.service_instance" type="number" min="1" required></label><label>{{ t('sdn.expected_host') }}<input v-model="accessForm.expected_host_ip" :placeholder="selectedVpc?.cidr" required></label>
+          <p class="form-hint full">{{ t('sdn.next.preview_hint') }}</p><footer class="full"><button type="button" class="secondary" @click="accessOpen = false">{{ t('common.cancel') }}</button><button class="primary" :disabled="busy === 'preview'">{{ busy === 'preview' ? t('sdn.next.previewing') : t('sdn.next.preview_change') }}</button></footer>
+        </form>
+        <div v-else-if="accessStep === 'preview'" class="preview-body"><div class="preview-result" :class="previewBlocked ? 'blocked' : 'ready'"><strong>{{ t(previewBlocked ? 'sdn.next.preview_blocked' : 'sdn.next.preview_ready') }}</strong><p>{{ t(previewBlocked ? 'sdn.next.preview_blocked_detail' : 'sdn.next.preview_ready_detail') }}</p></div><dl class="preview-scope"><dt>VPC</dt><dd>{{ selectedVpc.name }}</dd><dt>{{ t('sdn.next.device') }}</dt><dd>{{ selectedLeaf?.name }}</dd><dt>{{ t('sdn.interface') }}</dt><dd>{{ accessForm.interface_name }}</dd><dt>{{ t('sdn.next.host') }}</dt><dd>{{ accessForm.expected_host_ip }}</dd></dl><ul v-if="previewBlocked" class="blocker-list"><li v-for="item in accessPlan.blocking" :key="item.code"><strong>{{ item.code }}</strong><span>{{ item.detail }}</span></li></ul><div v-else class="retained-note"><strong>{{ t('sdn.next.will_change') }}</strong><p>{{ t('sdn.next.shared_resources_kept') }}</p></div><footer><button class="secondary" @click="accessStep = 'form'">{{ t('sdn.next.preview_change') }}</button><button class="primary" :disabled="previewBlocked || busy === 'execute'" @click="executeAccess">{{ busy === 'execute' ? t('sdn.next.executing') : t('sdn.next.confirm_connect') }}</button></footer></div>
+        <div v-else class="operation-ready"><span class="success-mark">✓</span><h3>{{ t('sdn.next.wire_then_validate') }}</h3><p>{{ t('sdn.next.operation_saved') }}</p><div class="operation-actions centered"><button v-if="canComplete(currentOperation)" class="primary" @click="runOperation('complete')">{{ t('sdn.next.complete_and_validate') }}</button><button class="secondary" @click="accessOpen = false">{{ t('sdn.next.close_and_track') }}</button></div></div>
+      </section></div>
 
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-              <section v-for="section in guideSections" :key="section.title" class="rounded-xl bg-canvas-100 ring-1 ring-canvas-300 p-4">
-                <div class="text-sm font-semibold text-ink-900">{{ section.title }}</div>
-                <ol class="mt-3 space-y-3">
-                  <li v-for="(step, index) in section.steps" :key="step" class="flex gap-3 text-sm text-ink-700">
-                    <span class="size-6 shrink-0 rounded-full bg-white ring-1 ring-canvas-300 flex items-center justify-center text-[11px] font-mono text-accent">{{ index + 1 }}</span>
-                    <span>{{ step }}</span>
-                  </li>
-                </ol>
-              </section>
-            </div>
-
-            <div class="mt-4 rounded-xl bg-accent/8 ring-1 ring-accent/20 p-4 text-sm text-ink-700">
-              <div class="font-semibold text-ink-900 mb-1">{{ t('sdn.guide_rule_title') }}</div>
-              <div>{{ t('sdn.guide_rule_body') }}</div>
-            </div>
-          </div>
-        </div>
-      </Transition>
+      <div v-if="resourcesOpen" class="modal-backdrop" @click.self="resourcesOpen = false"><section class="modal resource-modal">
+        <header><div><p class="eyebrow">RESOURCE TOOLS</p><h2>{{ t('sdn.next.resource_tools') }}</h2></div><button class="icon-button" :title="t('common.close')" @click="resourcesOpen = false">×</button></header>
+        <div class="resource-columns"><form @submit.prevent="createTenant"><h3>{{ t('sdn.create_tenant') }}</h3><label>{{ t('sdn.tenant_name') }}<input v-model="tenantForm.name" required></label><label>{{ t('sdn.description') }}<input v-model="tenantForm.description"></label><button class="secondary" :disabled="busy === 'tenant'">{{ t('sdn.create_tenant') }}</button></form><form @submit.prevent="createVpc"><h3>{{ t('sdn.create_vpc') }}</h3><label>{{ t('sdn.vpc_name') }}<input v-model="vpcForm.name" required></label><label>{{ t('sdn.tenant_name') }}<select v-model="vpcForm.tenant_id" required><option v-for="tenant in tenants" :key="tenant.id" :value="tenant.id">{{ tenant.name }}</option></select></label><label>CIDR<input v-model="vpcForm.cidr" required></label><button class="secondary" :disabled="busy === 'vpc'">{{ t('sdn.create_vpc') }}</button></form></div>
+        <div class="fabric-tools"><h3>{{ t('sdn.fabric_actions') }}</h3><p>{{ t('sdn.next.fabric_preserved_hint') }}</p><div><select v-model="fabricDeviceId"><option disabled value="">{{ t('sdn.select_evpn_target') }}</option><option v-for="leaf in leafs" :key="leaf.id" :value="leaf.id">{{ leaf.name }} · {{ leaf.host }}</option></select><label class="check"><input v-model="fabricAutoApply" type="checkbox">{{ t('sdn.auto_apply') }}</label><button class="secondary" :disabled="!fabricDeviceId || busy.startsWith('fabric')" @click="changeFabric('deploy')">{{ t('sdn.deploy_plan') }}</button><button class="danger-text" :disabled="!fabricDeviceId || busy.startsWith('fabric')" @click="changeFabric('withdraw')">{{ t('sdn.withdraw_plan') }}</button></div></div>
+      </section></div>
     </Teleport>
-  </template>
+  </main>
 </template>
+
+<style scoped>
+.next-workbench{min-height:calc(100vh - 72px);background:#f4f6f7;color:#172126;padding:24px}.workbench-bar{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;margin-bottom:18px}.workbench-bar h1{font-size:30px;line-height:1.1;margin:4px 0 7px;letter-spacing:0}.workbench-bar p{margin:0;color:#607077}.eyebrow{font-size:11px!important;font-weight:800;color:#0d7a6b!important;text-transform:uppercase;letter-spacing:0!important}.header-actions,.operation-actions{display:flex;align-items:center;gap:9px}.primary,.secondary,.danger-text,.text-button,.icon-button{min-height:38px;border:1px solid transparent;border-radius:6px;padding:0 14px;font:inherit;font-weight:700;cursor:pointer}.primary{background:#126d62;color:#fff}.secondary{background:#fff;border-color:#cbd4d7;color:#24343a}.danger-text{background:#fff;border-color:#e7c5c5;color:#a63535}.text-button{background:transparent;color:#126d62}.icon-button{width:40px;padding:0;background:#fff;border-color:#cbd4d7;font-size:21px}.primary:disabled,.secondary:disabled,.danger-text:disabled,.icon-button:disabled{opacity:.45;cursor:not-allowed}.notice{border-radius:6px;padding:10px 13px;margin:0 0 12px;font-weight:650}.notice.error{background:#fff0ef;color:#9b2c2c;border:1px solid #efc5c1}.notice.success{background:#e9f7f2;color:#176b56;border:1px solid #b9dfd1}.workspace-grid{display:grid;grid-template-columns:minmax(210px,240px) minmax(480px,1fr) minmax(260px,310px);gap:12px;align-items:start}.scope-pane,.atlas-pane,.inspector-pane{background:#fff;border:1px solid #d9e0e2;border-radius:7px}.scope-pane,.inspector-pane{position:sticky;top:16px;padding:16px;max-height:calc(100vh - 120px);overflow:auto}.atlas-pane{padding:18px;min-width:0}.section-heading{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}.section-heading>div{display:flex;align-items:center;gap:8px}.section-heading span{font-size:10px;font-weight:900;color:#0d7a6b}.section-heading h2{font-size:13px;text-transform:uppercase;margin:0;letter-spacing:0}.section-heading>b{font-size:12px;color:#68787e}.section-heading.inline{margin:0 0 10px}.vpc-option{width:100%;display:grid;grid-template-columns:34px 1fr 8px;align-items:center;gap:10px;padding:10px 8px;margin-bottom:5px;border:1px solid transparent;border-radius:6px;background:transparent;text-align:left;cursor:pointer}.vpc-option:hover{background:#f4f7f7}.vpc-option.selected{background:#e7f4f1;border-color:#acd2c9}.vpc-mark,.device-glyph,.host-glyph{display:grid;place-items:center;width:34px;height:34px;border-radius:5px;background:#203239;color:#fff;font-size:11px;font-weight:850}.vpc-copy,.leaf-node header span,.port-node span,.terminal-list button>span:nth-child(2),.operation-table button>span:nth-child(2){min-width:0;display:flex;flex-direction:column}.vpc-copy strong,.leaf-node strong,.port-node strong,.terminal-list strong,.operation-table strong{overflow-wrap:anywhere}.vpc-copy small,.leaf-node small,.port-node small,.terminal-list small,.operation-table small{color:#748289;margin-top:3px}.status-dot,.online-dot{width:8px;height:8px;border-radius:50%;background:#98a4a8}.status-dot.good,.online-dot{background:#1b9a79}.status-dot.warn{background:#d49a24}.status-dot.bad{background:#d45656}.legend{display:flex;flex-wrap:wrap;gap:8px;margin-top:15px;padding-top:12px;border-top:1px solid #e8ecee;color:#6b797e;font-size:11px}.legend span{display:flex;align-items:center;gap:5px}.legend i{width:7px;height:7px;border-radius:50%;background:#9aa6aa}.legend i.good{background:#1b9a79}.legend i.warn{background:#d49a24}.vpc-context{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;padding:2px 2px 17px;border-bottom:1px solid #e4e9ea}.vpc-context h2{margin:3px 0 5px;font-size:24px}.vpc-context>div>p:last-child{margin:0;color:#65757b}.context-facts{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}.context-facts>span:not(.status-chip){display:flex;flex-direction:column;min-width:86px;padding:8px 10px;background:#f2f5f5;border-radius:5px}.context-facts small{font-size:10px;color:#6e7d82;text-transform:uppercase}.context-facts b{margin-top:3px;font-size:12px;overflow-wrap:anywhere}.status-chip{display:inline-flex;align-items:center;justify-content:center;min-height:24px;border-radius:12px;padding:2px 9px;font-size:11px;font-weight:800;background:#edf0f1;color:#536166}.status-chip.good{background:#dff3eb;color:#12674f}.status-chip.warn{background:#fff1d6;color:#8a5d08}.status-chip.bad{background:#fde5e3;color:#a02e2e}.status-chip.large{margin:5px 0 10px}.fabric-stage{margin-top:16px;border:1px solid #dce3e5;background:#f8faf9;padding:14px;border-radius:6px}.stage-label{display:flex;align-items:center;gap:8px;font-size:11px;font-weight:900;color:#587077;text-transform:uppercase}.stage-label span{color:#0d7a6b}.leaf-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-top:12px}.leaf-node{background:#fff;border:1px solid #d6dfe1;border-top:3px solid #176f64;padding:12px;border-radius:5px;cursor:pointer}.leaf-node:hover{border-color:#8bbdb3}.leaf-node header{display:grid;grid-template-columns:34px 1fr 8px;align-items:center;gap:9px}.fabric-link{display:flex;align-items:center;gap:6px;margin:10px 0;color:#789097;font-size:9px}.fabric-link span{height:1px;background:#d9e1e3;flex:1}.port-node{display:grid;grid-template-columns:18px 1fr;gap:8px;width:100%;align-items:center;padding:8px;border:1px solid #e1e7e8;background:#f7f9f9;border-radius:4px;text-align:left;cursor:pointer;margin-top:5px}.port-node:hover{background:#edf6f3}.port-icon{width:14px;height:11px;border:2px solid #557078;border-radius:2px;position:relative}.port-icon:after{content:'';position:absolute;width:6px;height:2px;background:#557078;bottom:-5px;left:2px}.no-binding{padding:9px;text-align:center;color:#8a969a;font-size:11px;border:1px dashed #d8dfe1;border-radius:4px}.terminal-strip,.pulse-panel{margin-top:14px;padding-top:14px;border-top:1px solid #e3e8e9}.terminal-list{display:flex;gap:8px;overflow:auto;padding-bottom:2px}.terminal-list button{min-width:205px;display:grid;grid-template-columns:32px 1fr auto;align-items:center;gap:8px;border:1px solid #dce3e5;background:#fff;border-radius:5px;padding:8px;text-align:left;cursor:pointer}.host-glyph{width:32px;height:32px;background:#44636d}.operation-table{display:flex;flex-direction:column;border:1px solid #e0e6e7;border-radius:5px;overflow:hidden}.operation-table button{display:grid;grid-template-columns:55px minmax(0,1fr) auto;align-items:center;gap:10px;padding:9px 11px;border:0;border-bottom:1px solid #e8edee;background:#fff;text-align:left;cursor:pointer}.operation-table button:hover{background:#f4f8f7}.operation-id{font:700 11px ui-monospace,monospace;color:#67777c}.inspector-tabs{display:grid;grid-template-columns:1fr 1fr;border-bottom:1px solid #dfe5e7;margin:0 -4px 15px}.inspector-tabs button{border:0;border-bottom:2px solid transparent;background:transparent;padding:9px;font-weight:750;color:#68777c;cursor:pointer}.inspector-tabs button.active{border-color:#14776a;color:#125f56}.object-type{color:#0d7a6b;font-size:10px;font-weight:900;margin:0}.inspector-content h3{font-size:19px;margin:5px 0 14px;overflow-wrap:anywhere}.inspector-content dl,.preview-scope{display:grid;grid-template-columns:minmax(86px,auto) minmax(0,1fr);gap:9px 12px;margin:0}.inspector-content dt,.preview-scope dt{font-size:11px;color:#748287}.inspector-content dd,.preview-scope dd{margin:0;font-size:12px;font-weight:700;overflow-wrap:anywhere}.operation-actions{margin-top:18px;flex-wrap:wrap}.technical-view{white-space:pre-wrap;overflow-wrap:anywhere;background:#172126;color:#d9ebe6;border-radius:5px;padding:12px;font:11px/1.55 ui-monospace,monospace;max-height:58vh;overflow:auto}.pane-empty,.empty-state{text-align:center;color:#7b888d;padding:34px 12px}.pane-empty strong{display:block;color:#48585e}.pane-empty p,.quiet-copy{color:#839095;font-size:12px}.empty-state.compact{padding:24px}.modal-backdrop{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;padding:20px;background:rgba(18,30,34,.55)}.modal{width:min(680px,100%);max-height:calc(100vh - 40px);overflow:auto;background:#fff;border-radius:7px;box-shadow:0 20px 60px rgba(0,0,0,.25)}.modal>header{position:sticky;top:0;z-index:2;display:flex;justify-content:space-between;align-items:center;padding:18px 20px;background:#fff;border-bottom:1px solid #e0e6e7}.modal h2{margin:4px 0 0;font-size:22px}.steps{display:grid;grid-template-columns:repeat(3,1fr);background:#f1f4f4;border-bottom:1px solid #e0e6e7}.steps span{padding:10px;text-align:center;font-size:11px;font-weight:750;color:#8a969a}.steps span.active{background:#e4f2ee;color:#12685c}.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:20px}.form-grid .full{grid-column:1/-1}.form-grid label,.resource-columns label{display:flex;flex-direction:column;gap:6px;font-size:11px;font-weight:750;color:#53646a}.form-grid input,.form-grid select,.resource-columns input,.resource-columns select,.fabric-tools select{width:100%;min-height:39px;border:1px solid #cbd5d8;border-radius:5px;background:#fff;padding:8px 10px;font:inherit;color:#1f2c31}.form-hint{margin:0;color:#718086;font-size:11px}.form-grid footer,.preview-body footer{display:flex;justify-content:flex-end;gap:8px;padding-top:4px}.preview-body{padding:20px}.preview-result{border-left:4px solid;padding:12px 14px;margin-bottom:17px;background:#f4f6f6}.preview-result p{margin:4px 0 0;color:#66767c;font-size:12px}.preview-result.ready{border-color:#1a936f;background:#eaf7f2}.preview-result.blocked{border-color:#cf7c1d;background:#fff4e3}.preview-scope{padding-bottom:16px}.blocker-list{list-style:none;padding:0;margin:0 0 16px}.blocker-list li{display:flex;flex-direction:column;gap:3px;padding:10px;border:1px solid #efce9f;background:#fff9f0;margin-bottom:6px;border-radius:4px}.blocker-list span{font-size:12px;color:#775928}.retained-note{padding:12px;background:#edf4f5;border-radius:5px;margin-bottom:16px}.retained-note p{margin:4px 0 0;color:#5f7076;font-size:12px}.operation-ready{text-align:center;padding:34px 22px}.success-mark{display:grid;place-items:center;width:44px;height:44px;border-radius:50%;margin:0 auto;background:#dff3eb;color:#147057;font-size:24px}.operation-ready h3{margin:13px 0 5px}.operation-ready p{color:#6a797e}.operation-actions.centered{justify-content:center}.resource-modal{width:min(820px,100%)}.resource-columns{display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:20px}.resource-columns form{display:flex;flex-direction:column;gap:11px;border:1px solid #dfe6e7;border-radius:6px;padding:15px}.resource-columns h3,.fabric-tools h3{margin:0;font-size:14px}.fabric-tools{margin:0 20px 20px;padding:15px;border-top:3px solid #405a63;background:#f5f7f7}.fabric-tools>p{font-size:12px;color:#68777c}.fabric-tools>div{display:grid;grid-template-columns:minmax(180px,1fr) auto auto auto;align-items:center;gap:8px}.check{display:flex;align-items:center;gap:6px;font-size:11px}.check input{width:auto}.loading{opacity:.55;pointer-events:none}
+@media(max-width:1050px){.workspace-grid{grid-template-columns:210px minmax(0,1fr)}.inspector-pane{position:static;grid-column:1/-1;max-height:none}.vpc-context{align-items:flex-start;flex-direction:column}.context-facts{justify-content:flex-start}}
+@media(max-width:720px){.next-workbench{padding:14px}.workbench-bar{align-items:flex-start;flex-direction:column}.header-actions{width:100%;flex-wrap:wrap}.header-actions .primary{flex:1}.workspace-grid{grid-template-columns:1fr}.scope-pane,.inspector-pane{position:static;max-height:none}.scope-pane{display:grid;grid-template-columns:1fr 1fr;gap:5px}.scope-pane .section-heading,.scope-pane .legend,.scope-pane .pane-empty{grid-column:1/-1}.atlas-pane{padding:14px}.context-facts{display:grid;grid-template-columns:1fr 1fr;width:100%}.leaf-grid{grid-template-columns:1fr}.terminal-list{flex-direction:column}.terminal-list button{min-width:0;width:100%}.form-grid,.resource-columns{grid-template-columns:1fr}.form-grid .full{grid-column:auto}.fabric-tools>div{grid-template-columns:1fr}.modal-backdrop{padding:8px}.modal{max-height:calc(100vh - 16px)}.operation-table button{grid-template-columns:44px minmax(0,1fr)}.operation-table .status-chip{grid-column:2;justify-self:start}}
+</style>

@@ -7,178 +7,131 @@ import enUS from '../i18n/en-US.js'
 import { deviceApi, interfaceApi, sdnApi } from '../api/index.js'
 
 vi.mock('../api/index.js', () => ({
-  deviceApi: {
-    list: vi.fn(),
-  },
-  interfaceApi: {
-    list: vi.fn(),
-  },
+  deviceApi: { list: vi.fn() },
+  interfaceApi: { list: vi.fn() },
   sdnApi: {
-    listTenants: vi.fn(),
-    createTenant: vi.fn(),
-    listVpcs: vi.fn(),
-    getVpc: vi.fn(),
-    createVpc: vi.fn(),
-    deployVpc: vi.fn(),
-    withdrawVpc: vi.fn(),
-    listPortBindings: vi.fn(),
-    createPortBinding: vi.fn(),
-    startExpansion: vi.fn(),
-    completeExpansion: vi.fn(),
-    listDeployments: vi.fn(),
-    syncValidation: vi.fn(),
-    latestValidation: vi.fn(),
+    listTenants: vi.fn(), createTenant: vi.fn(), listVpcs: vi.fn(), createVpc: vi.fn(),
+    deployVpc: vi.fn(), withdrawVpc: vi.fn(), accessOverview: vi.fn(), previewAccess: vi.fn(),
+    executeAccess: vi.fn(), getOperation: vi.fn(), completeOperation: vi.fn(),
+    withdrawOperation: vi.fn(), reconcileOperation: vi.fn(),
   },
 }))
 
-const testI18n = createI18n({
-  legacy: false,
-  locale: 'zh-CN',
-  messages: { 'zh-CN': zhCN, 'en-US': enUS },
-})
+const i18n = createI18n({ legacy: false, locale: 'zh-CN', messages: { 'zh-CN': zhCN, 'en-US': enUS } })
+const mountPage = () => mount(SdnVpcWorkspace, { global: { plugins: [i18n], stubs: { Teleport: true } } })
 
-const PageHeaderStub = {
-  props: ['title', 'subtitle', 'badge'],
-  template: '<div><h1>{{ title }}</h1><p>{{ subtitle }}</p><slot name="actions" /></div>',
-}
-
-const RouterLinkStub = {
-  props: ['to'],
-  template: '<a href="#"><slot /></a>',
-}
-
-function mountPage() {
-  return mount(SdnVpcWorkspace, {
-    global: {
-      plugins: [testI18n],
-      stubs: { PageHeader: PageHeaderStub, RouterLink: RouterLinkStub },
-    },
-  })
+const operationDetail = {
+  operation_id: 41, status: 'awaiting_validation', expected_host_ip: '192.168.1.3',
+  updated_at: '2026-09-14T10:00:00Z', attempts: [{ attempt_id: 8, kind: 'apply', status: 'success', units: [] }],
 }
 
 describe('SdnVpcWorkspace.vue', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    document.body.innerHTML = ''
-    sdnApi.listTenants.mockResolvedValue({
-      success: true,
-      data: { total: 1, tenants: [{ id: 1, name: 'tenant-a', rd: '100:1', import_rt: '100:1', export_rt: '100:1', l3_vni: 10000, vpc_count: 1 }] },
-    })
-    sdnApi.listVpcs.mockResolvedValue({
-      success: true,
-      data: {
-        total: 1,
-        vpcs: [{
-          id: 2,
-          name: 'vpc-demo',
-          tenant_id: 1,
-          tenant_name: 'tenant-a',
-          cidr: '192.168.1.0/24',
-          gateway_ip: '192.168.1.254',
-          gateway_mac: '00-00-00-00-4e21-01',
-          vni: 20001,
-          vsi_name: 'vpc0002',
-          vsi_interface: 1001,
-          vlan_id: 1001,
-          status: 'active',
-          binding_count: 1,
-        }],
-      },
-    })
-    deviceApi.list.mockResolvedValue({
-      success: true,
-      data: [
-        { id: 4, name: 'Leaf-03', host: '192.168.100.4', platform: 'LSTN', sdn_role: null },
-        { id: 5, name: 'Leaf-04', host: '192.168.100.5', platform: 'LSTN', sdn_role: 'evpn_leaf' },
-      ],
-    })
-    interfaceApi.list.mockResolvedValue({
-      success: true,
-      data: [{ if_index: 3, name: 'GigabitEthernet1/0/3', status: 'up' }],
-    })
-    sdnApi.listPortBindings.mockResolvedValue({
-      success: true,
-      data: { total: 1, port_bindings: [{ id: 9, vpc_id: 2, device_id: 5, interface_name: 'GigabitEthernet1/0/3', if_index: 3, service_instance: 3100, access_vlan: null, status: 'active' }] },
-    })
-    sdnApi.listDeployments.mockResolvedValue({
-      success: true,
-      data: { total: 1, deployments: [{ id: 12, vpc_id: 2, device_id: 5, action: 'create', unit: 'vpc-create-all', status: 'success' }] },
-    })
-    sdnApi.latestValidation.mockResolvedValue({
-      success: true,
-      data: { validation_result: 'active', cached: false, validation_details: { bgp_peer: true } },
-    })
-    sdnApi.deployVpc.mockResolvedValue({ success: true, data: { total: 1, deployments: [] } })
-    sdnApi.syncValidation.mockResolvedValue({
-      success: true,
-      data: { validation_result: 'active', cached: false, validation_details: { arp: true } },
-    })
+    sdnApi.listTenants.mockResolvedValue({ success: true, data: { tenants: [{ id: 1, name: 'tenant-a' }] } })
+    sdnApi.listVpcs.mockResolvedValue({ success: true, data: { vpcs: [{
+      id: 2, name: 'vpc-demo', tenant_id: 1, tenant_name: 'tenant-a', cidr: '192.168.1.0/24',
+      gateway_ip: '192.168.1.254', vni: 10, vsi_name: 'vpna', status: 'active',
+    }] } })
+    deviceApi.list.mockResolvedValue({ success: true, data: [
+      { id: 4, name: 'Leaf-03', host: '192.168.100.4', platform: 'LSTN', sdn_role: null },
+      { id: 5, name: 'Leaf-04', host: '192.168.100.5', platform: 'LSTN', sdn_role: 'evpn_leaf' },
+    ] })
+    interfaceApi.list.mockResolvedValue({ success: true, data: [{ if_index: 3, name: 'GigabitEthernet1/0/3', status: 'up' }] })
+    sdnApi.accessOverview.mockResolvedValue({ success: true, data: {
+      bindings: [{ id: 9, vpc_id: 2, device_id: 5, interface_name: 'GigabitEthernet1/0/3', if_index: 3, service_instance: 3100, status: 'active' }],
+      operations: [{ operation_id: 41, status: 'awaiting_validation', expected_host_ip: '192.168.1.3', updated_at: '2026-09-14T10:00:00Z' }],
+      latest_validation: [{ id: 3, device_id: 5, validation_result: 'active' }],
+      observations: [{ operation_id: 41, device_id: 5, expected_host_ip: '192.168.1.3', host_observed: true, items: [] }],
+    } })
+    sdnApi.getOperation.mockResolvedValue({ success: true, data: operationDetail })
+    sdnApi.previewAccess.mockResolvedValue({ success: true, data: { plan_id: 'plan-1', predeploy_status: 'ready', blocking: [] } })
+    sdnApi.executeAccess.mockResolvedValue({ success: true, data: { operation_id: 42, status: 'awaiting_validation', expected_host_ip: '192.168.1.4' } })
+    sdnApi.completeOperation.mockResolvedValue({ success: true, data: { status: 'validated' } })
+    sdnApi.withdrawOperation.mockResolvedValue({ success: true, data: { status: 'withdrawn' } })
+    sdnApi.reconcileOperation.mockResolvedValue({ success: true, data: { status: 'validated' } })
   })
 
-  it('loads and renders VPC workspace data', async () => {
+  it('renders a VPC-centered map and excludes non-EVPN devices', async () => {
     const wrapper = mountPage()
     await flushPromises()
 
-    expect(wrapper.text()).toContain('SDN / VPC 工作台')
+    expect(wrapper.text()).toContain('网络业务工作台')
     expect(wrapper.text()).toContain('vpc-demo')
     expect(wrapper.text()).toContain('192.168.1.0/24')
+    expect(wrapper.text()).toContain('Leaf-04')
     expect(wrapper.text()).toContain('GigabitEthernet1/0/3')
-    expect(wrapper.text()).toContain('状态快照')
-    expect(wrapper.text()).toContain('最佳实践')
-    expect(wrapper.text()).not.toContain('Leaf-03 · 192.168.100.4')
+    expect(wrapper.text()).toContain('192.168.1.3')
+    expect(wrapper.text()).not.toContain('Leaf-03')
+    expect(sdnApi.accessOverview).toHaveBeenCalledWith(2)
   })
 
-  it('requests a VPC deploy change for selected EVPN node', async () => {
+  it('previews an access request before executing it', async () => {
     const wrapper = mountPage()
     await flushPromises()
-
-    await wrapper.findAll('button').find((button) => button.text() === '生成下发变更单').trigger('click')
+    await wrapper.findAll('button').find((button) => button.text().includes('接入终端')).trigger('click')
     await flushPromises()
 
-    expect(sdnApi.deployVpc).toHaveBeenCalledWith(2, {
-      device_ids: [5],
-      auto_apply: false,
-      include_port_bindings: true,
-    })
-    expect(wrapper.text()).toContain('下发变更单已生成，设备尚未改动')
+    await wrapper.find('select[name="sdn_access_interface"]').setValue('3')
+    await wrapper.find('input[placeholder="192.168.1.0/24"]').setValue('192.168.1.4')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(sdnApi.previewAccess).toHaveBeenCalledWith(2, expect.objectContaining({
+      device_id: 5, if_index: 3, interface_name: 'GigabitEthernet1/0/3', expected_host_ip: '192.168.1.4',
+    }))
+    expect(wrapper.text()).toContain('可以安全执行')
+
+    await wrapper.findAll('button').find((button) => button.text() === '确认并下发').trigger('click')
+    await flushPromises()
+    expect(sdnApi.executeAccess).toHaveBeenCalledWith(2, expect.objectContaining({ plan_id: 'plan-1', auto_apply: true }))
+    expect(wrapper.text()).toContain('配置已下发，等待接线验证')
   })
 
-  it('syncs validation for selected VPC and device', async () => {
+  it('does not allow execution when preview contains blockers', async () => {
+    sdnApi.previewAccess.mockResolvedValue({ success: true, data: {
+      plan_id: 'blocked-plan', predeploy_status: 'unknown',
+      blocking: [{ code: 'sdn.predeploy_unknown', detail: 'evidence is stale' }],
+    } })
     const wrapper = mountPage()
     await flushPromises()
-
-    await wrapper.findAll('button').find((button) => button.text() === '同步状态').trigger('click')
+    await wrapper.findAll('button').find((button) => button.text().includes('接入终端')).trigger('click')
+    await flushPromises()
+    await wrapper.find('select[name="sdn_access_interface"]').setValue('3')
+    await wrapper.find('input[placeholder="192.168.1.0/24"]').setValue('192.168.1.4')
+    await wrapper.find('form').trigger('submit')
     await flushPromises()
 
-    expect(sdnApi.syncValidation).toHaveBeenCalledWith(2, 5, true)
-    expect(wrapper.text()).toContain('状态快照已同步')
+    const confirm = wrapper.findAll('button').find((button) => button.text() === '确认并下发')
+    expect(wrapper.text()).toContain('当前不能执行')
+    expect(wrapper.text()).toContain('evidence is stale')
+    expect(confirm.attributes('disabled')).toBeDefined()
+    expect(sdnApi.executeAccess).not.toHaveBeenCalled()
   })
 
-  it('keeps manual if_index input available when interface list is unavailable', async () => {
-    interfaceApi.list.mockResolvedValue({ success: true, data: [] })
-
+  it('resumes a persisted operation and exposes only valid actions', async () => {
     const wrapper = mountPage()
     await flushPromises()
+    await wrapper.findAll('button').find((button) => button.text().includes('#41')).trigger('click')
+    await flushPromises()
 
-    const interfaceSelect = wrapper.find('select[name="sdn_access_interface"]')
-    const ifIndexInput = wrapper.find('input[name="sdn_access_if_index"]')
+    expect(sdnApi.getOperation).toHaveBeenCalledWith(41)
+    expect(wrapper.text()).toContain('完成接线并验证')
+    expect(wrapper.text()).toContain('撤回此接入口')
+    expect(wrapper.text()).not.toContain('核对真实状态')
 
-    expect(interfaceSelect.exists()).toBe(true)
-    expect(interfaceSelect.attributes('disabled')).toBeDefined()
-    expect(ifIndexInput.exists()).toBe(true)
-    expect(ifIndexInput.attributes('disabled')).toBeUndefined()
-    expect(wrapper.text()).toContain('接口列表只是辅助选择')
+    await wrapper.findAll('button').find((button) => button.text() === '完成接线并验证').trigger('click')
+    await flushPromises()
+    expect(sdnApi.completeOperation).toHaveBeenCalledWith(41, { force_validation: true })
   })
 
-  it('opens best-practice guide', async () => {
+  it('keeps legacy Fabric controls in the resource tools', async () => {
     const wrapper = mountPage()
     await flushPromises()
+    await wrapper.findAll('button').find((button) => button.text() === '资源工具').trigger('click')
 
-    await wrapper.findAll('button').find((button) => button.text() === '最佳实践').trigger('click')
-    await flushPromises()
-
-    expect(document.body.textContent).toContain('SDN / VPC 最佳实践')
-    expect(document.body.textContent).toContain('新建一个 VPC')
-    expect(document.body.textContent).toContain('已有 VPC 扩容接入口')
+    expect(wrapper.text()).toContain('当前 VPC 的设备落地')
+    expect(wrapper.text()).toContain('生成下发变更单')
+    expect(wrapper.text()).toContain('生成撤回变更单')
   })
 })

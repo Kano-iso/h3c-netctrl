@@ -108,6 +108,34 @@ export const sdnApi = {
     apiCall(`/sdn/vpcs/${vpcId}/devices/${deviceId}/validation/sync?force=${force ? 'true' : 'false'}`, { method: 'POST' }),
   latestValidation: (vpcId, deviceId) =>
     apiCall(`/sdn/vpcs/${vpcId}/devices/${deviceId}/validation/latest`),
+
+  // NEXT S1：可信终端接入闭环
+  accessOverview: (vpcId) => apiCall(`/sdn/vpcs/${vpcId}/access-overview`),
+  previewAccess: (vpcId, payload) =>
+    apiCall(`/sdn/vpcs/${vpcId}/access-preview`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  executeAccess: (vpcId, payload) =>
+    apiCall(`/sdn/vpcs/${vpcId}/access`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  getOperation: (operationId) => apiCall(`/sdn/operations/${operationId}`),
+  applyOperation: (operationId) =>
+    apiCall(`/sdn/operations/${operationId}/apply`, { method: 'POST' }),
+  completeOperation: (operationId, payload) =>
+    apiCall(`/sdn/operations/${operationId}/complete`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  withdrawOperation: (operationId, reason = null) =>
+    apiCall(`/sdn/operations/${operationId}/withdraw`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    }),
+  reconcileOperation: (operationId) =>
+    apiCall(`/sdn/operations/${operationId}/reconcile`, { method: 'POST' }),
 }
 
 // 运维终端 —— 在设备上执行命令
