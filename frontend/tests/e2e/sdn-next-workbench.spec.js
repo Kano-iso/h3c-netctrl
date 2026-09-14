@@ -13,6 +13,21 @@ const overview = {
   observations: [{ operation_id: 41, device_id: 5, expected_host_ip: '192.168.1.3', host_observed: true, items: [] }],
 }
 
+const operation = {
+  ...overview.operations[0],
+  device_id: 5,
+  scope: { vpc_id: 2, device_id: 5, if_index: 3, interface_name: 'GigabitEthernet1/0/3' },
+  attempts: [{
+    attempt_id: 8,
+    kind: 'execute',
+    status: 'succeeded',
+    units: [
+      { unit_index: 0, unit_name: 'claim_scope', state: 'succeeded', completed_at: '2026-09-14T10:00:01Z', evidence: { source: 'operation_guard', scope: 'VPC 2 / Leaf-04 / GE1/0/3', summary: 'Scope claimed without conflict.' } },
+      { unit_index: 1, unit_name: 'port_bind', state: 'succeeded', completed_at: '2026-09-14T10:00:06Z', evidence: { source: 'device_readback', scope: 'Leaf-04 / GE1/0/3', summary: 'Binding confirmed by device readback.' } },
+    ],
+  }],
+}
+
 async function installMocks(page) {
   await page.route(/^https?:\/\/[^/]+\/api\//, async (route) => {
     const request = route.request()
@@ -25,7 +40,7 @@ async function installMocks(page) {
     if (url.pathname === '/api/devices/5/interfaces') data = [{ if_index: 3, name: 'GigabitEthernet1/0/3', status: 'up' }]
     if (url.pathname === '/api/sdn/vpcs/2/access-preview') data = { plan_id: 'visual-plan', predeploy_status: 'ready', blocking: [] }
     if (url.pathname === '/api/sdn/vpcs/2/access') data = { operation_id: 42, status: 'awaiting_validation', expected_host_ip: '192.168.1.4' }
-    if (url.pathname === '/api/sdn/operations/41') data = { ...overview.operations[0], attempts: [{ attempt_id: 8, kind: 'apply', status: 'success', units: [] }] }
+    if (url.pathname === '/api/sdn/operations/41') data = operation
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data }) })
   })
 }
@@ -68,5 +83,21 @@ test.describe('NEXT S1 network service workbench', () => {
     await expect(page.getByText('可以安全执行')).toBeVisible()
     await page.getByRole('button', { name: '确认并下发' }).click()
     await expect(page.getByText('配置已下发，等待接线验证')).toBeVisible()
+  })
+
+  test('shared context moves across Atlas, Pulse and Strata', async ({ page }) => {
+    await page.goto('/#/sdn-vpc', { waitUntil: 'networkidle' })
+    await page.locator('.operation-table').getByRole('button', { name: /192\.168\.1\.3/ }).click()
+    await expect(page.getByText('一次操作的完整生命线')).toBeVisible()
+    await expect(page.getByText('claim_scope')).toBeVisible()
+    await expect(page.getByText('Binding confirmed by device readback.')).toBeVisible()
+
+    await page.getByRole('button', { name: /STRATA/ }).click()
+    await expect(page.getByText('从业务目标深入到设备承载')).toBeVisible()
+    await expect(page.getByText('VNI 10 · vpna')).toBeVisible()
+    await expect(page.getByText('有新证据')).toBeVisible()
+
+    await page.getByRole('button', { name: /ATLAS/ }).click()
+    await expect(page.locator('.stage-label')).toContainText('接入关系')
   })
 })

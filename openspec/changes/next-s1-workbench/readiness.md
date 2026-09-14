@@ -7,6 +7,10 @@
 - 持久化 operation 可从页面重新打开，并按状态提供验证、对账或操作级撤回。
 - 旧版租户/VPC 创建与 Fabric 下发/撤回保留在次级资源工具中。
 - 全局导航补充窄屏收敛，390px 页面无横向溢出。
+- ATLAS、PULSE、STRATA 共享当前 VPC 和选中对象：分别回答业务覆盖、操作过程和跨层依赖。
+- PULSE 将后端 operation/attempt/unit/evidence 译为用户可读的意图、范围、安全边界和执行生命线，不再只显示一个状态值。
+- STRATA 分开显示业务目标、逻辑网络与设备承载，并明确目标、设备观测与系统推断不是同一种事实。
+- 5174 隔离预览显示非生产提示；预览仍不连接生产数据库或设备。
 
 ## Verification
 
@@ -14,10 +18,10 @@
 - `vue-tsc --noEmit`: passed
 - production build: passed
 - component tests: 62 passed
-- Playwright: 45 passed, including desktop, 390px, and preview-to-execute workflow
+- Playwright full baseline: 45 passed; added NEXT focused suite: 4 passed, including desktop, 390px, preview-to-execute, and ATLAS/PULSE/STRATA context switching
 - `openspec validate --strict next-s1-workbench`: passed
 - Device I/O: not performed
 
 ## Pending
 
-- 等待用户确认当前中间体验后，再决定是否进入 OpenSpec archive、主分支集成或继续下一阶段视觉深化。
+- 当前已形成更有辨识度的展示节点；仍等待用户确认后再进入 OpenSpec archive 或主分支集成。后端真实数据联调不由 5174 模拟环境代替。
