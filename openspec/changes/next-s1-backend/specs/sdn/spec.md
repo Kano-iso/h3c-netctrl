@@ -561,3 +561,24 @@
 - **WHEN** 一个已应用 007-011 的旧数据库执行 012 迁移
 - **THEN** 012 为既有表补充缺失的新列与索引
 - **AND** 不因 `sdn_operations` 或既有表已存在而跳过列修复
+
+### Requirement: 操作解释投影（只读，PULSE/STRATA 消费，S1-026）
+
+后端 SHALL 在 operation detail 响应中提供只读、additive 的 `explanation` 投影，保留全部既有字段与原始 `scope`/`evidence` 原样返回。投影 SHALL 是 serializer 纯函数层，不新增表、不迁移、不改 apply/validate/withdraw/reconcile 行为；解释失败 SHALL NOT 让接口 500，而 SHALL 返回明确的 unavailable 降级标记。operation 级 SHALL 至少含 `intent`（稳定 code）、`scope_summary`、`safety_boundary`（含 target 与 claims 是否歧义）、`truth_state`、`headline`；attempt 级 SHALL 含 `explanation`（动作种类、结果、是否已完成、是否仍不确定、证据形态）；unit 级 SHALL 含 `explanation`（至少 `category`/`statement`/`truth_kind`/`source`/`scope`/`observed_at`/`freshness`，`truth_kind` ∈ `desired|observed|inferred|pending`）。无法从真实数据证明的字段 SHALL 为 null，禁止编造；`succeeded` 单元若无观察证据 SHALL 只表达「执行记录成功」，SHALL NOT 冒充「设备已验证成功」。中文展示 SHALL NOT 固化在后端：后端只返回稳定 code/事实字段与简短、语言中性的 fallback statement，具体中文由前端 i18n 完成。
+
+#### Scenario: 执行记录成功不被冒充设备验证成功
+
+- **WHEN** 一个 execute attempt 的所有单元 `succeeded` 且无观察证据，且不存在确定完成的 validate attempt
+- **THEN** operation `truth_state` 为 `succeeded_recorded`（而非 verified），单元 `truth_kind` 为 `desired`、category 为 `execution_record`
+- **AND** 响应仍原样返回原始 `scope` 与单元 `evidence`，未移除或改写
+
+#### Scenario: 设备验证成功与未知/证据不足的区别
+
+- **WHEN** 存在确定完成的 validate attempt（四维证据）且 operation `succeeded`
+- **THEN** operation `truth_state` 为 `verified`，claims 不标歧义
+- **AND** 当 operation 为 `unknown` 或存在 stale takeover / insufficient 证据时，`safety_boundary.ambiguous_claims` 为 true
+
+#### Scenario: 解释失败与畸形证据稳定降级
+
+- **WHEN** evidence 为空、畸形 JSON 或 legacy operation 缺少 scope
+- **THEN** 投影对无法证明的字段返回 null、truth_kind 归为 pending，接口不 500、既有响应字段不变化

@@ -16,16 +16,26 @@ const overview = {
 const operation = {
   ...overview.operations[0],
   device_id: 5,
-  scope: { vpc_id: 2, device_id: 5, if_index: 3, interface_name: 'GigabitEthernet1/0/3' },
+  scope: { vpc_id: 2, vpc_name: 'production-a', device_id: 5, device_name: 'Leaf-04', if_index: 3, interface_name: 'GigabitEthernet1/0/3', expected_host_ip: '192.168.1.3' },
+  explanation: {
+    intent: 'access_bind',
+    scope_summary: 'vpc=production-a device=Leaf-04 if=GigabitEthernet1/0/3(3) host=192.168.1.3',
+    truth_state: 'pending',
+    safety_boundary: { target: { device_id: 5, if_index: 3, interface_name: 'GigabitEthernet1/0/3' }, target_only: true, ambiguous_claims: false },
+  },
   attempts: [{
     attempt_id: 8,
     kind: 'execute',
     status: 'succeeded',
     units: [
-      { unit_index: 0, unit_name: 'claim_scope', state: 'succeeded', completed_at: '2026-09-14T10:00:01Z', evidence: { source: 'operation_guard', scope: 'VPC 2 / Leaf-04 / GE1/0/3', summary: 'Scope claimed without conflict.' } },
-      { unit_index: 1, unit_name: 'port_bind', state: 'succeeded', completed_at: '2026-09-14T10:00:06Z', evidence: { source: 'device_readback', scope: 'Leaf-04 / GE1/0/3', summary: 'Binding confirmed by device readback.' } },
+      { unit_index: 0, unit_name: 'vsi-l2', state: 'succeeded', completed_at: '2026-09-14T10:00:01Z', evidence: null, explanation: { category: 'execution_record', truth_kind: 'desired', source: 'execution_record', scope: null, observed_at: null, freshness: null } },
+      { unit_index: 1, unit_name: 'port-bind', state: 'succeeded', completed_at: '2026-09-14T10:00:06Z', evidence: { reconciled: true }, explanation: { category: 'readback_verified', truth_kind: 'observed', source: 'snapshot', scope: operationScope(), observed_at: '2026-09-14T10:00:06Z', freshness: null } },
     ],
   }],
+}
+
+function operationScope() {
+  return { vpc_name: 'production-a', device_name: 'Leaf-04', interface_name: 'GigabitEthernet1/0/3', expected_host_ip: '192.168.1.3' }
 }
 
 async function installMocks(page) {
@@ -89,8 +99,9 @@ test.describe('NEXT S1 network service workbench', () => {
     await page.goto('/#/sdn-vpc', { waitUntil: 'networkidle' })
     await page.locator('.operation-table').getByRole('button', { name: /192\.168\.1\.3/ }).click()
     await expect(page.getByText('一次操作的完整生命线')).toBeVisible()
-    await expect(page.getByText('claim_scope')).toBeVisible()
-    await expect(page.getByText('Binding confirmed by device readback.')).toBeVisible()
+    await expect(page.getByText('vsi-l2')).toBeVisible()
+    await expect(page.getByText('配置执行已记录，但尚未由设备回读验证。')).toBeVisible()
+    await expect(page.getByText('设备回读已确认目标状态。')).toBeVisible()
 
     await page.getByRole('button', { name: /STRATA/ }).click()
     await expect(page.getByText('从业务目标深入到设备承载')).toBeVisible()

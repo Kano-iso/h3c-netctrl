@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "package_id": "S1-024",
+  "package_id": "S1-026",
   "change_id": "next-s1-backend",
   "baseline_sha": "6cd19fbfca9fab47896236debbb37816310eb915",
   "worktree": "/root/workpace/h3c-netctrl/.agent-worktrees/next-s1-backend",
@@ -77,9 +77,45 @@
     "ops-toolkit/scripts/debug-v24-filter-test.py (deleted)",
     "ops-toolkit/scripts/debug-v24-filter-wrap.py (deleted)",
     "ops-toolkit/scripts/debug-v24-iface-100.py (deleted)",
-    "backend/tests/test_s1_024_credential_hygiene.py"
+    "backend/tests/test_s1_024_credential_hygiene.py",
+    "backend/app/services/sdn_explanation.py",
+    "backend/tests/test_sdn_explanation.py"
   ],
   "requirements": [
+    {
+      "id": "CR44",
+      "summary": "operation 解释投影（只读 serializer）：GET /api/sdn/operations/{id} 新增 explanation 投影（operation/attempt/unit 三级），保留既有字段与原始 scope/evidence，诚实表达（succeeded 无观察证据不冒充设备验证），解释失败不 500（S1-026）",
+      "implementation": "新增 backend/app/services/sdn_explanation.py 纯函数：explain_operation（intent/scope_summary/safety_boundary(target/target_only/ambiguous_claims/protected_interfaces=null)/truth_state(verified|succeeded_recorded|degraded|failed|withdrawn|pending|unknown|applied)/headline/statement）、explain_attempt（kind/summary/result/finished/still_uncertain/evidence_basis/statement）、explain_unit（category/statement/truth_kind=desired|observed|inferred|pending/source/scope/observed_at/freshness=null）；sdn_access.py::_operation_to_dict 只组装三级 explanation（additive），_safe_explain 包裹解释失败降级 {'unavailable': true} 绝不 500；不新增表、不迁移、不改 apply/validate/withdraw/reconcile 行为；中文不固化后端（稳定 code + 语言中性 fallback，前端 i18n）",
+      "tests": [
+        "test_operation_succeeded_without_validate_is_recorded_not_verified",
+        "test_operation_verified_only_when_validate_attempt_succeeded",
+        "test_operation_failed_validate_does_not_claim_verified",
+        "test_operation_unknown_marks_ambiguous_claims",
+        "test_operation_resolved_after_stale_takeover_is_not_still_ambiguous",
+        "test_operation_insufficient_evidence_marks_ambiguous",
+        "test_operation_withdraw_intent_and_target_only",
+        "test_operation_legacy_apply_is_not_single_interface",
+        "test_operation_pending_statuses",
+        "test_attempt_validate_four_dimension_basis",
+        "test_attempt_insufficient_evidence_basis_and_statement",
+        "test_attempt_stale_takeover_basis",
+        "test_attempt_execute_execution_record_basis_no_evidence",
+        "test_attempt_failed_known_is_determinate_not_uncertain",
+        "test_attempt_unfinished_uncertain",
+        "test_unit_succeeded_without_evidence_is_desired_record_only",
+        "test_unit_failed_known_definitive_is_observed_device_rejection",
+        "test_unit_unknown_is_pending",
+        "test_unit_failed_known_non_definitive_is_uncertain",
+        "test_unit_started_and_not_started_pending",
+        "test_unit_reconciled_execute_is_observed",
+        "test_unit_reconciled_withdraw_is_inferred_syntax_match",
+        "test_projection_functions_never_raise_on_garbage",
+        "test_unit_scope_null_when_attempt_has_no_scope",
+        "test_api_operation_detail_has_explanation_and_raw_fields_intact",
+        "test_api_operation_withdraw_explanation_truth",
+        "test_api_operation_detail_survives_malformed_historical_json"
+      ]
+    },
     {
       "id": "CR43",
       "summary": "ZTP 渲染凭据边界加固：安全原子写（重渲染不放宽 0600）+ entrypoint 环境注入渲染（无秘密拼入源码/命令行）（S1-024）",
@@ -361,7 +397,9 @@
     "活跃源码（生产路径/活动文档/测试）不携带真实设备默认口令字面量；archive/ 历史与历史发布记录不改写（用户外部轮换）",
     "ZTP 渲染输出（autocfg.cfg）始终 0600：临时文件创建即 0600（umask 077 + O_EXCL）、os.replace 后显式 chmod，重渲染不得放宽权限",
     "ztp-stack 渲染脚本不把任何秘密拼入 python 源码/命令行：所有渲染变量经 os.environ 传递，特殊字符（单引号/反斜杠/换行等）原样渲染、不执行注入",
-    "失败/中断不残留宽权限或含口令的中间文件（trap/unlink 清理）"
+    "失败/中断不残留宽权限或含口令的中间文件（trap/unlink 清理）",
+    "GET /api/sdn/operations/{id} 解释投影 additive：全部既有字段与原始 scope/evidence 原样返回，不得移除或改写；解释失败返回 {'unavailable': true} 降级标记，接口绝不 500",
+    "诚实表达：succeeded 单元无观察证据只表达执行记录成功（succeeded_recorded/desired/not device-verified），不得冒充设备已验证成功；无法从真实数据证明的字段（protected_interfaces、unit freshness 等）一律 null，禁止编造"
   ],
   "tests": [
     {
@@ -441,6 +479,18 @@
       "environment": "qa-backend 容器（+ops-toolkit scripts 挂载；S1-024/S1-023 受影响文件 + S1-016~022 + validation/access/service/migration + runner 对抗）",
       "result": "187 passed / 16 skipped（skip 全为 integration 门控：reallife/backup/vpn/split/ops_toolkit_paramiko/smoke 的 --integration 用例；S1-020 时 74/1、S1-021 时 90/1、S1-022 时 95/1、S1-023 时 181/16）",
       "baseline_failed": false
+    },
+    {
+      "command": "docker compose -f openspec/changes/next-s1-backend/qa/docker-compose.qa.yml run --rm qa-backend python -m pytest tests/test_sdn_explanation.py -q",
+      "environment": "qa-backend 容器（S1-026/CR44 新增：纯函数投影契约 + API 级只读投影；不触真机、不读真实凭据）",
+      "result": "27 passed（operation/attempt/unit 三级投影；确定终态不被历史 stale 永久标歧义；无回读证据 observed_at=null；畸形历史 JSON 安全降级；API 旧字段保留、不 500）",
+      "baseline_failed": false
+    },
+    {
+      "command": "docker compose -f openspec/changes/next-s1-backend/qa/docker-compose.qa.yml run --rm -v <worktree>/ops-toolkit/scripts:/opt/ops-toolkit-scripts:ro qa-backend python -m pytest tests/test_sdn_explanation.py tests/test_sdn_access_api.py tests/test_sdn_operation_service.py tests/test_sdn_validation_api.py tests/test_sdn_apply_endpoint.py -q",
+      "environment": "qa-backend 容器（+ops-toolkit scripts 挂载；S1-026 受影响回归：access/operation_service/validation/apply + 投影）",
+      "result": "65 passed（投影 27 条 + 受影响回归 38 条）",
+      "baseline_failed": false
     }
   ],
   "migrations": [
@@ -453,7 +503,7 @@
   ],
   "device_io": [
     {
-      "round": "S1-020（历史执行 2026-09-10；S1-021/S1-022/S1-023/S1-024 均未触真机、无任何设备 I/O）",
+      "round": "S1-020（历史执行 2026-09-10；S1-021/S1-022/S1-023/S1-024/S1-026 均未触真机、无任何设备 I/O）",
       "target": "192.168.100.5 (SWC / S6850 T7064P15 / LSTN)",
       "mode": "write（走 backend API/executor，LSTN→SSH22 CLI）+ ops-toolkit 只读 readback / 测试外精确兜底清理",
       "operations": [
@@ -483,7 +533,9 @@
     "S1-023 本轮未运行真机测试、未执行任何设备 I/O（静态扫描/ztp-stack 模块/API 测试全部在隔离 QA 容器验证）",
     "S1-023 未修改设备口令、未轮换凭据（历史已暴露，用户须在设备与 .env 外部轮换；本包不重写 Git 历史、不改 archive/ 历史 change 与历史发布记录）",
     "S1-024 本轮未运行真机测试、未执行任何设备 I/O（CR43 修复与对抗测试全部在隔离 QA 容器验证）",
-    "S1-024 未修改设备口令、未轮换凭据（历史已暴露，用户须在设备与 .env 外部轮换；本包不重写 Git 历史、不改 archive/ 历史 change 与历史发布记录）"
+    "S1-024 未修改设备口令、未轮换凭据（历史已暴露，用户须在设备与 .env 外部轮换；本包不重写 Git 历史、不改 archive/ 历史 change 与历史发布记录）",
+    "S1-026 本轮未运行真机测试、未执行任何设备 I/O（解释投影与对抗测试全部在隔离 QA 容器验证）",
+    "S1-026 未新增表/未迁移数据库/未修改 apply/validate/withdraw/reconcile 执行语义/未修改 ops-toolkit"
   ],
   "ready_for_code_review": true,
   "code_review_passed": true

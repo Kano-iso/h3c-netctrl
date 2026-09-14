@@ -447,6 +447,28 @@ export default {
       scope: '作用范围',
       safety: '变更边界',
       scoped_change: '仅本次接入口',
+      shared_change: '涉及共享网络资源',
+      intent_code: {
+        access_unbind: '撤回本次终端接入', legacy_apply: '执行兼容配置操作',
+      },
+      truth_kind: {
+        desired: '执行记录', observed: '设备观测', inferred: '系统推断', pending: '尚未确定',
+      },
+      evidence_category: {
+        execution_record: '配置执行已记录，但尚未由设备回读验证。',
+        readback_verified: '设备回读已确认目标状态。',
+        readback_syntax_match: '设备回读未再发现目标配置，系统据此判定撤回完成。',
+        readback_verified_failure: '设备回读确认目标状态未达成。',
+        device_rejection: '设备明确拒绝了本次配置。',
+        failure_uncertain: '执行失败，但当前证据不足以确定设备最终状态。',
+        uncertain_outcome: '执行结果未知，需要核对设备真实状态。',
+        in_progress: '此步骤正在执行，尚未形成最终结论。',
+        not_finished: '此步骤尚未开始。',
+      },
+      evidence_source: {
+        execution_record: '平台执行记录', snapshot: '设备状态快照', device_response: '设备响应',
+        execute: '配置执行', validate: '状态验证', withdraw: '配置撤回', reconcile: '状态核对',
+      },
       unit_evidence_pending: '此执行单元尚无可展示的设备证据。',
       inspect_evidence: '查看证据',
       no_unit_evidence: '这条操作尚未返回逐单元执行记录。',

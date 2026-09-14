@@ -72,6 +72,35 @@ function formatTime(value) {
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
 }
+function translatedCode(group, code, fallback = '') {
+  if (!code) return fallback
+  const key = `sdn.next.${group}.${code}`
+  const value = t(key)
+  return value === key ? (fallback || code) : value
+}
+function operationIntent(operation) {
+  const code = operation?.explanation?.intent
+  if (code === 'access_bind') return t('sdn.next.intent_connect', { host: operation.expected_host_ip || t('sdn.next.terminal') })
+  return translatedCode('intent_code', code, operation?.operation_type || t('sdn.next.terminal_access'))
+}
+function unitExplanation(unit) {
+  const explanation = unit?.explanation
+  if (!explanation || explanation.unavailable) return unit?.evidence?.summary || t('sdn.next.unit_evidence_pending')
+  return translatedCode('evidence_category', explanation.category, explanation.statement || t('sdn.next.unit_evidence_pending'))
+}
+function evidenceSource(unit) {
+  const source = unit?.explanation?.source || unit?.evidence?.source || unit?.attempt_kind
+  return translatedCode('evidence_source', source, source || t('sdn.next.unknown'))
+}
+function evidenceScope(unit) {
+  const scope = unit?.explanation?.scope || unit?.evidence?.scope
+  if (!scope) return selectedVpc.value?.name || t('sdn.next.unknown')
+  if (typeof scope === 'string') return scope
+  return [scope.vpc_name, scope.device_name, scope.interface_name, scope.expected_host_ip].filter(Boolean).join(' / ') || selectedVpc.value?.name || t('sdn.next.unknown')
+}
+function truthLabel(unit) {
+  return translatedCode('truth_kind', unit?.explanation?.truth_kind, statusMeta(unit?.state).label)
+}
 function clearNotice() { error.value = ''; message.value = '' }
 
 async function loadBase() {
@@ -304,14 +333,14 @@ onMounted(loadBase)
             </div>
             <template v-else>
               <div class="intent-ribbon">
-                <span><small>{{ t('sdn.next.intent') }}</small><strong>{{ t('sdn.next.intent_connect', { host: focusedOperation.expected_host_ip || t('sdn.next.terminal') }) }}</strong></span>
-                <i></i><span><small>{{ t('sdn.next.scope') }}</small><strong>{{ deviceById(focusedOperation.device_id)?.name || `#${focusedOperation.device_id}` }}</strong></span>
-                <i></i><span><small>{{ t('sdn.next.safety') }}</small><strong>{{ t('sdn.next.scoped_change') }}</strong></span>
+                <span><small>{{ t('sdn.next.intent') }}</small><strong>{{ operationIntent(focusedOperation) }}</strong></span>
+                <i></i><span><small>{{ t('sdn.next.scope') }}</small><strong>{{ focusedOperation.explanation?.scope_summary || deviceById(focusedOperation.device_id)?.name || `#${focusedOperation.device_id}` }}</strong></span>
+                <i></i><span><small>{{ t('sdn.next.safety') }}</small><strong>{{ focusedOperation.explanation?.safety_boundary?.target_only === false ? t('sdn.next.shared_change') : t('sdn.next.scoped_change') }}</strong></span>
               </div>
               <div class="timeline" v-if="focusedUnits.length">
                 <article v-for="(unit, index) in focusedUnits" :key="`${unit.attempt_kind}-${unit.unit_index}`" :class="statusMeta(unit.state).tone">
                   <div class="timeline-rail"><span>{{ index + 1 }}</span><i></i></div>
-                  <div class="timeline-copy"><header><span><small>{{ unit.attempt_kind }}</small><strong>{{ unit.unit_name }}</strong></span><b>{{ statusMeta(unit.state).label }}</b></header><p>{{ unit.evidence?.summary || t('sdn.next.unit_evidence_pending') }}</p><footer><span>{{ formatTime(unit.completed_at || unit.started_at) }}</span><button @click="selectObject('evidence', unit)">{{ t('sdn.next.inspect_evidence') }}</button></footer></div>
+                  <div class="timeline-copy"><header><span><small>{{ unit.attempt_kind }}</small><strong>{{ unit.unit_name }}</strong></span><b>{{ truthLabel(unit) }}</b></header><p>{{ unitExplanation(unit) }}</p><footer><span>{{ formatTime(unit.explanation?.observed_at || unit.completed_at || unit.started_at) }}</span><button @click="selectObject('evidence', unit)">{{ t('sdn.next.inspect_evidence') }}</button></footer></div>
                 </article>
               </div>
               <p v-else class="quiet-copy">{{ t('sdn.next.no_unit_evidence') }}</p>
@@ -345,7 +374,7 @@ onMounted(loadBase)
             <template v-else-if="selectedObject.kind === 'device'"><p class="object-type">EVPN LEAF</p><h3>{{ selectedObject.value.name }}</h3><dl><dt>{{ t('sdn.next.management_ip') }}</dt><dd>{{ selectedObject.value.host }}</dd><dt>{{ t('sdn.next.platform') }}</dt><dd>{{ selectedObject.value.platform || '—' }}</dd><dt>{{ t('sdn.next.access_count') }}</dt><dd>{{ bindingForLeaf(selectedObject.value.id).length }}</dd></dl></template>
             <template v-else-if="selectedObject.kind === 'binding'"><p class="object-type">ACCESS PORT</p><h3>{{ selectedObject.value.interface_name }}</h3><dl><dt>{{ t('sdn.next.device') }}</dt><dd>{{ deviceById(selectedObject.value.device_id)?.name || selectedObject.value.device_id }}</dd><dt>if_index</dt><dd>{{ selectedObject.value.if_index }}</dd><dt>Service instance</dt><dd>{{ selectedObject.value.service_instance }}</dd></dl></template>
             <template v-else-if="selectedObject.kind === 'operation'"><p class="object-type">OPERATION</p><h3>#{{ selectedObject.value.operation_id }}</h3><span class="status-chip large" :class="statusMeta(selectedObject.value.status).tone">{{ statusMeta(selectedObject.value.status).label }}</span><dl><dt>{{ t('sdn.next.host') }}</dt><dd>{{ selectedObject.value.expected_host_ip || '—' }}</dd><dt>{{ t('sdn.next.updated') }}</dt><dd>{{ formatTime(selectedObject.value.updated_at) }}</dd></dl><div class="operation-actions"><button v-if="canComplete(selectedObject.value)" class="primary" @click="runOperation('complete')">{{ t('sdn.next.verify_now') }}</button><button v-if="canReconcile(selectedObject.value)" class="secondary" @click="runOperation('reconcile')">{{ t('sdn.next.reconcile') }}</button><button v-if="canWithdraw(selectedObject.value)" class="danger-text" @click="runOperation('withdraw')">{{ t('sdn.next.withdraw_access') }}</button></div></template>
-            <template v-else><p class="object-type">EVIDENCE</p><h3>{{ selectedObject.value.unit_name }}</h3><span class="status-chip large" :class="statusMeta(selectedObject.value.state).tone">{{ statusMeta(selectedObject.value.state).label }}</span><dl><dt>{{ t('sdn.next.source') }}</dt><dd>{{ selectedObject.value.evidence?.source || selectedObject.value.attempt_kind }}</dd><dt>{{ t('sdn.next.scope') }}</dt><dd>{{ selectedObject.value.evidence?.scope || selectedVpc.name }}</dd><dt>{{ t('sdn.next.observed_at') }}</dt><dd>{{ formatTime(selectedObject.value.completed_at) }}</dd></dl></template>
+            <template v-else><p class="object-type">EVIDENCE</p><h3>{{ selectedObject.value.unit_name }}</h3><span class="status-chip large" :class="statusMeta(selectedObject.value.state).tone">{{ truthLabel(selectedObject.value) }}</span><p class="evidence-statement">{{ unitExplanation(selectedObject.value) }}</p><dl><dt>{{ t('sdn.next.source') }}</dt><dd>{{ evidenceSource(selectedObject.value) }}</dd><dt>{{ t('sdn.next.scope') }}</dt><dd>{{ evidenceScope(selectedObject.value) }}</dd><dt>{{ t('sdn.next.observed_at') }}</dt><dd>{{ formatTime(selectedObject.value.explanation?.observed_at) }}</dd></dl></template>
           </div><pre v-else class="technical-view">{{ JSON.stringify(selectedObject.value, null, 2) }}</pre>
         </template>
       </aside>
@@ -381,4 +410,7 @@ onMounted(loadBase)
 @media(max-width:1050px){.workspace-grid{grid-template-columns:210px minmax(0,1fr)}.inspector-pane{position:static;grid-column:1/-1;max-height:none}.vpc-context{align-items:flex-start;flex-direction:column}.context-facts{justify-content:flex-start}}
 @media(max-width:720px){.next-workbench{padding:14px}.workbench-bar{align-items:flex-start;flex-direction:column}.header-actions{width:100%;flex-wrap:wrap}.header-actions .primary{flex:1}.workspace-grid{grid-template-columns:1fr}.scope-pane,.inspector-pane{position:static;max-height:none}.scope-pane{display:grid;grid-template-columns:1fr 1fr;gap:5px}.scope-pane .section-heading,.scope-pane .legend,.scope-pane .pane-empty{grid-column:1/-1}.atlas-pane{padding:14px}.context-facts{display:grid;grid-template-columns:1fr 1fr;width:100%}.leaf-grid{grid-template-columns:1fr}.terminal-list{flex-direction:column}.terminal-list button{min-width:0;width:100%}.form-grid,.resource-columns{grid-template-columns:1fr}.form-grid .full{grid-column:auto}.fabric-tools>div{grid-template-columns:1fr}.modal-backdrop{padding:8px}.modal{max-height:calc(100vh - 16px)}.operation-table button{grid-template-columns:44px minmax(0,1fr)}.operation-table .status-chip{grid-column:2;justify-self:start}}
 @media(max-width:720px){.perspective-switch{width:100%}.perspective-switch button{align-items:flex-start;flex-direction:column;gap:2px}.perspective-switch small{white-space:normal}.intent-ribbon{grid-template-columns:1fr}.intent-ribbon>i{width:1px;height:14px;margin:4px 0}.physical-grid{grid-template-columns:1fr}.perspective-heading{flex-direction:column}.perspective-heading>p{text-align:left}.strata-layer{grid-template-columns:30px minmax(0,1fr)}.strata-layer>b{grid-column:2;justify-self:start}}
+.vpc-copy strong{font-size:13px;line-height:1.2;overflow-wrap:normal}
+@media(max-width:720px){.scope-pane{display:block}.vpc-copy strong{white-space:nowrap}}
+.evidence-statement{margin:0 0 14px;padding:10px;border-left:3px solid #198568;background:#f1f7f5;color:#52656a;font-size:12px}
 </style>

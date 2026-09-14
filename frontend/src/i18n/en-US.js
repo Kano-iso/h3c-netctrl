@@ -442,6 +442,28 @@ export default {
       scope: 'Scope',
       safety: 'Change boundary',
       scoped_change: 'This access only',
+      shared_change: 'Includes shared network resources',
+      intent_code: {
+        access_unbind: 'Withdraw this endpoint access', legacy_apply: 'Run a compatibility operation',
+      },
+      truth_kind: {
+        desired: 'Execution record', observed: 'Device observation', inferred: 'System inference', pending: 'Undetermined',
+      },
+      evidence_category: {
+        execution_record: 'Configuration execution is recorded but has not been verified by device readback.',
+        readback_verified: 'Device readback confirms the target state.',
+        readback_syntax_match: 'The target configuration is absent from device readback, supporting the withdrawal result.',
+        readback_verified_failure: 'Device readback confirms that the target state was not reached.',
+        device_rejection: 'The device explicitly rejected this configuration.',
+        failure_uncertain: 'Execution failed, but current evidence cannot establish the final device state.',
+        uncertain_outcome: 'The outcome is unknown and requires device-state reconciliation.',
+        in_progress: 'This step is running and has no final result yet.',
+        not_finished: 'This step has not started.',
+      },
+      evidence_source: {
+        execution_record: 'Platform execution record', snapshot: 'Device-state snapshot', device_response: 'Device response',
+        execute: 'Configuration execution', validate: 'State validation', withdraw: 'Configuration withdrawal', reconcile: 'State reconciliation',
+      },
       unit_evidence_pending: 'No displayable device evidence exists for this execution unit yet.',
       inspect_evidence: 'Inspect evidence',
       no_unit_evidence: 'This operation has not returned unit-level execution records.',

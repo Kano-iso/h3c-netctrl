@@ -43,6 +43,7 @@ from app.schemas import (
     SdnWithdrawRequest,
 )
 from app.services.sdn_deployment_executor import SdnDeploymentError, SdnDeploymentExecutor
+from app.services.sdn_explanation import explain_attempt, explain_operation, explain_unit
 from app.services.sdn_operation_service import (
     ACTIVE_PHASE_EXPECTED_KIND,
     SdnOperationError,
@@ -332,12 +333,33 @@ def _validate_interface_identity(interface_name: Optional[str], if_index: Option
     return None
 
 
+def _safe_explain(fn) -> dict:
+    """S1-026: 解释投影失败也绝不让 detail 接口 500 —— 降级为明确 unavailable 标记。"""
+    try:
+        return fn()
+    except Exception:
+        return {"unavailable": True, "reason": "explanation_failed"}
+
+
+def _safe_json(value: Optional[str]):
+    """历史/损坏 JSON 不得让只读 operation detail 失效。"""
+    if not value:
+        return None
+    try:
+        return json.loads(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _operation_to_dict(db: Session, op: SdnOperation) -> dict:
     attempts = db.query(SdnAttempt).filter(SdnAttempt.operation_id == op.id).order_by(SdnAttempt.id).all()
     attempt_data = []
+    attempt_facts = []
     for a in attempts:
         units = db.query(SdnAttemptUnit).filter(SdnAttemptUnit.attempt_id == a.id).order_by(SdnAttemptUnit.unit_index).all()
-        attempt_data.append({
+        attempt_evidence = _safe_json(a.evidence_json)
+        attempt_scope = _safe_json(a.scope_json)
+        attempt_dict = {
             "attempt_id": a.id,
             "kind": a.kind,
             "status": a.status,
@@ -349,15 +371,42 @@ def _operation_to_dict(db: Session, op: SdnOperation) -> dict:
                     "unit_index": u.unit_index,
                     "unit_name": u.unit_name,
                     "state": u.state,
-                    "evidence": json.loads(u.evidence_json) if u.evidence_json else None,
+                    "evidence": _safe_json(u.evidence_json),
                     "started_at": u.started_at,
                     "completed_at": u.completed_at,
                 }
                 for u in units
             ],
+        }
+        # S1-026: attempt 级解释投影（只读、additive；异常降级不 500）
+        attempt_dict["explanation"] = _safe_explain(lambda: explain_attempt({
+            "kind": a.kind,
+            "status": a.status,
+            "started_at": a.started_at,
+            "completed_at": a.completed_at,
+            "evidence": attempt_evidence,
+        }))
+        for u, unit_dict in zip(units, attempt_dict["units"]):
+            unit_evidence = unit_dict["evidence"]
+            unit_dict["explanation"] = _safe_explain(lambda: explain_unit(
+                {
+                    "unit_name": u.unit_name,
+                    "state": u.state,
+                    "evidence": unit_evidence,
+                    "started_at": u.started_at,
+                    "completed_at": u.completed_at,
+                },
+                attempt_kind=a.kind,
+                attempt_scope=attempt_scope,
+            ))
+        attempt_data.append(attempt_dict)
+        attempt_facts.append({
+            "kind": a.kind,
+            "status": a.status,
+            "evidence": attempt_evidence,
         })
-    scope = json.loads(op.scope_json) if op.scope_json else None
-    return {
+    scope = _safe_json(op.scope_json)
+    result = {
         "operation_id": op.id,
         "idempotency_key": op.idempotency_key,
         "operation_type": op.operation_type,
@@ -372,6 +421,17 @@ def _operation_to_dict(db: Session, op: SdnOperation) -> dict:
         "created_at": op.created_at,
         "updated_at": op.updated_at,
     }
+    # S1-026: operation 级解释投影（只读、additive；异常降级不 500）
+    result["explanation"] = _safe_explain(lambda: explain_operation(
+        {
+            "operation_type": op.operation_type,
+            "status": op.status,
+            "expected_host_ip": op.expected_host_ip,
+        },
+        scope,
+        attempt_facts,
+    ))
+    return result
 
 
 # ── 预览 ──

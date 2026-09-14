@@ -216,3 +216,12 @@
 - [x] 27.3 新增对抗测试 `test_s1_024_credential_hygiene.py`（6 条）：特殊字符密码原样渲染不执行注入（模块级 + entrypoint 全量运行级 stub dnsmasq/真实 jinja2）；首次与覆盖重渲染后均 0600；失败路径不残留宽权限/含口令临时文件；缺 env 写盘前明确失败；entrypoint 渲染块静态断言（os.environ 读取、mktemp/chmod/mv/trap）
 - [x] 27.4 QA（本轮未触真机）：S1-024 = **6 passed**；受影响+S1-023+回归 = **187 passed / 16 skipped**（skip 全为 integration 门控）；bash -n / openspec strict / manifest JSON / git diff --check / 活动源码凭据扫描全部干净
 - [x] 27.5 同步 design/tasks/handoff/review-response/review-manifest/readiness 为 S1-024/CR43 口径（package_id=S1-024）
+
+## 28. S1-026（operation 解释投影：只读 serializer，本轮未触真机）
+
+- [x] 28.1 新增 `backend/app/services/sdn_explanation.py` 纯函数投影：operation 级（intent/scope_summary/safety_boundary/truth_state/headline/statement）、attempt 级（kind/summary/result/finished/still_uncertain/evidence_basis/statement）、unit 级（category/statement/truth_kind/source/scope/observed_at/freshness）；truth_kind=desired|observed|inferred|pending；无法证明字段一律 null；succeeded 无观察证据只表达执行记录成功；中文不固化后端
+- [x] 28.2 `sdn_access.py::_operation_to_dict` 只做组装：operation/attempt/unit 三级 `explanation`（additive，保留全部既有字段与原始 scope/evidence 原样）；`_safe_explain` 包裹——解释失败返回 `{"unavailable": true}` 降级标记，绝不 500
+- [x] 28.3 新增对抗测试 `test_sdn_explanation.py`（27 条）：正常 execute/validate/withdraw/reconcile、unknown、空/畸形 evidence、legacy operation；API 级证明 raw evidence 未丢失、旧响应字段未移除、畸形历史 JSON 安全降级、接口不因解释失败而 500
+- [x] 28.4 Codex 复审修正：确定终态不被历史 stale/insufficient 永久标记歧义；无设备证据的执行记录 `observed_at=null`；JSON 解析纳入安全边界
+- [x] 28.5 QA（本轮未触真机）：`test_sdn_explanation.py` = **27 passed**；受影响回归（access/operation_service/validation/apply + 投影）= **65 passed**；`openspec validate --strict` valid；`git diff --check` clean
+- [x] 28.5 同步 design(§27)/tasks(§28)/spec.md(新 Requirement)/readiness/handoff/review-response/review-manifest（package_id=S1-026）/collaboration.md（S1-026 状态）

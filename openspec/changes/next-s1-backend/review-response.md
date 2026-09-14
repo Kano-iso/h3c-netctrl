@@ -1,5 +1,24 @@
 # 复审响应（review-response）
 
+## Codex 最终复审结论（S1-026，2026-09-14）
+
+**CODE_REVIEW_PASSED（经修正）**。首次复审发现三处诚实性/韧性问题并已直接修复：畸形历史 JSON 的解析移入安全边界；已确定终态不再被历史 stale takeover 永久标成当前 claims 歧义；无设备回读证据的执行记录不再填写 `observed_at`。后端相关回归 65 passed；前端已消费真实 explanation code，并通过 lint、type-check、build、62 个组件测试和 4 个 NEXT 浏览器流程。本轮未连接设备、未执行设备 I/O。
+
+---
+
+## S1-026（operation 解释投影，只读 serializer，最新；本轮未触真机）
+
+> 本轮为增量只读投影，**不连真机、无任何设备 I/O、不改设备、不重写 Git 历史、不轮换凭据**。`GET /api/sdn/operations/{id}` 响应新增只读、additive 的 `explanation` 投影（保留全部既有字段与原始 `scope`/`evidence` 原样返回）：operation 级 `intent`/`scope_summary`/`safety_boundary`（target + ambiguous_claims + protected_interfaces=null）/`truth_state`/`headline`；attempt 级 `explanation`（kind/result/finished/still_uncertain/evidence_basis/statement）；unit 级 `explanation`（category/statement/truth_kind=desired|observed|inferred|pending/source/scope/observed_at/freshness=null）。投影为 serializer 纯函数层（新增 `services/sdn_explanation.py`，`sdn_access.py::_operation_to_dict` 只组装），不新增表、不迁移、不改 apply/validate/withdraw/reconcile 行为；解释失败 `_safe_explain` 降级 `{"unavailable": true}` 绝不 500。**诚实表达**：succeeded 单元无观察证据只表达「执行记录成功」（truth_state=succeeded_recorded、truth_kind=desired），不冒充「设备已验证成功」；中文不固化后端（稳定 code + 语言中性 fallback，前端 i18n）。
+
+**QA（隔离容器，未触真机）：**
+- `test_sdn_explanation.py` = **27 passed**（含 API 级畸形历史 JSON 安全降级）。
+- 受影响回归（access/operation_service/validation/apply + 投影）= **65 passed**。
+- `openspec validate --strict` valid；manifest JSON valid；`git diff --check` clean；活动源码凭据扫描干净。
+
+**请 Codex 复审重点**：1) 投影契约（intent/truth_state 区分 verified 与 succeeded_recorded、unit truth_kind 的 desired/observed/inferred/pending 归类）是否诚实且数据可证；2) `_safe_explain` 降级与「解释失败不 500」是否满足 PULSE/STRATA 消费要求；3) 投影是否确实 additive——旧字段与原始 evidence 无任何移除/改写。
+
+---
+
 ## Codex 最终复审结论（S1-024，2026-09-11）
 
 **CODE_REVIEW_PASSED**。CR43 两项阻断已闭环：运行时重渲染使用 0600 安全原子写，entrypoint 渲染变量全部经环境读取，不再把密码拼入 Python 源码或命令行。Codex 已复核实现与对抗测试，并再次通过 `bash -n`、OpenSpec strict、manifest JSON、`git diff --check` 和活动源码凭据扫描；本轮未连接真机、未执行设备 I/O。

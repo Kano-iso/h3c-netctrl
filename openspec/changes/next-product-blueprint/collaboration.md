@@ -69,7 +69,7 @@
 |---|---|---|---|
 | 一期产品范围 | 2026-09-07 用户授权分阶段启动，以 §11 为本轮范围；非全蓝图定稿 | Codex 负责范围审核 | [PRD §11](../../../PRD-VNEXT.md) |
 | 后端接手与能力缺口评估 | S1-001 至 S1-004 已完成设计收敛 | 已完成 | `next-s1-backend/review-response.md` |
-| 后端实施 change | S1-005 至 S1-024 已实现并通过代码、安全与一次 `.5` 真机生命周期复审 | 已完成，保留联调支持 | `next-s1-backend/readiness.md`、提交 `62df6d0` |
+| 后端实施 change | S1-005 至 S1-026 已实现；S1-026 解释投影经 Codex 修正并复审通过 | 已完成，保留联调支持 | `next-s1-backend/readiness.md`、`codex/next-s1-backend` 最新检查点 |
 | 前端关键交互与契约对齐 | 首个可展示中间态完成；桌面、390px 与接入主流程自动验证通过 | 等待用户体验确认 | `openspec/changes/next-s1-workbench/readiness.md` |
 | 集成与实景验收 | 前后端能力已在同一开发分支形成检查点；未归档、未合并主线 | Codex 主导，用户验收体验 | PRD §11.8、§11.9 |
 
@@ -175,6 +175,14 @@ S1-005 请求 `d84c0ca2-578d-4c71-95e9-af0898363140` 已返回 READY_FOR_CODE_RE
 - 租户/VPC 创建及 Fabric 下发/撤回仍保留在次级资源工具，没有删除既有能力。
 - QA 证据：lint、类型检查、生产构建通过；62 个组件测试和 45 个 Playwright 浏览器测试通过；桌面和 390px 无横向溢出。本轮没有设备 I/O。
 - 当前边界：这是可展示中间态，不代表全部 NEXT 蓝图完成；等待用户确认体验后再决定归档、集成或继续视觉深化。
+
+### S1-026：operation 解释投影（PULSE/STRATA 消费，只读）
+
+- 实施入口：`openspec/changes/next-s1-backend/`（Codex 修正后复审通过，尚未归档）。
+- 内容：`GET /api/sdn/operations/{id}` 响应新增只读、additive 的 `explanation` 投影——operation 级 intent/scope_summary/safety_boundary/truth_state/headline，attempt 级 kind/result/finished/still_uncertain/evidence_basis，unit 级 category/statement/truth_kind（desired|observed|inferred|pending）/source/scope/observed_at/freshness；保留全部既有字段与原始 scope/evidence 原样返回。
+- 诚实表达：succeeded 单元无观察证据只表达「执行记录成功」（succeeded_recorded/desired），不冒充「设备已验证成功」；无法证明的字段（protected_interfaces、unit freshness）为 null，禁止编造；中文由前端 i18n，后端只回稳定 code + 语言中性 fallback。
+- Codex 复审修正：历史 stale/证据不足不再永久污染已确定终态；无设备证据时不再把执行完成时间显示为观测时间；畸形历史 JSON 不再让详情接口 500。
+- QA 证据：`test_sdn_explanation.py` = 27 passed；受影响回归 = 65 passed；前端 lint/type-check/build、62 个组件测试、4 个 NEXT 浏览器流程通过。本轮没有设备 I/O。
 
 ## 7. 迁移与收尾
 

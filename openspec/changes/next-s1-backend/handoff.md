@@ -1,6 +1,7 @@
-# S1-024 交接记录（handoff）— READY_FOR_CODE_REVIEW（CR43：ZTP 渲染凭据边界加固）
+# S1-026 交接记录（handoff）— READY_FOR_CODE_REVIEW（operation 解释投影，只读）
 
-> **复审状态时间线**：S1-022（2026-09-10）Codex 独立复跑 95 passed / 1 skipped 并完成安全复审 → **CODE_REVIEW_PASSED**。S1-023（凭据卫生）经 Codex 复审发现 **2 项阻断（CR43）**：渲染原子写权限回归 + entrypoint 密码注入。本轮 **S1-024 修复 CR43 后现提交复审：`READY_FOR_CODE_REVIEW`，等待 Codex 复审**（未提前宣称通过；结论见 review-response.md）。
+> **复审状态时间线**：S1-022（2026-09-10）Codex 独立复跑 95 passed / 1 skipped 并完成安全复审 → **CODE_REVIEW_PASSED**。S1-023（凭据卫生）经 Codex 复审发现 2 项阻断（CR43），**S1-024 已修复并经 Codex 复核 → CODE_REVIEW_PASSED**（2026-09-11）。本轮 **S1-026（operation 解释投影）现提交复审：`READY_FOR_CODE_REVIEW`，等待 Codex 复审**（未提前宣称通过；结论见 review-response.md）。
+> **S1-026（本轮，operation 解释投影，只读 serializer，不连真机、无任何设备 I/O）**：`GET /api/sdn/operations/{id}` 响应新增只读、additive 的 `explanation` 投影，供 NEXT 工作台 PULSE/STRATA 消费真实后端语义。**实现**：新增 `backend/app/services/sdn_explanation.py` 纯函数（operation 级 intent/scope_summary/safety_boundary/truth_state/headline；attempt 级 kind/summary/result/finished/still_uncertain/evidence_basis/statement；unit 级 category/statement/truth_kind（desired|observed|inferred|pending）/source/scope/observed_at/freshness）；`sdn_access.py::_operation_to_dict` 只做组装，保留全部既有字段与原始 `scope`/`evidence` 原样返回；`_safe_explain` 包裹——解释失败降级为 `{"unavailable": true}` 绝不 500。**诚实表达**：succeeded 单元无观察证据只表达「执行记录成功」（truth_state=succeeded_recorded、truth_kind=desired、statement 含 not device-verified），绝不冒充「设备已验证成功」；reconcile 单元 execute→observed/readback_verified、withdraw→inferred/readback_syntax_match（结构化语法匹配证明配置缺失）；无法证明字段（protected_interfaces、unit freshness）一律 null，禁止编造。**中文不固化后端**：只回稳定 code + 语言中性 fallback statement，具体中文由前端 i18n 完成。**对抗测试**：新增 `test_sdn_explanation.py`（26 条）——正常 execute/validate/withdraw/reconcile、unknown、空/畸形 evidence、legacy operation 全覆盖 + API 级证明 raw evidence 未丢失、旧响应字段未移除、接口不因解释失败而 500。本轮**未运行真机测试、无任何设备 I/O**。
 
 > **S1-024（本轮，窄整改，不连真机、无任何设备 I/O）**：修复 Codex 复审对 S1-023 的两项阻断——(1) `ztp_runtime_render.render_once` 原子写不彻底：`tmp.write_text` 受进程 umask 影响创建 0644，`tmp.replace` 用临时文件权限替换目标，运行中任何重渲染把 `autocfg.cfg` 从 0600 变回 0644；(2) `entrypoint.sh` 把 `ZTP_ADMIN_PASS` 等环境值直接插进 `python3 -c` 单引号源码，密码含单引号/反斜杠/换行等字符时语法失败甚至代码注入；且 `ZTP_PLATFORM_LONG` 只作 shell 变量未 export。**修复**：`_atomic_write_secret` 安全原子写（创建前 `umask 077` + `os.open(O_CREAT|O_EXCL, 0600)` 创建即 0600 → flush/fsync → `os.replace` → 显式 `os.chmod(0600)`，异常 unlink 临时文件）；entrypoint 渲染改纯环境注入（python3 -c 零 `$`/零单引号插值、全部渲染变量 `os.environ[...]` 读取、`ZTP_PLATFORM_LONG` 补 export、输出 `mktemp`(0600)+chmod 600+`mv -f` 原子替换+trap 清理，不经宽权限中间态）。**对抗测试**：新增 `test_s1_024_credential_hygiene.py`（6 条）——特殊字符密码原样渲染不执行注入（模块级 + entrypoint 全量运行级 stub dnsmasq/真实 jinja2）、首次与覆盖重渲染均 0600、失败路径不残留宽权限/含口令临时文件、缺 env 写盘前明确失败、entrypoint 渲染块静态断言。本轮**未运行真机测试、无任何设备 I/O**。
 
@@ -33,10 +34,12 @@
 `pytest tests/test_s1_020_adversarial.py -q` = **9 passed**（修复前 5 failed / 4 passed 证明 S1-019 基线失败）。
 `pytest tests/test_s1_021_runner_adversarial.py -q` = **21 passed**（S1-021 16 条 + S1-022 新增 5 条，stub/fake 命令，未触真机；见下「S1-022 真机运行与恢复契约」）。
 `pytest tests/test_ztp_recovery.py tests/test_ztp_onboard.py tests/test_s1_023_credential_hygiene.py -q` = **21 passed**（S1-023 新增 11 条 + ZTP recovery 扩展 5 条 + onboard 5 条；未触真机；见下「CR42」）。
+`pytest tests/test_sdn_explanation.py -q` = **27 passed**（S1-026：含畸形历史 JSON 的 API 安全降级；未触真机）。
 `pytest tests/test_s1_024_credential_hygiene.py -q` = **6 passed**（S1-024/CR43：特殊字符密码原样渲染不执行注入（模块级 + entrypoint 全量运行级 stub dnsmasq/真实 jinja2）、首次与覆盖重渲染均 0600、失败路径不残留宽权限/含口令临时文件、缺 env 写盘前明确失败、entrypoint 渲染块静态断言；未触真机；见下「CR43」）。
+`pytest tests/test_sdn_explanation.py tests/test_sdn_access_api.py tests/test_sdn_operation_service.py tests/test_sdn_validation_api.py tests/test_sdn_apply_endpoint.py -q` = **65 passed**（受影响回归 + 投影；未触真机）。
 `pytest tests/test_s1_024_credential_hygiene.py tests/test_ztp_recovery.py tests/test_ztp_onboard.py tests/test_s1_023_credential_hygiene.py tests/test_device_api.py tests/test_ops_toolkit_paramiko.py tests/test_smoke.py tests/test_backup_integration.py tests/test_vpn_integration.py tests/test_split_integration.py tests/test_s1_019_doc_alias.py tests/test_s1_019_reallife.py tests/test_s1_016_adversarial.py tests/test_s1_017_adversarial.py tests/test_s1_018_adversarial.py tests/test_s1_020_adversarial.py tests/test_s1_021_runner_adversarial.py tests/test_sdn_validation_api.py tests/test_sdn_access_api.py tests/test_sdn_operation_service.py tests/test_sdn_migration.py -q` = **187 passed / 16 skipped**（skip 全为 integration 门控：reallife/backup/vpn/split/ops_toolkit_paramiko/smoke 的 `--integration` 用例；S1-020 时 74/1，S1-021 时 90/1，S1-022 时 95/1，S1-023 时 181/16）。
 前端（qa-frontend 镜像，隔离，无 .env）：lint + type-check + build + vitest = **62 passed**（8 文件，含 ZtpRecovery.spec.js 4 条：密码留空/提交 null/显式重输/无字面量）。
-真机一轮（S1-020 历史执行，完整生命周期）：`test_s1_019_reallife.py -m integration --integration` = **1 passed**（49.9s）。**S1-021/S1-022/S1-023/S1-024 均未跑真机、无任何设备 I/O。**
+真机一轮（S1-020 历史执行，完整生命周期）：`test_s1_019_reallife.py -m integration --integration` = **1 passed**（49.9s）。**S1-021/S1-022/S1-023/S1-024/S1-026 均未跑真机、无任何设备 I/O。**
 `openspec validate --strict next-s1-backend` = **valid**；manifest JSON = **valid**；`git diff --check` = **clean**；活动源码凭据扫描（真实默认口令前缀（含截断变体））= **干净**（仅 archive/ 历史与 `RELEASE-NOTES-v2.3.1.md` 按「不改写历史」保留并登记）。
 
 ## CR1-CR10（S1-006 已闭环，回归仍绿）
@@ -165,6 +168,12 @@
 |---|---|---|---|
 | CR43 渲染原子写权限回归 + entrypoint 密码注入 | ✅ | `ztp_runtime_render.py`：`_atomic_write_secret`——临时文件创建前 `umask 077` + `os.open(O_CREAT\|O_EXCL, 0600)`（创建即 0600，规避进程 umask 放宽）→ `os.fdopen` 写入 + flush + fsync → `os.replace` 原子替换 → 显式 `os.chmod(0600)`；任何异常 `unlink` 临时文件（不残留宽权限/含口令中间文件）。`entrypoint.sh`：python3 -c 渲染块改纯环境注入——零 `$`/零单引号插值，全部渲染变量（`ZTP_PLATFORM`/`ZTP_PLATFORM_LONG`/`ZTP_MGMT_IP`/`ZTP_SYSNAME`/`ZTP_ADMIN_USER`/`ZTP_ADMIN_PASS`/`ZTP_HCL_T7064P15`/`ZTP_DATE`/`ZTP_AUTOCFG_TEMPLATE`）`os.environ[...]` 读取；`ZTP_PLATFORM_LONG` 补 export；输出 `mktemp`（创建即 0600）+ 显式 `chmod 600` + `mv -f` 原子替换 + trap 失败清理，不经宽权限中间态 | `test_s1_024_credential_hygiene.py`（6 条）：`test_renderer_special_char_password_verbatim_no_injection`（特殊字符密码模块级原样渲染、无注入、0600）、`test_entrypoint_full_run_special_char_password_verbatim_no_injection`（entrypoint 全量运行级：stub dnsmasq + 真实 jinja2，env 注入渲染原样、无注入、0600、无中间文件）、`test_renderer_first_and_rerender_keep_0600`（首次与覆盖重渲染均 0600，直击 0644 回归）、`test_renderer_failure_leaves_no_wide_secret_temp`（os.replace 失败路径不残留 .tmp/含口令中间文件）、`test_renderer_missing_env_fails_before_any_write`、`test_entrypoint_render_snippet_is_env_only_no_shell_interpolation`（静态断言 os.environ 读取/mktemp/chmod/mv/trap） |
 
+## S1-026（本轮：operation 解释投影，只读 serializer）
+
+- **形态核对**（先看真实证据再定投影，不照抄前端 mock 的 summary/source/scope）：execute/withdraw attempt 的 unit evidence 成功时为 `None`、失败为 `{"error", "definitive"}`、reconcile 解析后为 `{"reconciled", "snapshot_id", "reason"}`；validate attempt 的 attempt-level evidence 为 `{"dimensions", "gateway_ping", "observations"}`（或采集失败 `{"dimensions": {"evidence": {"status": "insufficient"}}}`、stale takeover `{"stale_takeover": true}`）；reconcile attempt 无 units；legacy operation 为 `legacy_apply` 且可能无 scope。
+- **诚实表达缺口登记**：`protected_interfaces` 未持久化于 operation → 投影为 null（不编造）；unit 级 `freshness` 无独立时效时间戳 → null；无回读证据的执行记录 `observed_at=null`；operation `verified` 与 `succeeded_recorded` 的区分依赖 validate attempt 的确定完成。
+- **契约**：operation 级 intent/scope_summary/safety_boundary(target/target_only/ambiguous_claims/protected_interfaces)/truth_state/headline/statement；attempt 级 explanation(kind/summary/result/finished/still_uncertain/evidence_basis/statement/started_at/completed_at)；unit 级 explanation(category/statement/truth_kind/source/scope/observed_at/freshness)，truth_kind ∈ desired|observed|inferred|pending。中文由前端 i18n，后端只回稳定 code + 语言中性 fallback。
+
 ## schema 变化
 
 `openspec/changes/next-s1-backend/` 的 012 migration 已扩展：`sdn_operations` 新增 `active_attempt_id`（Integer, nullable）与 `active_started_at`（DateTime, nullable）两列；`_create_table_if_missing` 对已存在表幂等补列，ORM `SdnOperation` 同步。令牌/租约仅存于数据库持久状态，无进程内锁。
@@ -217,9 +226,10 @@ S1_019_REAL=1 S1_019_REAL_HOST=192.168.100.5 \
 
 ## 下一轮待办
 
-1. 等待 Codex 复审（S1-024 已修复 CR43 两项阻断）；若再审提出新 CR，在本 worktree 继续修正（不新建 change）。
-2. **凭据轮换（外部，用户执行）**：历史已暴露——用户须在**设备**与 `.env`（`DEVICE_PASSWORD`/`ZTP_ADMIN_PASS`）外部轮换真实口令；本包不改设备、不重写 Git 历史、不改 archive/ 历史 change 与 `RELEASE-NOTES-v2.3.1.md` 历史发布记录。
-3. 真机验证轮次须走 `qa/run_s1_019_real_lifecycle.sh`（唯一 runner），不再裸跑 pytest；`ZTP_ADMIN_PASS` 缺失时 ztp-server 按契约 fail closed（先设 `.env` 再启）。
-4. 清理 __pycache__/logs（每轮结尾已执行）。
+1. **S1-026 等待 Codex 复审**（operation 解释投影：已提交 READY_FOR_CODE_REVIEW；若提出新 CR，在本 worktree 继续修正，不新建 change）。
+2. 若 S1-026 之外仍有再审项，同样在本 worktree 继续修正。
+3. **凭据轮换（外部，用户执行）**：历史已暴露——用户须在**设备**与 `.env`（`DEVICE_PASSWORD`/`ZTP_ADMIN_PASS`）外部轮换真实口令；本包不改设备、不重写 Git 历史、不改 archive/ 历史 change 与 `RELEASE-NOTES-v2.3.1.md` 历史发布记录。
+4. 真机验证轮次须走 `qa/run_s1_019_real_lifecycle.sh`（唯一 runner），不再裸跑 pytest；`ZTP_ADMIN_PASS` 缺失时 ztp-server 按契约 fail closed（先设 `.env` 再启）。
+5. 清理 __pycache__/logs（每轮结尾已执行）。
 
 真机链路已按 S1-020 走完完整生命周期（见上表）；仅剩无下联主机导致的数据面边界（跨 leaf/网关 ping/主机 ARP-MAC）为「未验证」而非「伪造成功」。

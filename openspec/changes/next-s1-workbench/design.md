@@ -24,6 +24,8 @@
 
 颜色只作辅助，所有状态同时有文字和图标。原始证据按需展开，不把技术字段铺满首屏。
 
+PULSE 优先消费后端 S1-026 的三级 `explanation` 投影：operation 用 intent/scope/safety，unit 用 category/truth_kind/source/scope/observed_at。前端按稳定 code 做 i18n，保留原始字段到技术详情；后端未提供投影时才兼容旧 evidence summary。执行记录、设备观测、系统推断和未决状态使用不同文字，不以相同“成功”覆盖。
+
 ## Compatibility
 
 VPC 创建和 Fabric 管理继续使用既有 API，放入次级工具区。旧数据缺少 operation 时按“历史信息不完整”显示，不补造过程。
