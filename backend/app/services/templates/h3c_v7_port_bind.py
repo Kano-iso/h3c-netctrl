@@ -61,7 +61,8 @@ class H3cV7PortBindTemplate(VPCConfigTemplate):
     Args (context):
       - binding: SdnPortBinding (interface_name, service_instance, access_vlan)
       - vpc: SdnVpc (id) -- 用于 vsi_name
-      - mode: "auto" | "service_instance" | "access_vlan"
+      - mode: "auto" | "service_instance" | "access_vlan" | "l2"
+        （"l2" = 前端语义别名，等同 "auto"——按 service_instance/access_vlan 自动决策）
 
     Auto 模式: service_instance 非空 → Mode 1, 否则 Mode 2
 
@@ -75,6 +76,9 @@ class H3cV7PortBindTemplate(VPCConfigTemplate):
         binding = context["binding"]
         vpc = context["vpc"]
         mode = context.get("mode", "auto")
+        # S1-027: 前端语义 "l2"（L2 接入）归一化为 auto（service_instance 优先，access_vlan fallback）
+        if mode == "l2":
+            mode = "auto"
 
         vsi_name = _vsi_name(vpc.id)
         iface = binding.interface_name

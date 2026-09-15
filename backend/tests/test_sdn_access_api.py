@@ -84,6 +84,31 @@ def test_preview_persists_plan_only(client, db):
     assert db.query(SdnOperation).count() == 0
 
 
+def test_access_mode_l2_alias_preview_and_execute(client, db):
+    """S1-027 契约回归：前端以语义 mode='l2' 请求接入——服务端不得 422/500，
+    plan_port_bind 将 'l2' 归一化为 auto（service_instance 优先语义）。"""
+    device, _, vpc = _seed_ready(client, db)
+    body = {**_preview_body(device), "mode": "l2"}
+    resp = client.post(f"/api/sdn/vpcs/{vpc.id}/access-preview", json=body)
+    assert resp.status_code == 200, resp.text
+    data = resp.json()["data"]
+    assert data["plan_id"]
+    assert data["predeploy_status"] == "ready"
+    assert data["blocking"] == []
+
+    exec_body = {**body, "idempotency_key": "key-mode-l2-0001", "plan_id": data["plan_id"], "auto_apply": False}
+    resp2 = client.post(f"/api/sdn/vpcs/{vpc.id}/access", json=exec_body)
+    assert resp2.status_code == 200, resp2.text
+    data2 = resp2.json()["data"]
+    assert data2["operation_id"]
+    assert data2["status"] == "awaiting_wiring"
+    # 'l2' → auto → service_instance 语义（access_vlan 为 null 时走 service-instance 模板）
+    dep = db.query(SdnDeployment).filter(SdnDeployment.operation_id == data2["operation_id"]).one()
+    pc = dep.planned_config or ""
+    assert "service-instance" in pc
+    assert "port access vlan" not in pc
+
+
 def test_access_creates_operation_binding_deployment(client, db):
     device, _, vpc = _seed_ready(client, db)
     plan_id = client.post(f"/api/sdn/vpcs/{vpc.id}/access-preview", json=_preview_body(device)).json()["data"]["plan_id"]

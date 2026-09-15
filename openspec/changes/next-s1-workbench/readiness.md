@@ -12,6 +12,10 @@
 - STRATA 分开显示业务目标、逻辑网络与设备承载，并明确目标、设备观测与系统推断不是同一种事实。
 - 5174 隔离预览显示非生产提示；预览仍不连接生产数据库或设备。
 - PULSE 已消费后端 S1-026 explanation 契约；执行记录、设备观测、系统推断和未决状态分别展示，不再依赖 mock 专属 summary。
+- S1-027 真实应用栈隔离联调：独立镜像 + 隔离 compose + seed/边界 fake/launcher + 独立 Playwright spec（`tests/stack-qa/`），浏览器驱动真实 FastAPI + 隔离 SQLite + 真实 vite dev 完成接入故事，无 page.route mock、无真机 I/O。
+- S1-028 整改（可复现性 + 硬隔离）：`qa/Dockerfile.stack-qa` 改 FROM **公开固定基础镜像 node:20-alpine** 独立构建（apk python3/venv/系统 chromium；前端依赖走仓库锁文件 `npm ci`，失败即构建失败、删除 `|| true` 吞错，不依赖任何本项目预构建镜像）；compose 运行容器 **`network_mode: none`**（构建期联网下载公开依赖，运行期无外部网络，FastAPI/Vite/Chromium 全部经 loopback 通信）。
+- S1-027 契约修复（后端，随 workbench 联调暴露）：`mode='l2'` 请求此前会被后端 422；现 schema 放行 + `plan_port_bind` 归一化为 auto，并加回归测试。
+- S1-027 迁移契约修复（后端，随联调暴露）：`alembic upgrade head` 空库此前在 003 失败；001 现幂等补建 devices/logs 基表，全新库可完整升级。
 
 ## Verification
 
@@ -19,10 +23,13 @@
 - `vue-tsc --noEmit`: passed
 - production build: passed
 - component tests: 62 passed
-- Playwright full baseline: 45 passed; added NEXT focused suite: 4 passed, including desktop, 390px, preview-to-execute, and ATLAS/PULSE/STRATA context switching
+- Playwright full baseline: 45 passed; NEXT focused suite: 4 passed; real application-stack suite (`tests/stack-qa`): 2 passed，连续 2 次独立容器运行均通过（接入故事 + 诚实 unknown/ambiguous）
+- 真实栈通道：seed → uvicorn（隔离 SQLite，alembic 全链迁移）→ vite dev（core 模式 → 真实后端）→ Playwright 2 passed → device-io.log 断言 BOUNDARY_OK（21 事件全 fake，netconf 目标均为 TEST-NET 合成地址，无真实设备 I/O）；端口占用明确失败（exit 9），trap 统一清理进程与 /tmp/stack-qa
+- S1-028 验证：移除 `next-s1-backend-qa-frontend:latest` 后 stack 镜像从 node:20-alpine 独立构建成功；`docker compose config` 显示运行服务 `network_mode: none`、无 env_file、无 docker.sock、无生产挂载；完整 stack QA 断网（无外部网络）下一次运行 = 2 passed + BOUNDARY_OK + STACK_QA_OK
+- 后端回归（qa-backend）：`test_sdn_explanation.py + test_sdn_access_api.py + test_sdn_migration.py` = 46 passed（含 S1-027 新增 mode-l2 与空库 bootstrap 回归）；全量 `tests/` 无回归
 - `openspec validate --strict next-s1-workbench`: passed
-- Device I/O: not performed
+- Device I/O: not performed（全部为边界 fake，launcher 事后断言）
 
 ## Pending
 
-- 当前已形成更有辨识度的展示节点；仍等待用户确认后再进入 OpenSpec archive 或主分支集成。5174 已按真实接口契约展示，但模拟环境不替代生产数据库联调。
+- 当前已形成更有辨识度的展示节点；仍等待用户确认后再进入 OpenSpec archive 或主分支集成。5174 已按真实接口契约展示，但模拟环境不替代生产数据库联调——S1-027 的真实应用栈隔离通道已补齐该联调证据（合成数据，仍不连生产数据库/设备）。

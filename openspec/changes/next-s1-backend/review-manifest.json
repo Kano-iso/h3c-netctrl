@@ -79,7 +79,9 @@
     "ops-toolkit/scripts/debug-v24-iface-100.py (deleted)",
     "backend/tests/test_s1_024_credential_hygiene.py",
     "backend/app/services/sdn_explanation.py",
-    "backend/tests/test_sdn_explanation.py"
+    "backend/tests/test_sdn_explanation.py",
+    "backend/app/services/templates/h3c_v7_port_bind.py",
+    "backend/migrations/versions/0c1928618be4_add_assets_table.py"
   ],
   "requirements": [
     {
@@ -369,6 +371,15 @@
         "test_s1_007_adversarial.py (21)",
         "test_s1_008_adversarial.py (15)"
       ]
+    },
+    {
+      "id": "CR45",
+      "summary": "真实应用栈联调暴露的两处生产契约修复（S1-027，随 next-s1-workbench qa 通道）：(a) 前端语义 mode='l2' 被后端 schema pattern 422 → 放行并归一化为 auto（service_instance 优先、access_vlan fallback，ADR-104 不动）；(b) 全新库 alembic upgrade head 在 003 失败（logs 表从未由迁移创建）→ 001 幂等补建 devices/logs 基表，空库可完整升级",
+      "implementation": "schemas.py：SdnAccessPreviewRequest/SdnAccessExecuteRequest.mode pattern 增加 l2；h3c_v7_port_bind.py：render 对 mode=='l2' 归一化为 auto；0c1928618be4_add_assets_table.py：upgrade() 先 _bootstrap_base_tables()（inspector 守卫，缺失才建 devices/logs 基础列，风格同 006），已有库 alembic_version 已含 001 不重跑；仅基础列，protected_interfaces/platform/sdn_role/error_message 仍由 004/009/011/003 各自添加",
+      "tests": [
+        "test_access_mode_l2_alias_preview_and_execute",
+        "test_fresh_empty_db_upgrade_head_bootstraps_base_tables"
+      ]
     }
   ],
   "invariants": [
@@ -491,6 +502,36 @@
       "environment": "qa-backend 容器（+ops-toolkit scripts 挂载；S1-026 受影响回归：access/operation_service/validation/apply + 投影）",
       "result": "65 passed（投影 27 条 + 受影响回归 38 条）",
       "baseline_failed": false
+    },
+    {
+      "command": "docker compose -f openspec/changes/next-s1-backend/qa/docker-compose.qa.yml run --rm qa-backend python -m pytest tests/test_sdn_explanation.py tests/test_sdn_access_api.py tests/test_sdn_migration.py -q",
+      "environment": "qa-backend 容器（S1-027/CR45 新增回归：mode-l2 别名 + 空库 bootstrap 迁移）",
+      "result": "46 passed（S1-026 投影 27 + access/migration 回归 17 + 新增 2）",
+      "baseline_failed": false
+    },
+    {
+      "command": "docker compose -f openspec/changes/next-s1-backend/qa/docker-compose.qa.yml run --rm -v <worktree>/ops-toolkit/scripts:/opt/ops-toolkit-scripts:ro qa-backend python -m pytest tests/test_sdn_explanation.py tests/test_sdn_access_api.py tests/test_sdn_operation_service.py tests/test_sdn_validation_api.py tests/test_sdn_apply_endpoint.py -q",
+      "environment": "qa-backend 容器（+ops-toolkit scripts 挂载；S1-027 受影响回归 = S1-026 基线 65 + 新增 1）",
+      "result": "66 passed",
+      "baseline_failed": false
+    },
+    {
+      "command": "cd <worktree> && HOME=<worktree>/.stackqa/home docker compose -f openspec/changes/next-s1-workbench/qa/docker-compose.stack-qa.yml run --rm qa-stack bash /opt/stack/qa/run_stack_qa.sh",
+      "environment": "真实应用栈隔离联调（next-s1-stack-qa 容器：镜像 FROM node:20-alpine 公开基座独立构建（apk python3/venv/系统 chromium + 前端锁文件 npm ci，失败即构建失败；不依赖本项目预构建镜像）；运行容器 network_mode: none（构建期联网、运行期无外部网络、loopback 内联调）；真实 FastAPI 18000 + 隔离 SQLite(alembic 全链) + vite dev 5173(core→真实后端) + chromium Playwright；边界 fake 仅进程内注入；无 page.route mock、无 docker.sock、无 env_file、tmpfs /tmp）",
+      "result": "S1-028 整改后一次完整运行（移除 next-s1-backend-qa-frontend:latest 后独立构建 + compose config 确认 network_mode none）仍通过：2 passed + BOUNDARY_OK（device-io.log 21 事件全 fake：collector_sync/executor_execute/executor_success/netconf_constructed(host 均 192.0.2.*)/netconf_enter/get/exit）+ STACK_QA_OK；端口占用 exit 9；trap 清理进程与 /tmp/stack-qa；此前 S1-027 连续 2 次独立运行亦通过",
+      "baseline_failed": false
+    },
+    {
+      "command": "docker run --rm -v <worktree>/frontend/vite.config.js:/app/vite.config.js:ro -v <worktree>/frontend/playwright.stack.config.js:/app/playwright.stack.config.js:ro -v <worktree>/frontend/tests/stack-qa:/app/tests/stack-qa:ro next-s1-backend-qa-frontend:latest sh -c 'npm run lint && npm run type-check && npm run build && npm run test:unit && npm run test:e2e'",
+      "environment": "qa-frontend 镜像（S1-027 前端无回归：默认套件不受新增 stack-qa spec/config 影响）",
+      "result": "lint/type-check/build passed；vitest 62 passed；默认 e2e 42 passed",
+      "baseline_failed": false
+    },
+    {
+      "command": "docker compose -f openspec/changes/next-s1-backend/qa/docker-compose.qa.yml run --rm -v <worktree>/ops-toolkit/scripts:/opt/ops-toolkit-scripts:ro qa-backend python -m pytest tests/ -q -p no:cacheprovider",
+      "environment": "qa-backend 容器全量 tests/（+ops-toolkit scripts 挂载；S1-027 当前代码）",
+      "result": "695 passed / 7 failed / 24 skipped（failed 与基线 66da5e0 全量运行完全一致：test_ops_toolkit_task_monitor×5 需 ops-toolkit HTTP stub harness（返回 3 API 不可达）、test_s1_024_credential_hygiene×2 全量顺序下失败（单测通过）；均为预存在、非本变更引入；695 = 基线 693 + S1-027 新增 2 回归）",
+      "baseline_failed": true
     }
   ],
   "migrations": [
@@ -499,6 +540,12 @@
       "summary": "新增 sdn_operations/sdn_attempts/sdn_attempt_units/sdn_resource_claims/sdn_port_bindings 等 S1 表 + 部分唯一索引/复合索引 + evidence_json 列",
       "repeatable": true,
       "test": "tests/test_sdn_migration.py"
+    },
+    {
+      "id": "001_add_assets_table_bootstrap",
+      "summary": "0c1928618be4 upgrade() 幂等补建 devices/logs 基表（inspector 守卫），修复全新库 upgrade head 在 003 失败；downgrade 仍只 drop assets（基表不属本迁移，保守保留）",
+      "repeatable": true,
+      "test": "tests/test_sdn_migration.py::test_fresh_empty_db_upgrade_head_bootstraps_base_tables"
     }
   ],
   "device_io": [

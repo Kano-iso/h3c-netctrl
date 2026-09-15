@@ -349,7 +349,8 @@ class SdnAccessPreviewRequest(BaseModel):
     access_vlan: Optional[int] = Field(default=None, ge=1, le=4094)
     service_instance: Optional[int] = Field(default=None, ge=1, le=4094)
     expected_host_ip: Optional[str] = Field(default=None, min_length=7, max_length=45)
-    mode: Optional[str] = Field(default="auto", pattern="^(auto|service_instance|access_vlan)$")
+    # S1-027: 前端以语义 mode "l2"（L2 接入）请求；plan_port_bind 将其归一化为 auto。
+    mode: Optional[str] = Field(default="auto", pattern="^(auto|service_instance|access_vlan|l2)$")
 
 
 class SdnAccessExecuteRequest(BaseModel):
@@ -367,7 +368,7 @@ class SdnAccessExecuteRequest(BaseModel):
     service_instance: Optional[int] = Field(default=None, ge=1, le=4094)
     expected_host_ip: Optional[str] = Field(default=None, min_length=7, max_length=45)
     auto_apply: bool = False
-    mode: Optional[str] = Field(default="auto", pattern="^(auto|service_instance|access_vlan)$")
+    mode: Optional[str] = Field(default="auto", pattern="^(auto|service_instance|access_vlan|l2)$")
 
 
 class SdnAccessCompleteRequest(BaseModel):

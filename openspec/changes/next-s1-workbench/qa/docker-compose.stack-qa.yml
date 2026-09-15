@@ -1,0 +1,51 @@
+# S1-028: 真实应用栈隔离联调 Compose（next-s1-workbench）
+#
+# 隔离要点（与 qa-backend 同约束，并追加运行时硬网络隔离）：
+#   - 无 env_file（不继承生产 .env / 凭据）
+#   - 无 docker.sock 挂载（不触碰常驻容器 / 演示环境）
+#   - 无固定 container_name / 无 depends_on 外部服务
+#   - network_mode: none —— 运行容器无任何外部网络；FastAPI/Vite/Chromium 全部经
+#     容器内 loopback（127.0.0.1）通信，默认绝不触达设备/外网。镜像构建阶段
+#     （docker build）仍可联网下载公开依赖（apk / npm ci / pip）。
+#   - /tmp 为 tmpfs（进程、DB、临时文件全部落 /tmp，随容器消亡）
+#   - 仓库以只读挂载（/opt/s1-repo:ro），qa 脚本以只读挂载（/opt/stack/qa:ro）
+#   - 前端 spec/config 单独只读挂载以便迭代（其余源码烘焙进镜像）
+#   - DB_PATH / ENCRYPTION_KEY / INTERNAL_API_TOKEN 均为合成测试值
+#
+# 校验：docker compose -f .../docker-compose.stack-qa.yml config
+# 构建：docker compose -f ... build qa-stack
+# 运行：docker compose -f ... run --rm qa-stack bash /opt/stack/qa/run_stack_qa.sh
+
+name: next-s1-stack-qa
+
+services:
+  qa-stack:
+    build:
+      # build context = worktree 根（Dockerfile 内 COPY backend/ frontend/）
+      context: ../../../..
+      dockerfile: openspec/changes/next-s1-workbench/qa/Dockerfile.stack-qa
+    image: next-s1-stack-qa:local
+    working_dir: /opt/stack/run
+    # S1-028 硬隔离：运行容器无外部网络（loopback 内联调）；构建阶段不受影响
+    network_mode: none
+    environment:
+      # 合成测试值，非生产凭据
+      DB_PATH: /tmp/stack-qa/db.sqlite
+      ENCRYPTION_KEY: "stack-qa-synthetic-key-not-a-secret"
+      INTERNAL_API_TOKEN: "stack-qa-synthetic-token"
+      SERVICE_NAME: "core"
+      STACK_QA_DIR: /tmp/stack-qa
+      STACK_QA_BACKEND_PORT: "18000"
+      STACK_QA_FRONTEND: /opt/stack/app/frontend
+      STACK_QA_BACKEND: /opt/stack/app/backend
+    tmpfs:
+      - /tmp
+    volumes:
+      # 仓库只读（规格/文档参考；无 .env、无生产数据挂载）
+      - ../../../../:/opt/s1-repo:ro
+      # qa 脚本/launcher live（改脚本不用重建镜像）
+      - .:/opt/stack/qa:ro
+      # 前端 spec 与两个 config live（其余前端源码烘焙进镜像）
+      - ../../../../frontend/tests/stack-qa:/opt/stack/app/frontend/tests/stack-qa:ro
+      - ../../../../frontend/playwright.stack.config.js:/opt/stack/app/frontend/playwright.stack.config.js:ro
+      - ../../../../frontend/vite.config.js:/opt/stack/app/frontend/vite.config.js:ro

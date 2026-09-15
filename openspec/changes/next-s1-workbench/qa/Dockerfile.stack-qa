@@ -1,0 +1,71 @@
+# S1-028: 真实应用栈隔离联调镜像（单容器：node + python + chromium）
+#
+# 基座：公开固定基础镜像 node:20-alpine（不依赖任何本项目本地预构建镜像）。
+# 干净主机只需仓库 + Docker 即可构建：构建期联网下载公开依赖（apk / npm ci / pip），
+# 运行期由 docker-compose.stack-qa.yml 以 network_mode: none 硬隔离——FastAPI、
+# Vite、Chromium 全部经容器内 loopback 通信，默认绝不触达任何外部网络/设备。
+#
+# 目的：在同一隔离容器里跑【真实 FastAPI + 隔离 SQLite】与【真实 Vue 前端 (vite dev)】，
+# 由 Playwright 驱动浏览器完成 NEXT 接入故事；设备 I/O 只在后端进程内以边界 fake
+# 替代（见 stack/），生产入口从不加载。
+#
+# build context = worktree 根（COPY 路径带 backend/ / frontend/）
+FROM node:20-alpine
+
+WORKDIR /opt/stack
+
+# python3 + venv + bash/curl + 系统 chromium（apk 单包安装；由
+# PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH 指向，npm 侧跳过浏览器下载）。
+# 有限重试抵御构建期瞬时网络/DNS 错误（最多 5 次）；全部失败仍导致构建失败（不吞错）。
+RUN set -e; for i in 1 2 3 4 5; do \
+      apk add --no-cache python3 py3-pip bash curl chromium && break || { \
+        echo "[stack-qa] apk install attempt $i/5 failed, retrying in 5s"; sleep 5; }; \
+    done; \
+    apk info -e chromium python3 || exit 1; \
+    python3 -m venv /opt/stack/venv
+
+# 后端运行依赖：仓库 requirements.txt 的隔离合成子集（剔除 locust/docker——仅压测与
+# 真机故障注入用）。固定版本；安装失败即构建失败（无 || 吞错、无镜像回退）。
+COPY backend/requirements.txt /tmp/backend-requirements.txt
+RUN /opt/stack/venv/bin/pip install --no-cache-dir \
+    -i https://mirrors.volces.com/pypi/simple/ \
+    "fastapi==0.115.12" \
+    "uvicorn[standard]==0.34.2" \
+    "paramiko==2.10.3" \
+    "scp>=0.14.0" \
+    "ncclient==0.6.16" \
+    "sqlalchemy==2.0.41" \
+    "cryptography>=41.0.0,<45.0" \
+    "pydantic==2.11.4" \
+    "pydantic-settings==2.9.1" \
+    "python-dotenv==1.1.0" \
+    "alembic==1.13.3" \
+    "httpx>=0.24.0" \
+    && rm /tmp/backend-requirements.txt
+
+# 前端运行依赖：仓库锁文件确定性安装（npm ci）；跳过 playwright 浏览器下载
+# （运行时用系统 chromium）。安装失败 → 构建失败（无 `|| true` 吞错）。
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+
+# 前端源码 + 后端源码 + docs（全部进镜像；容器内可写副本，不影响宿主机工作树）
+COPY frontend/ /opt/stack/app/frontend/
+COPY backend/ /opt/stack/app/backend/
+COPY docs/ /opt/docs/
+
+# 前端运行依赖：仓库锁文件确定性安装（npm ci，无 || true 吞错）。构建期 egress
+# 可能对个别请求超时/限流，故设 15s 快速失败 + 无单请求重试，并做有界整轮重试：
+# npm 内容缓存跨轮复用，失败的请求在下一轮被跳过，数轮内收敛；三轮全失败仍导致
+# 构建失败（绝不吞错）。
+RUN set -e; cd /opt/stack/app/frontend; \
+    for i in 1 2 3; do \
+      npm ci --no-audit --no-fund --fetch-retries=0 --fetch-timeout=15000 \
+        && exit 0 \
+        || { echo "[stack-qa] npm ci attempt $i/3 failed, retrying"; }; \
+    done; \
+    exit 1
+
+ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
+ENV PATH="/opt/stack/venv/bin:${PATH}"
+# 本镜像由 compose 指定 launcher 命令，不设默认 ENTRYPOINT
+ENTRYPOINT []
+WORKDIR /opt/stack/run

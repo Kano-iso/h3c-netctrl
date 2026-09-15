@@ -14,6 +14,10 @@ const CONFIG = 'http://config:8000'
 const DATA = 'http://data:8000'
 const BACKEND = 'http://backend:8000'
 
+// S1-027: core 模式下后端目标允许环境变量覆盖（默认 backend:8000，隔离联调可指向
+// 本机 uvicorn，如 http://127.0.0.1:18000）。split 模式不受影响。
+const CORE_BACKEND_TARGET = process.env.VITE_API_BACKEND_TARGET || BACKEND
+
 // v2.6.1 fix-vite-proxy-route: 用路径正则精确分发，避免 prefix 匹配导致
 // /api/devices/{id}/execute 等端点被错误路由到 ctrl 容器。
 // 优先级：data 容器（备份/任务/资产）→ config 容器（执行/接口/VLAN/VPN/batch）→ ctrl 兜底（CRUD/test/dashboard/logs）
@@ -26,16 +30,17 @@ const CONFIG_PATTERN = /^\/api\/(?:devices\/\d+\/(?:execute|interfaces|vlans|vpn
 const DOWNLOAD_PATTERN = /^\/api\/devices\/\d+\/backup\/\d+\/?$/
 
 function pickTarget(url) {
+  const mono = CORE_BACKEND_TARGET
   if (DOWNLOAD_PATTERN.test(url)) {
-    return isSplit ? DATA : BACKEND
+    return isSplit ? DATA : mono
   }
   if (DATA_PATTERN.test(url)) {
-    return isSplit ? DATA : BACKEND
+    return isSplit ? DATA : mono
   }
   if (CONFIG_PATTERN.test(url)) {
-    return isSplit ? CONFIG : BACKEND
+    return isSplit ? CONFIG : mono
   }
-  return isSplit ? CTRL : BACKEND
+  return isSplit ? CTRL : mono
 }
 
 // 简易 HTTP forward（避免引入 http-proxy 依赖）

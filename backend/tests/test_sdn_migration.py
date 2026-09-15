@@ -1,9 +1,11 @@
-"""S1 迁移 012 隔离测试。
+"""S1 迁移 012 隔离测试（+ S1-027 空库 bootstrap 回归）。
 
-说明：本项目 alembic 为「棕地」迁移链（002/003/004 对 create_all 预建的
-devices/logs 等基表做 ALTER），无法从空库一路 upgrade 到 head。因此这里只
-隔离验证 S1 迁移 012 自身：在 stamp 到 011 的旧库（仅含旧 SDN 表骨架）上
-upgrade/downgrade 012，验证建表/加列/部分唯一索引。
+本项目 alembic 为「棕地」迁移链：002/003/004 对 create_all 时代预建的
+devices/logs 等基表做 ALTER。S1-027 修复后，001 作为链起点会幂等补建缺失基表
+（devices/logs），因此**空库可以一路 upgrade 到 head**（见
+test_fresh_empty_db_upgrade_head_bootstraps_base_tables）。以下仍隔离验证 S1
+迁移 012 自身：在 stamp 到 011 的旧库（仅含旧 SDN 表骨架）上 upgrade/downgrade
+012，验证建表/加列/部分唯一索引。
 """
 import os
 
@@ -199,4 +201,47 @@ def test_fresh_create_all_bootstrap_has_s1_schema(tmp_path):
         )).fetchall()
     assert idx and "WHERE status != 'unbound'" in idx[0][0]
     assert claims and "WHERE released_at IS NULL" in claims[0][0]
+    engine.dispose()
+
+
+def test_fresh_empty_db_upgrade_head_bootstraps_base_tables(monkeypatch, tmp_path):
+    """S1-027 回归：空库一路 upgrade 到 head 必须成功。
+
+    修复前 003 在空库上 `ALTER TABLE logs` 失败（logs 表只由 create_all 预建、
+    迁移从未创建）；001 现在幂等补建 devices/logs 基表，全新库可完整升级。
+    """
+    from alembic import command
+    from app.config import settings
+
+    db_file = tmp_path / "fresh-upgrade.db"
+    engine = create_engine(f"sqlite:///{db_file}")
+    engine.dispose()
+
+    cfg = _alembic_config()
+    monkeypatch.setattr(settings, "DB_PATH", str(db_file))
+    cfg.set_main_option("sqlalchemy.url", f"sqlite:///{db_file}")
+
+    # 空库 → head（修复前在此抛 OperationalError: no such table: logs）
+    command.upgrade(cfg, "head")
+
+    engine = create_engine(f"sqlite:///{db_file}")
+    insp = inspect(engine)
+    tables = set(insp.get_table_names())
+    # 基表已引导 + 迁移链完整产物
+    for t in ("devices", "logs", "assets", "backups", "tasks",
+              "sdn_tenants", "sdn_vpcs", "sdn_operations", "sdn_attempts",
+              "sdn_attempt_units", "sdn_validation_snapshots"):
+        assert t in tables, f"missing table {t}"
+    # 基表基础列 + 后续迁移加列
+    dev_cols = {c["name"] for c in insp.get_columns("devices")}
+    assert {"id", "name", "host", "username", "password_encrypted"} <= dev_cols
+    assert {"protected_interfaces", "platform", "sdn_role"} <= dev_cols
+    log_cols = {c["name"] for c in insp.get_columns("logs")}
+    assert {"id", "device_id", "device_name", "action", "detail", "status"} <= log_cols
+    assert "error_message" in log_cols
+
+    # 幂等：重复 upgrade head 不报错、不重复建表
+    command.upgrade(cfg, "head")
+    insp2 = inspect(create_engine(f"sqlite:///{db_file}"))
+    assert set(insp2.get_table_names()) == tables
     engine.dispose()

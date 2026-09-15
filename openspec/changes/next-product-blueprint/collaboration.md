@@ -184,6 +184,14 @@ S1-005 请求 `d84c0ca2-578d-4c71-95e9-af0898363140` 已返回 READY_FOR_CODE_RE
 - Codex 复审修正：历史 stale/证据不足不再永久污染已确定终态；无设备证据时不再把执行完成时间显示为观测时间；畸形历史 JSON 不再让详情接口 500。
 - QA 证据：`test_sdn_explanation.py` = 27 passed；受影响回归 = 65 passed；前端 lint/type-check/build、62 个组件测试、4 个 NEXT 浏览器流程通过。本轮没有设备 I/O。
 
+### S1-027：真实应用栈隔离联调（NEXT 工作台 ↔ 真实后端）
+
+- 实施入口：`openspec/changes/next-s1-workbench/`（新增 `qa/` 联调通道）+ `openspec/changes/next-s1-backend/`（联调暴露的两处契约修复）。
+- 内容：新增一条可重复、隔离、默认无设备的真实应用栈联调通道——单容器（node+python+chromium）内跑真实 FastAPI + 隔离 SQLite（alembic 全链迁移）+ 真实 vite dev（core 模式经 `VITE_API_BACKEND_TARGET` 代理到本机 uvicorn），Playwright 驱动浏览器完成接入故事；设备执行与采集只在进程内以边界 fake 替代（`interface.NetconfClient` / `SdnDeploymentExecutor` / `SdnValidationCollector`），launcher 事后断言 `device-io.log` 证明无真实设备 I/O；不做整链路 HTTP mock、不复用 `/tmp/h3c-next-s1-mock.mjs`。合成数据 = EVPN Leaf + tenant + 已部署 VPC + 新鲜验证快照 + 可用业务口；不连生产 DB/.env/常驻容器/docker.sock。
+- 诚实状态：执行记录成功无回读 → PULSE 逐单元 truth kind=desired（执行记录，未由设备回读验证）；验证证据不足 → operation 保持 unknown + `safety_boundary.ambiguous_claims=true`，绝不把执行成功染成设备已验证。
+- 联调暴露的契约修复（生产代码 + 回归）：(1) 前端 `mode:'l2'` 此前被后端 schema pattern 422 → 后端放行并归一化为 auto（service_instance 语义）；(2) 全新库 `alembic upgrade head` 此前在 003 失败（logs 表从未由迁移创建）→ 001 幂等补建 devices/logs 基表，空库可完整升级。
+- QA 证据：真实栈 spec 2 passed × 连续 2 次独立运行 + BOUNDARY_OK；qa-backend 46 passed（含 2 个新回归）；全量后端 tests/ 与前端 lint/type-check/build/vitest/默认 e2e 无回归。本轮没有设备 I/O（全部边界 fake，目标 host 为 TEST-NET 合成地址）。
+
 ## 7. 迁移与收尾
 
 本文暂放在产品蓝图的文档 change 下。确定一期实施 change 后，双方指定唯一的活跃交接位置，并同步更新 PRD §9.4 的入口；不要留下两份都声称是当前状态的记录。

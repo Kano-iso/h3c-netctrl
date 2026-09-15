@@ -226,10 +226,16 @@ S1_019_REAL=1 S1_019_REAL_HOST=192.168.100.5 \
 
 ## 下一轮待办
 
-1. **S1-026 等待 Codex 复审**（operation 解释投影：已提交 READY_FOR_CODE_REVIEW；若提出新 CR，在本 worktree 继续修正，不新建 change）。
-2. 若 S1-026 之外仍有再审项，同样在本 worktree 继续修正。
+1. **S1-026 已由 Codex 复审通过**（operation 解释投影，CODE_REVIEW_PASSED，尚未归档）。
+2. **S1-027（CR45）真实应用栈联调契约修复**：随 NEXT 工作台真实联调通道（`openspec/changes/next-s1-workbench/qa/`）暴露并修复两处生产契约——(a) 前端语义 `mode='l2'` 放行并归一化为 auto（schemas + `h3c_v7_port_bind.render`）；(b) 001 迁移幂等补建 devices/logs 基表，空库 `alembic upgrade head` 可完整升级。回归测试 `test_access_mode_l2_alias_preview_and_execute` + `test_fresh_empty_db_upgrade_head_bootstraps_base_tables`。等待 Codex 复审。
 3. **凭据轮换（外部，用户执行）**：历史已暴露——用户须在**设备**与 `.env`（`DEVICE_PASSWORD`/`ZTP_ADMIN_PASS`）外部轮换真实口令；本包不改设备、不重写 Git 历史、不改 archive/ 历史 change 与 `RELEASE-NOTES-v2.3.1.md` 历史发布记录。
 4. 真机验证轮次须走 `qa/run_s1_019_real_lifecycle.sh`（唯一 runner），不再裸跑 pytest；`ZTP_ADMIN_PASS` 缺失时 ztp-server 按契约 fail closed（先设 `.env` 再启）。
 5. 清理 __pycache__/logs（每轮结尾已执行）。
 
 真机链路已按 S1-020 走完完整生命周期（见上表）；仅剩无下联主机导致的数据面边界（跨 leaf/网关 ping/主机 ARP-MAC）为「未验证」而非「伪造成功」。
+
+## S1-027 真实应用栈联调（隔离，无设备 I/O）
+
+联调通道与契约修复细节见 `openspec/changes/next-s1-workbench/qa/` 与 review-response.md CR45。后端本轮改动：`backend/app/schemas.py`（mode pattern 放行 `l2`）、`backend/app/services/templates/h3c_v7_port_bind.py`（l2→auto 归一化）、`backend/migrations/versions/0c1928618be4_add_assets_table.py`（空库 bootstrap）、`backend/tests/test_sdn_access_api.py` / `backend/tests/test_sdn_migration.py`（回归）。QA：qa-backend 46 passed（含新回归）+ 受影响回归 66 passed；真实栈 Playwright 2 passed × 2 次。未执行任何设备 I/O。
+
+**S1-028 整改（QA 通道可复现性 + 运行时硬隔离，无业务语义改动）**：`qa/Dockerfile.stack-qa` 不再 FROM 本项目预构建镜像（原 `next-s1-backend-qa-frontend:latest`），改 FROM 公开固定基础镜像 `node:20-alpine`，apk 装 python3/venv/系统 chromium，前端依赖走仓库锁文件 `npm ci`（删除 `npm install ... || true` 吞错；安装失败即构建失败）；`docker-compose.stack-qa.yml` 运行容器加 `network_mode: none`——构建期联网下载公开依赖，运行期无外部网络，FastAPI/Vite/Chromium 全部经 loopback 通信。验证：移除 qa-frontend 镜像后 stack 镜像独立构建成功；`compose config` 确认 network_mode none / 无 env_file / 无 docker.sock / 无生产挂载；完整 stack QA 一次运行 = 2 passed + BOUNDARY_OK + STACK_QA_OK（断网 loopback 故事成立）。

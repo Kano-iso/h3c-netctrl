@@ -19,6 +19,24 @@
 
 ---
 
+## S1-027（CR45：真实应用栈联调暴露的契约修复；本轮未触真机）
+
+> 本轮为 S1-027 真实应用栈隔离联调（NEXT 工作台 ↔ 真实 FastAPI + 隔离 SQLite）暴露出的两处生产契约修复，**不连真机、无任何设备 I/O、不改设备、不重写 Git 历史、不轮换凭据**。修复后回归测试全部通过。
+
+**CR45-1 前端语义 `mode='l2'` 被后端 schema 拒绝（422）**：前端 `SdnVpcWorkspace` 始终以 `mode:'l2'` 请求 preview/execute，而后端 `SdnAccessPreviewRequest`/`SdnAccessExecuteRequest.mode` 的 pattern 仅允许 `auto|service_instance|access_vlan`——真实联调在预览即 422，mock 基线永远测不到。修复（additive，语义不变）：两处 schema pattern 放行 `l2`；`H3cV7PortBindTemplate.render` 将 `l2` 归一化为 `auto`（service_instance 优先、access_vlan fallback，ADR-104 决策不动）。回归：`test_access_mode_l2_alias_preview_and_execute`（preview 200 + blocking=[] + execute 走 service-instance 模板）。
+
+**CR45-2 全新库 `alembic upgrade head` 失败（003 `no such table: logs`）**：迁移链是「棕地」链——002/003/004 假设 devices/logs 基表已由 create_all 预建，但迁移从未创建这两张表；空库从 001 一路升级在 003 必失败，生产新装无法启动（qa 测试因 TestClient 不触发 startup 从未暴露）。修复：001（迁移链起点）`_bootstrap_base_tables()` 幂等补建缺失的 devices/logs 基表（仅基础列，protected_interfaces/platform/sdn_role/error_message 仍由各自迁移添加；守卫风格同 006）。已有库 alembic_version 已含 001，不重跑、不受影响。回归：`test_fresh_empty_db_upgrade_head_bootstraps_base_tables`（空库 upgrade head 成功 + 基表/后续列齐备 + 重复 upgrade 幂等）。
+
+**QA（隔离容器，未触真机）：**
+- 真实应用栈通道（`openspec/changes/next-s1-workbench/qa/`）：2 Playwright spec 通过 × 连续 2 次独立运行；`device-io.log` 断言 BOUNDARY_OK（21 事件全为边界 fake，netconf 目标均为 TEST-NET 合成地址）。
+- **S1-028 整改（QA 通道可复现性 + 运行时硬隔离；无业务语义改动）**：镜像改 FROM 公开固定基础镜像 `node:20-alpine` 独立构建（apk python3/venv/系统 chromium；前端锁文件 `npm ci`，失败即构建失败、无 `|| true` 吞错；不依赖本项目预构建镜像）；compose 运行容器 `network_mode: none`（构建期联网、运行期无外部网络、loopback 内联调）。验证：移除 `next-s1-backend-qa-frontend:latest` 后独立构建成功；`compose config` 确认 network_mode none / 无 env_file / 无 docker.sock / 无生产挂载；完整 stack QA 一次运行 = 2 passed + BOUNDARY_OK + STACK_QA_OK。
+- qa-backend：`test_sdn_explanation.py + test_sdn_access_api.py + test_sdn_migration.py` = **46 passed**（含上述 2 个新回归）；受影响回归（explanation/access/operation_service/validation/apply）= **66 passed**。
+- 前端（qa-frontend）：lint / type-check / build / vitest / 默认 e2e 无回归。
+
+**请 Codex 复审重点**：1) `l2` 归一化为 auto 是否与前端语义（L2 接入、service_instance 3200、access_vlan null）一致；2) 001 基表引导是否对已有库零影响、对空库可完整升级且幂等；3) 联调通道的边界 fake 注入是否只发生在测试入口、生产入口零加载。
+
+---
+
 ## Codex 最终复审结论（S1-024，2026-09-11）
 
 **CODE_REVIEW_PASSED**。CR43 两项阻断已闭环：运行时重渲染使用 0600 安全原子写，entrypoint 渲染变量全部经环境读取，不再把密码拼入 Python 源码或命令行。Codex 已复核实现与对抗测试，并再次通过 `bash -n`、OpenSpec strict、manifest JSON、`git diff --check` 和活动源码凭据扫描；本轮未连接真机、未执行设备 I/O。
