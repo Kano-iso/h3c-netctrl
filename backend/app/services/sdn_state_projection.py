@@ -9,7 +9,7 @@
 - 只比较现有快照能够可靠证明的维度：无证据 → ``unknown``，超出 TTL → ``stale``，
   相关性可证明时才 assert aligned/drifted；绝不以「执行记录」冒充「设备事实」。
 
-诚实表达四条铁律：
+诚实表达五条铁律：
 1. 命令失败/缺失（``success != True`` 或 ``error``）同「无证据」，视为 ``unknown``，
    绝不把「采不到」降级成「不一致」（drifted）。
 2. 远端 EVPN Type-2 / BGP 摘要不进本投影——只读本地 config 回读（VSI / VSI-interface /
@@ -17,7 +17,9 @@
 3. 目标存在性由 lifecycle 记录证明：成功且当前版本有效的 create → 期望存在；后续成功
    delete → 期望不存在；pending/failed/unknown 不覆盖最后一个确定结果；仅历史 snapshot /
    版本不一致 → desired 不武断 true，diff 不制造 drift。
-4. ``aggregate`` 只是逐维状态的汇总（取「最差」），永不覆盖逐维事实。
+4. 逐维 diff 附带稳定、脱敏的 ``evidence`` 指针（desired_source / observed_source），只含
+   deployment/binding/snapshot 元数据与 display 命令名，绝不回传原始 CLI output/error/凭据。
+5. ``aggregate`` 只是逐维状态的汇总（取「最差」），永不覆盖逐维事实。
 """
 
 from __future__ import annotations
@@ -150,14 +152,35 @@ def _observed_values(commands: dict, cmd: str, extractor) -> Optional[List[int]]
     return extractor(output)
 
 
-def _classify_feature(desired: bool, observed: Optional[bool], *, stale: bool, unknown_rc: str, matched_rc: str, drifted_rc: str) -> dict:
+def _observed_evidence(snapshot_meta: dict, command: Optional[str]) -> Optional[dict]:
+    """有快照记录 → 稳定观测指针（snapshot_id/collected_at/command）；无快照 → None。
+
+    S2-003：只含稳定元数据，绝不携带原始 output/error/凭据。命令失败/畸形/过期仍保留
+    指针（诚实说明「观测本应从何处来」），事实状态由 status/reason 表达。
+    """
+    if not isinstance(snapshot_meta, dict) or snapshot_meta.get("snapshot_id") is None:
+        return None
+    return {
+        "kind": "snapshot",
+        "snapshot_id": snapshot_meta.get("snapshot_id"),
+        "collected_at": snapshot_meta.get("collected_at"),
+        "command": command,
+    }
+
+
+def _evidence(desired_source: Optional[dict], observed_source: Optional[dict]) -> dict:
+    """逐维证据指针：目标从哪来（deployment/binding/计数），设备事实从哪来（snapshot+command）。"""
+    return {"desired_source": desired_source, "observed_source": observed_source}
+
+
+def _classify_feature(desired: bool, observed: Optional[bool], *, stale: bool, unknown_rc: str, matched_rc: str, drifted_rc: str, evidence: dict) -> dict:
     if stale:
-        return {"status": STATUS_STALE, "reason_code": RC_SNAPSHOT_STALE}
+        return {"status": STATUS_STALE, "reason_code": RC_SNAPSHOT_STALE, "evidence": evidence}
     if observed is None:
-        return {"status": STATUS_UNKNOWN, "reason_code": unknown_rc}
+        return {"status": STATUS_UNKNOWN, "reason_code": unknown_rc, "evidence": evidence}
     if observed == desired:
-        return {"status": STATUS_ALIGNED, "reason_code": matched_rc}
-    return {"status": STATUS_DRIFTED, "reason_code": drifted_rc}
+        return {"status": STATUS_ALIGNED, "reason_code": matched_rc, "evidence": evidence}
+    return {"status": STATUS_DRIFTED, "reason_code": drifted_rc, "evidence": evidence}
 
 
 def _classify_presence(
@@ -170,6 +193,7 @@ def _classify_presence(
     absent_rc: str,
     missing_rc: str,
     unexpected_rc: str,
+    evidence: dict,
 ) -> dict:
     """按目标存在性（True/False/None）对齐设备观测。
 
@@ -180,15 +204,15 @@ def _classify_presence(
     - desired None（证明不足）        → unknown，绝不 drift
     """
     if stale:
-        return {"status": STATUS_STALE, "reason_code": RC_SNAPSHOT_STALE}
+        return {"status": STATUS_STALE, "reason_code": RC_SNAPSHOT_STALE, "evidence": evidence}
     if desired_present is None:
-        return {"status": STATUS_UNKNOWN, "reason_code": RC_DESIRED_UNKNOWN}
+        return {"status": STATUS_UNKNOWN, "reason_code": RC_DESIRED_UNKNOWN, "evidence": evidence}
     if observed is None:
-        return {"status": STATUS_UNKNOWN, "reason_code": unknown_rc}
+        return {"status": STATUS_UNKNOWN, "reason_code": unknown_rc, "evidence": evidence}
     if desired_present is True:
-        return {"status": STATUS_ALIGNED if observed else STATUS_DRIFTED, "reason_code": present_rc if observed else missing_rc}
+        return {"status": STATUS_ALIGNED if observed else STATUS_DRIFTED, "reason_code": present_rc if observed else missing_rc, "evidence": evidence}
     # desired False（absent）
-    return {"status": STATUS_ALIGNED if not observed else STATUS_DRIFTED, "reason_code": absent_rc if not observed else unexpected_rc}
+    return {"status": STATUS_ALIGNED if not observed else STATUS_DRIFTED, "reason_code": absent_rc if not observed else unexpected_rc, "evidence": evidence}
 
 
 # ── 生命周期：目标态基础对象存在性（CR47）──
@@ -328,28 +352,28 @@ def _desired_binding(binding: dict) -> dict:
     }
 
 
-def _binding_field_diff(value: Any, observed_values: Optional[List[int]], *, stale: bool, operable: bool, conflict: bool, column: str) -> dict:
+def _binding_field_diff(value: Any, observed_values: Optional[List[int]], *, stale: bool, operable: bool, conflict: bool, column: str, evidence: dict) -> dict:
     """单个绑定字段（service_instance / access_vlan）的 diff。
 
     - conflict：基础对象已 delete 但绑定仍 operable → unknown/lifecycle_conflict，不选边。
     - 目标值精确属于观测集合 → aligned；否则 drifted。
-    - 观测集合按有序列表返回，供 STRATA 复核。
+    - 观测集合按有序列表返回，供 STRATA 复核；evidence 提供可下钻指针。
     """
     present_rc = RC_SVC_PRESENT if column == "service_instance" else RC_VLAN_PRESENT
     missing_rc = RC_SVC_MISSING if column == "service_instance" else RC_VLAN_MISSING
     if stale:
-        return {"status": STATUS_STALE, "reason_code": RC_SNAPSHOT_STALE, "observed": None}
+        return {"status": STATUS_STALE, "reason_code": RC_SNAPSHOT_STALE, "observed": None, "evidence": evidence}
     if conflict:
-        return {"status": STATUS_UNKNOWN, "reason_code": RC_LIFECYCLE_CONFLICT, "observed": observed_values}
+        return {"status": STATUS_UNKNOWN, "reason_code": RC_LIFECYCLE_CONFLICT, "observed": observed_values, "evidence": evidence}
     if not operable:
-        return {"status": STATUS_NOT_APPLICABLE, "reason_code": RC_PLANNED_NOT_DEPLOYED, "observed": None}
+        return {"status": STATUS_NOT_APPLICABLE, "reason_code": RC_PLANNED_NOT_DEPLOYED, "observed": None, "evidence": evidence}
     if value is None:
-        return {"status": STATUS_NOT_APPLICABLE, "reason_code": RC_NOT_REQUIRED, "observed": None}
+        return {"status": STATUS_NOT_APPLICABLE, "reason_code": RC_NOT_REQUIRED, "observed": None, "evidence": evidence}
     if observed_values is None:
-        return {"status": STATUS_UNKNOWN, "reason_code": RC_EVIDENCE_MISSING, "observed": None}
+        return {"status": STATUS_UNKNOWN, "reason_code": RC_EVIDENCE_MISSING, "observed": None, "evidence": evidence}
     if value in observed_values:
-        return {"status": STATUS_ALIGNED, "reason_code": present_rc, "observed": observed_values}
-    return {"status": STATUS_DRIFTED, "reason_code": missing_rc, "observed": observed_values}
+        return {"status": STATUS_ALIGNED, "reason_code": present_rc, "observed": observed_values, "evidence": evidence}
+    return {"status": STATUS_DRIFTED, "reason_code": missing_rc, "observed": observed_values, "evidence": evidence}
 
 
 def build_leaf_projection(
@@ -428,7 +452,7 @@ def build_leaf_projection(
     observed_vsi_if = _observed_bool(commands, _vsi_interface_command(vpc), lambda o: vsi_interface is not None and _vsi_interface_present(o, vsi_interface))
     observed_l3vni = _observed_bool(commands, _vsi_interface_command(vpc), lambda o: l3_vni is not None and _l3_vni_present(o, l3_vni))
 
-    # 逐绑定 diff（CR48：目标值精确属于观测集合，观测值按有序列表输出）
+    # 逐绑定 diff（CR48：目标值精确属于观测集合，观测值按有序列表输出；S2-003：逐字段 evidence）
     binding_diffs = []
     for b in desired_bindings:
         iface = b.get("interface_name")
@@ -438,12 +462,21 @@ def build_leaf_projection(
         if has_usable_commands and iface:
             si_obs = _observed_values(commands, _binding_command(iface), _service_instances)
             vlan_obs = _observed_values(commands, _binding_command(iface), _access_vlans)
+        b_cmd = _binding_command(iface) if iface else None
+        b_desired_source = {"kind": "binding", "binding_id": b.get("id"), "version": b.get("version")}
+        b_observed_evidence = _observed_evidence(snapshot_meta, b_cmd)
         binding_diffs.append(
             {
                 "binding_id": b.get("id"),
                 "interface_name": iface,
-                "service_instance": _binding_field_diff(b.get("service_instance"), si_obs, stale=stale, operable=operable_b, conflict=conflict, column="service_instance"),
-                "access_vlan": _binding_field_diff(b.get("access_vlan"), vlan_obs, stale=stale, operable=operable_b, conflict=conflict, column="access_vlan"),
+                "service_instance": _binding_field_diff(
+                    b.get("service_instance"), si_obs, stale=stale, operable=operable_b, conflict=conflict, column="service_instance",
+                    evidence=_evidence(b_desired_source, b_observed_evidence),
+                ),
+                "access_vlan": _binding_field_diff(
+                    b.get("access_vlan"), vlan_obs, stale=stale, operable=operable_b, conflict=conflict, column="access_vlan",
+                    evidence=_evidence(b_desired_source, b_observed_evidence),
+                ),
             }
         )
 
@@ -462,26 +495,36 @@ def build_leaf_projection(
             },
         }
 
+    vsi_cmd = _vsi_command(vpc)
+    vsi_if_cmd = _vsi_interface_command(vpc)
+    vsi_evidence = _evidence(base_source, _observed_evidence(snapshot_meta, vsi_cmd))
+    gateway_evidence = _evidence(gateway_source, _observed_evidence(snapshot_meta, vsi_if_cmd))
+
     vsi_diff = _classify_presence(
         base_present, observed_vsi, stale=stale, unknown_rc=unknown_rc,
         present_rc=RC_VSI_PRESENT, absent_rc=RC_VSI_ABSENT, missing_rc=RC_VSI_MISSING, unexpected_rc=RC_VSI_UNEXPECTED,
+        evidence=vsi_evidence,
     )
     vsi_if_diff = _classify_presence(
         gateway_present, observed_vsi_if, stale=stale, unknown_rc=unknown_rc,
         present_rc=RC_VSI_IF_PRESENT, absent_rc=RC_VSI_IF_ABSENT, missing_rc=RC_VSI_IF_MISSING, unexpected_rc=RC_VSI_IF_UNEXPECTED,
+        evidence=gateway_evidence,
     )
     l3vni_diff = _classify_presence(
         gateway_present, observed_l3vni, stale=stale, unknown_rc=unknown_rc,
         present_rc=RC_L3VNI_PRESENT, absent_rc=RC_L3VNI_ABSENT, missing_rc=RC_L3VNI_MISSING, unexpected_rc=RC_L3VNI_UNEXPECTED,
+        evidence=gateway_evidence,
     )
 
+    vsi_up_desired_source = {"kind": "operable_binding_count", "count": len(operable)} if desired_vsi_up else None
+    vsi_up_evidence = _evidence(vsi_up_desired_source, _observed_evidence(snapshot_meta, vsi_cmd))
     vsi_up_diff: dict
     if not desired_vsi_up:
-        vsi_up_diff = {"status": STATUS_NOT_APPLICABLE, "reason_code": RC_NOT_REQUIRED}
+        vsi_up_diff = {"status": STATUS_NOT_APPLICABLE, "reason_code": RC_NOT_REQUIRED, "evidence": vsi_up_evidence}
     elif conflict:
-        vsi_up_diff = {"status": STATUS_UNKNOWN, "reason_code": RC_LIFECYCLE_CONFLICT}
+        vsi_up_diff = {"status": STATUS_UNKNOWN, "reason_code": RC_LIFECYCLE_CONFLICT, "evidence": vsi_up_evidence}
     else:
-        vsi_up_diff = _classify_feature(True, observed_vsi_up, stale=stale, unknown_rc=unknown_rc, matched_rc=RC_VSI_UP, drifted_rc=RC_VSI_DOWN)
+        vsi_up_diff = _classify_feature(True, observed_vsi_up, stale=stale, unknown_rc=unknown_rc, matched_rc=RC_VSI_UP, drifted_rc=RC_VSI_DOWN, evidence=vsi_up_evidence)
 
     statuses = [vsi_diff["status"], vsi_if_diff["status"], l3vni_diff["status"], vsi_up_diff["status"]]
     for bd in binding_diffs:

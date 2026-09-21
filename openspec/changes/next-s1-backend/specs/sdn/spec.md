@@ -641,3 +641,8 @@
 
 - **WHEN** 命令传输成功但正文包含 H3C CLI 错误，或快照记录存在但载荷不可读
 - **THEN** 对应维度为 unknown/evidence_missing，不得判成配置缺失，也不得冒充从未采集
+
+#### Scenario: 逐维差异证据指针（S2-003）
+
+- **WHEN** 每个可比较维度的 diff 附带 evidence 指针
+- **THEN** `desired_source` 复用 deployment/binding/operable_binding_count 来源（无可证明目标为 null），`observed_source` 在有快照记录时含 `{kind=snapshot, snapshot_id, collected_at, command}`（无快照为 null）；仅含稳定元数据与 display 命令名，绝不回传原始 CLI output/error/凭据；命令失败/快照畸形/stale/not_applicable/lifecycle conflict 仍保留能诚实证明的指针，且不改变既有状态、reason、聚合或生命周期语义

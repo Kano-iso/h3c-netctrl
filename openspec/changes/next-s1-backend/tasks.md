@@ -243,3 +243,10 @@
 - [x] 29-R1.5 Codex 复审补齐 L2 VSI 与 L3 网关独立生命周期：`gateway_delete` 仅令 VSI-interface/L3VNI 期望 absent，局部 `vsi-l3 create` 不冒充整套 L2 VSI 已部署；新增 2 条反例
 - [x] 29-R1.6 Codex 复审补齐 CLI 错误正文与损坏快照：命令返回成功但正文含 H3C CLI 错误时仍为 unknown；有 snapshot id 但载荷不可读时为 evidence_missing，不冒充 no_snapshot
 - [x] 29-R1.7 QA（本轮未触真机）：S2-001 投影与直接受影响 SDN 回归合并运行 = **127 passed**；openspec strict / manifest JSON / git diff --check 通过
+
+## 30. S2-003（逐维差异证据指针，只读，本轮未触真机）
+
+- [x] 30.1 `_observed_evidence`（有快照 → {kind=snapshot, snapshot_id, collected_at, command}，命令失败/畸形/过期仍保留）+ `_evidence`（{desired_source, observed_source}）纯函数；vsi/vsi_up/vsi_interface/l3_vni 与绑定字段 diff 附加 evidence；desired_source 复用 deployment/binding/operable_binding_count，无证明 null
+- [x] 30.2 脱敏边界：evidence 只含稳定元数据与 display 命令名，绝不回传原始 CLI output/error/凭据；不改状态/reason/聚合/生命周期语义；零 I/O、零写库、无迁移/表/采集命令/接口变更
+- [x] 30.3 对抗测试补 4 条（aligned 指针 / 命令失败保留指针但脱敏 / 整棵投影永不泄漏 output 或凭据 / 端点证据脱敏）
+- [x] 30.4 QA（本轮未触真机）：`test_s2_001_state_projection.py` = **28 passed**；直接受影响 SDN 回归 = **131 passed**；openspec strict / manifest JSON / git diff --check 通过

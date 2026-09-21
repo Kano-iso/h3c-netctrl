@@ -1,4 +1,4 @@
-"""S2-001 契约测试：VPC 目标态 / 观测态 / 差异投影（只读）。
+"""S2-001/S2-003 契约测试：VPC 目标态 / 观测态 / 差异投影 + 差异证据指针（只读）。
 
 覆盖（单元 + 端点）：
 - 无快照 → 全维 unknown（reason=no_snapshot），聚合 unknown；
@@ -8,7 +8,9 @@
 - 部分命令失败（success=False）→ 该维 unknown，绝不冒充 drifted；
 - 无 operable 绑定 → vsi_up not_applicable；planned 绑定 → not_applicable；
 - 非 EVPN Leaf 不进 leaves、仅 excluded；
-- GET 零设备 I/O、零写入（不触发 sync/SSH，不增快照）。
+- GET 零设备 I/O、零写入（不触发 sync/SSH，不增快照）；
+- CR47 生命周期证明目标态；CR48 多值成员关系；CR49 token 精确匹配；gateway 生命周期；
+- S2-003 逐维 evidence 指针（desired_source/observed_source），脱敏、不回传原始 CLI 输出。
 """
 import json
 from datetime import datetime, timedelta
@@ -104,14 +106,26 @@ def _leaf(commands=None, bindings=None, deployments=None, snapshot_meta=None, no
     )
 
 
+def _dim(diff, status, reason_code):
+    """diff 维度断言：status/reason_code 精确匹配；evidence 存在且只含白名单键。"""
+    assert diff["status"] == status
+    assert diff["reason_code"] == reason_code
+    ev = diff["evidence"]
+    assert set(ev.keys()) == {"desired_source", "observed_source"}
+    return diff
+
+
 # ── 单元：投影语义 ──
 
 
 def test_no_snapshot_all_unknown():
     leaf = _leaf(commands=None, snapshot_meta={})
     assert leaf["observed"] is None
-    assert leaf["diff"]["vsi"] == {"status": "unknown", "reason_code": "no_snapshot"}
-    assert leaf["diff"]["l3_vni"] == {"status": "unknown", "reason_code": "no_snapshot"}
+    _dim(leaf["diff"]["vsi"], "unknown", "no_snapshot")
+    _dim(leaf["diff"]["l3_vni"], "unknown", "no_snapshot")
+    # 无快照 → observed_source 为 null；目标仍可由 lifecycle 证明
+    assert leaf["diff"]["vsi"]["evidence"]["observed_source"] is None
+    assert leaf["diff"]["vsi"]["evidence"]["desired_source"]["kind"] == "deployment"
     assert leaf["aggregate"] == "unknown"
 
 
@@ -130,19 +144,20 @@ def test_stale_snapshot_all_stale():
         now=stale_now,
     )
     assert leaf["observed"]["stale"] is True
-    assert leaf["diff"]["vsi"]["status"] == "stale"
-    assert leaf["diff"]["l3_vni"]["status"] == "stale"
+    _dim(leaf["diff"]["vsi"], "stale", "snapshot_stale")
+    _dim(leaf["diff"]["l3_vni"], "stale", "snapshot_stale")
     assert leaf["diff"]["port_bindings"][0]["service_instance"]["status"] == "stale"
+    assert leaf["diff"]["vsi"]["evidence"]["observed_source"]["snapshot_id"] == 9
     assert leaf["aggregate"] == "stale"
 
 
 def test_all_aligned():
     vpc, tenant, binding = _vpc_dict(), _tenant_dict(), _active_binding()
     leaf = _leaf(vpc=vpc, tenant=tenant, bindings=[binding], commands=_aligned_commands(vpc, tenant, binding), snapshot_meta={"snapshot_id": 1, "collected_at": NOW})
-    assert leaf["diff"]["vsi"] == {"status": "aligned", "reason_code": "vsi_present"}
-    assert leaf["diff"]["vsi_up"] == {"status": "aligned", "reason_code": "vsi_up"}
-    assert leaf["diff"]["vsi_interface"] == {"status": "aligned", "reason_code": "vsi_interface_present"}
-    assert leaf["diff"]["l3_vni"] == {"status": "aligned", "reason_code": "l3_vni_present"}
+    _dim(leaf["diff"]["vsi"], "aligned", "vsi_present")
+    _dim(leaf["diff"]["vsi_up"], "aligned", "vsi_up")
+    _dim(leaf["diff"]["vsi_interface"], "aligned", "vsi_interface_present")
+    _dim(leaf["diff"]["l3_vni"], "aligned", "l3_vni_present")
     si = leaf["diff"]["port_bindings"][0]["service_instance"]
     assert si["status"] == "aligned"
     assert si["reason_code"] == "service_instance_present"
@@ -156,9 +171,9 @@ def test_l3vni_drifted_only_that_dimension():
     # l3-vni 缺失（明确偏差），其余一致
     cmds[_vsi_if_cmd(vpc)] = f"interface Vsi-interface{vpc['vsi_interface']}"
     leaf = _leaf(vpc=vpc, tenant=tenant, bindings=[binding], commands=cmds, snapshot_meta={"snapshot_id": 1, "collected_at": NOW})
-    assert leaf["diff"]["vsi"]["status"] == "aligned"
-    assert leaf["diff"]["vsi_interface"]["status"] == "aligned"  # 接口仍在，只是缺 l3-vni
-    assert leaf["diff"]["l3_vni"] == {"status": "drifted", "reason_code": "l3_vni_missing"}
+    _dim(leaf["diff"]["vsi"], "aligned", "vsi_present")
+    _dim(leaf["diff"]["vsi_interface"], "aligned", "vsi_interface_present")  # 接口仍在，只是缺 l3-vni
+    _dim(leaf["diff"]["l3_vni"], "drifted", "l3_vni_missing")
     # 聚合不得覆盖逐维事实
     assert leaf["diff"]["l3_vni"]["status"] == "drifted"
     assert leaf["aggregate"] == "drifted"
@@ -173,9 +188,9 @@ def test_partial_command_failure_is_unknown_not_drifted():
         _binding_cmd(binding): {"success": True, "output": f"service-instance {binding['service_instance']}", "error": None},
     }
     leaf = _leaf(vpc=vpc, tenant=tenant, bindings=[binding], commands=commands, snapshot_meta={"snapshot_id": 1, "collected_at": NOW})
-    assert leaf["diff"]["vsi"]["status"] == "aligned"
-    assert leaf["diff"]["vsi_interface"]["status"] == "unknown"  # 采不到，绝不 drift
-    assert leaf["diff"]["l3_vni"]["status"] == "unknown"
+    _dim(leaf["diff"]["vsi"], "aligned", "vsi_present")
+    _dim(leaf["diff"]["vsi_interface"], "unknown", "evidence_missing")  # 采不到，绝不 drift
+    _dim(leaf["diff"]["l3_vni"], "unknown", "evidence_missing")
     assert leaf["diff"]["port_bindings"][0]["service_instance"]["status"] == "aligned"
     assert leaf["aggregate"] == "unknown"
 
@@ -183,7 +198,7 @@ def test_partial_command_failure_is_unknown_not_drifted():
 def test_vsi_up_not_applicable_without_operable_binding():
     vpc, tenant = _vpc_dict(), _tenant_dict()
     leaf = _leaf(vpc=vpc, tenant=tenant, bindings=[], commands={_vsi_cmd(vpc): "VSI Name: vpna"}, snapshot_meta={"snapshot_id": 1, "collected_at": NOW})
-    assert leaf["diff"]["vsi_up"] == {"status": "not_applicable", "reason_code": "not_required"}
+    _dim(leaf["diff"]["vsi_up"], "not_applicable", "not_required")
     assert leaf["desired"]["vsi_up"]["expected"] is False
 
 
@@ -199,7 +214,7 @@ def test_planned_binding_not_asserted():
     assert bd["service_instance"]["status"] == "not_applicable"
     assert bd["service_instance"]["reason_code"] == "planned_not_deployed"
     # planned 绑定不驱动 vsi_up 期望
-    assert leaf["diff"]["vsi_up"] == {"status": "not_applicable", "reason_code": "not_required"}
+    _dim(leaf["diff"]["vsi_up"], "not_applicable", "not_required")
 
 
 # ── 端点：只读语义 + 排除 ──
@@ -358,8 +373,10 @@ def test_create_then_delete_base_absent_not_drift():
     assert leaf["desired"]["base"]["state"] == "absent"
     assert leaf["desired"]["vsi"]["present"] is False
     assert leaf["desired"]["base"]["source"]["action"] == "delete"
-    assert leaf["diff"]["vsi"] == {"status": "aligned", "reason_code": "vsi_absent"}
-    assert leaf["diff"]["vsi_interface"] == {"status": "aligned", "reason_code": "vsi_interface_absent"}
+    _dim(leaf["diff"]["vsi"], "aligned", "vsi_absent")
+    _dim(leaf["diff"]["vsi_interface"], "aligned", "vsi_interface_absent")
+    # desired_source 指向 delete deployment
+    assert leaf["diff"]["vsi"]["evidence"]["desired_source"]["action"] == "delete"
 
     # 若设备仍残留 VSI（陈旧遗留），应漂移方向为 unexpected，而非 vsi_missing
     leaf_stale = _leaf(
@@ -368,7 +385,7 @@ def test_create_then_delete_base_absent_not_drift():
         commands={_vsi_cmd(vpc): f"VSI Name: {vpc['vsi_name']}"},
         snapshot_meta={"snapshot_id": 2, "collected_at": NOW},
     )
-    assert leaf_stale["diff"]["vsi"] == {"status": "drifted", "reason_code": "vsi_unexpected"}
+    _dim(leaf_stale["diff"]["vsi"], "drifted", "vsi_unexpected")
 
 
 def test_delete_then_new_create_present():
@@ -386,7 +403,7 @@ def test_delete_then_new_create_present():
     assert leaf["desired"]["base"]["state"] == "present"
     assert leaf["desired"]["vsi"]["present"] is True
     assert leaf["desired"]["base"]["source"]["action"] == "create"
-    assert leaf["diff"]["vsi"] == {"status": "aligned", "reason_code": "vsi_present"}
+    _dim(leaf["diff"]["vsi"], "aligned", "vsi_present")
 
 
 def test_snapshot_only_desired_unknown_not_drift():
@@ -400,7 +417,10 @@ def test_snapshot_only_desired_unknown_not_drift():
     )
     assert leaf["desired"]["base"]["state"] == "unknown"
     assert leaf["desired"]["vsi"]["present"] is None
-    assert leaf["diff"]["vsi"] == {"status": "unknown", "reason_code": "desired_unknown"}
+    _dim(leaf["diff"]["vsi"], "unknown", "desired_unknown")
+    # desired_source 无证明 → null；observed_source 仍指向快照
+    assert leaf["diff"]["vsi"]["evidence"]["desired_source"] is None
+    assert leaf["diff"]["vsi"]["evidence"]["observed_source"]["snapshot_id"] == 1
 
 
 def test_failed_delete_does_not_override_last_determinate():
@@ -418,7 +438,7 @@ def test_failed_delete_does_not_override_last_determinate():
     # failed delete 不覆盖 create → 仍 present
     assert leaf["desired"]["base"]["state"] == "present"
     assert leaf["desired"]["vsi"]["present"] is True
-    assert leaf["diff"]["vsi"] == {"status": "aligned", "reason_code": "vsi_present"}
+    _dim(leaf["diff"]["vsi"], "aligned", "vsi_present")
 
 
 def test_absent_base_with_operable_binding_is_conflict():
@@ -438,7 +458,7 @@ def test_absent_base_with_operable_binding_is_conflict():
     si = leaf["diff"]["port_bindings"][0]["service_instance"]
     assert si["status"] == "unknown"
     assert si["reason_code"] == "lifecycle_conflict"
-    assert leaf["diff"]["vsi_up"] == {"status": "unknown", "reason_code": "lifecycle_conflict"}
+    _dim(leaf["diff"]["vsi_up"], "unknown", "lifecycle_conflict")
 
 
 # ── CR48：多值接口配置按成员关系比较 ──
@@ -477,7 +497,7 @@ def test_l3vni_prefix_not_matched():
     # l3-vni 30000 —— 不得匹配目标 3000
     cmds[_vsi_if_cmd(vpc)] = f"interface Vsi-interface{vpc['vsi_interface']}\n l3-vni 30000"
     leaf = _leaf(vpc=vpc, tenant=tenant, bindings=[binding], commands=cmds, snapshot_meta={"snapshot_id": 1, "collected_at": NOW})
-    assert leaf["diff"]["l3_vni"] == {"status": "drifted", "reason_code": "l3_vni_missing"}
+    _dim(leaf["diff"]["l3_vni"], "drifted", "l3_vni_missing")
 
 
 def test_vsi_interface_prefix_not_matched():
@@ -487,7 +507,7 @@ def test_vsi_interface_prefix_not_matched():
     # Vsi-interface10 —— 不得匹配目标 Vsi-interface1
     cmds[_vsi_if_cmd(vpc)] = f"interface Vsi-interface10\n l3-vni {tenant['l3_vni']}"
     leaf = _leaf(vpc=vpc, tenant=tenant, bindings=[binding], commands=cmds, snapshot_meta={"snapshot_id": 1, "collected_at": NOW})
-    assert leaf["diff"]["vsi_interface"] == {"status": "drifted", "reason_code": "vsi_interface_missing"}
+    _dim(leaf["diff"]["vsi_interface"], "drifted", "vsi_interface_missing")
 
 
 def test_vsi_name_prefix_not_matched():
@@ -497,7 +517,10 @@ def test_vsi_name_prefix_not_matched():
     # VSI Name: vpnax —— 不得匹配目标 vpna
     cmds[_vsi_cmd(vpc)] = "VSI Name: vpnax\nVSI State               : Up"
     leaf = _leaf(vpc=vpc, tenant=tenant, bindings=[binding], commands=cmds, snapshot_meta={"snapshot_id": 1, "collected_at": NOW})
-    assert leaf["diff"]["vsi"] == {"status": "drifted", "reason_code": "vsi_missing"}
+    _dim(leaf["diff"]["vsi"], "drifted", "vsi_missing")
+
+
+# ── Gateway 生命周期 ──
 
 
 def test_gateway_delete_only_removes_l3_dimension():
@@ -514,9 +537,12 @@ def test_gateway_delete_only_removes_l3_dimension():
                  commands=commands, snapshot_meta={"snapshot_id": 1, "collected_at": NOW})
     assert leaf["desired"]["base"]["state"] == "present"
     assert leaf["desired"]["gateway"]["state"] == "absent"
-    assert leaf["diff"]["vsi"] == {"status": "aligned", "reason_code": "vsi_present"}
-    assert leaf["diff"]["vsi_interface"] == {"status": "aligned", "reason_code": "vsi_interface_absent"}
-    assert leaf["diff"]["l3_vni"] == {"status": "aligned", "reason_code": "l3_vni_absent"}
+    _dim(leaf["diff"]["vsi"], "aligned", "vsi_present")
+    _dim(leaf["diff"]["vsi_interface"], "aligned", "vsi_interface_absent")
+    _dim(leaf["diff"]["l3_vni"], "aligned", "l3_vni_absent")
+    # 维度级证据来源不同：vsi 指向 create，gateway 维指向 gateway_delete
+    assert leaf["diff"]["vsi"]["evidence"]["desired_source"]["action"] == "create"
+    assert leaf["diff"]["vsi_interface"]["evidence"]["desired_source"]["action"] == "gateway_delete"
 
 
 def test_gateway_redeploy_does_not_prove_l2_vsi_exists():
@@ -532,9 +558,9 @@ def test_gateway_redeploy_does_not_prove_l2_vsi_exists():
                  commands=commands, snapshot_meta={"snapshot_id": 1, "collected_at": NOW})
     assert leaf["desired"]["base"]["state"] == "unknown"
     assert leaf["desired"]["gateway"]["state"] == "present"
-    assert leaf["diff"]["vsi"] == {"status": "unknown", "reason_code": "desired_unknown"}
-    assert leaf["diff"]["vsi_interface"] == {"status": "aligned", "reason_code": "vsi_interface_present"}
-    assert leaf["diff"]["l3_vni"] == {"status": "aligned", "reason_code": "l3_vni_present"}
+    _dim(leaf["diff"]["vsi"], "unknown", "desired_unknown")
+    _dim(leaf["diff"]["vsi_interface"], "aligned", "vsi_interface_present")
+    _dim(leaf["diff"]["l3_vni"], "aligned", "l3_vni_present")
 
 
 def test_cli_error_text_is_unknown_not_drifted():
@@ -548,7 +574,7 @@ def test_cli_error_text_is_unknown_not_drifted():
         commands={_vsi_cmd(vpc): "% Wrong parameter found at '^' position."},
         snapshot_meta={"snapshot_id": 1, "collected_at": NOW},
     )
-    assert leaf["diff"]["vsi"] == {"status": "unknown", "reason_code": "evidence_missing"}
+    _dim(leaf["diff"]["vsi"], "unknown", "evidence_missing")
 
 
 def test_malformed_snapshot_record_is_evidence_missing_not_no_snapshot():
@@ -564,4 +590,95 @@ def test_malformed_snapshot_record_is_evidence_missing_not_no_snapshot():
         now=NOW,
     )
     assert leaf["observed"]["snapshot_id"] == 9
-    assert leaf["diff"]["vsi"] == {"status": "unknown", "reason_code": "evidence_missing"}
+    _dim(leaf["diff"]["vsi"], "unknown", "evidence_missing")
+    # 有快照记录（即使畸形）→ observed_source 保留指针
+    assert leaf["diff"]["vsi"]["evidence"]["observed_source"]["snapshot_id"] == 9
+
+
+# ── S2-003：差异证据指针 ──
+
+
+def test_evidence_aligned_pointers():
+    vpc, tenant, binding = _vpc_dict(), _tenant_dict(), _active_binding()
+    leaf = _leaf(vpc=vpc, tenant=tenant, bindings=[binding], commands=_aligned_commands(vpc, tenant, binding), snapshot_meta={"snapshot_id": 1, "collected_at": NOW})
+    # VSI 维：desired 来自 lifecycle deployment，observed 来自快照 + vsi 命令
+    ev = leaf["diff"]["vsi"]["evidence"]
+    assert ev["desired_source"]["kind"] == "deployment"
+    assert ev["desired_source"]["action"] == "create"
+    assert ev["observed_source"] == {"kind": "snapshot", "snapshot_id": 1, "collected_at": NOW, "command": _vsi_cmd(vpc)}
+    # vsi_up：desired 来自 operable 绑定计数
+    assert leaf["diff"]["vsi_up"]["evidence"]["desired_source"] == {"kind": "operable_binding_count", "count": 1}
+    # gateway 维：observed 来自 vsi-interface 命令
+    assert leaf["diff"]["l3_vni"]["evidence"]["observed_source"]["command"] == _vsi_if_cmd(vpc)
+    # 绑定字段：desired 指向 binding id/version，observed 指向精确接口命令
+    bev = leaf["diff"]["port_bindings"][0]["service_instance"]["evidence"]
+    assert bev["desired_source"] == {"kind": "binding", "binding_id": 11, "version": 0}
+    assert bev["observed_source"]["command"] == _binding_cmd(binding)
+    assert bev["observed_source"]["snapshot_id"] == 1
+
+
+def test_evidence_command_failure_keeps_pointer_but_sanitizes():
+    vpc, tenant, binding = _vpc_dict(), _tenant_dict(), _active_binding()
+    commands = {
+        _vsi_cmd(vpc): {"success": True, "output": f"VSI Name: {vpc['vsi_name']}", "error": None},
+        _vsi_if_cmd(vpc): {"success": False, "output": "secret-output-xyz", "error": "secret-error-abc"},
+        _binding_cmd(binding): {"success": True, "output": f"service-instance {binding['service_instance']}", "error": None},
+    }
+    leaf = _leaf(vpc=vpc, tenant=tenant, bindings=[binding], commands=commands, snapshot_meta={"snapshot_id": 1, "collected_at": NOW})
+    assert leaf["diff"]["vsi_interface"]["status"] == "unknown"
+    ev = leaf["diff"]["vsi_interface"]["evidence"]
+    # 指针仍在（诚实说明观测来源），但绝不携带原始 output/error
+    assert ev["observed_source"] == {"kind": "snapshot", "snapshot_id": 1, "collected_at": NOW, "command": _vsi_if_cmd(vpc)}
+    raw = json.dumps(ev, default=str)
+    assert "secret-output-xyz" not in raw
+    assert "secret-error-abc" not in raw
+
+
+def test_evidence_never_leaks_output_or_credentials():
+    """脱敏边界：整棵 leaf 投影的 evidence 永不携带原始 CLI 输出 / error / 凭据。"""
+    vpc, tenant, binding = _vpc_dict(), _tenant_dict(), _active_binding()
+    commands = _aligned_commands(vpc, tenant, binding)
+    # 注入敏感输出，断言绝不流入 evidence 或响应
+    commands[_vsi_cmd(vpc)] = {"success": True, "output": "VSI Name: vpna\npassword hunter2-secret", "error": None}
+    leaf = _leaf(vpc=vpc, tenant=tenant, bindings=[binding], commands=commands, snapshot_meta={"snapshot_id": 1, "collected_at": NOW})
+    raw = json.dumps(leaf, default=str)
+    assert "hunter2-secret" not in raw
+    for dim in ("vsi", "vsi_up", "vsi_interface", "l3_vni"):
+        ev = leaf["diff"][dim]["evidence"]
+        assert set(ev.keys()) == {"desired_source", "observed_source"}
+        if ev["observed_source"] is not None:
+            assert set(ev["observed_source"].keys()) == {"kind", "snapshot_id", "collected_at", "command"}
+            assert "output" not in ev["observed_source"]
+            assert "error" not in ev["observed_source"]
+    for bd in leaf["diff"]["port_bindings"]:
+        for col in ("service_instance", "access_vlan"):
+            ev = bd[col]["evidence"]
+            assert set(ev["observed_source"].keys()) == {"kind", "snapshot_id", "collected_at", "command"}
+
+
+def test_evidence_endpoint_sanitized(client, db):
+    tenant = _create_tenant_via_api(client)
+    vpc = _create_vpc_via_api(client, tenant["id"])
+    leaf = _create_device(db, name="Leaf-01", ip="192.0.2.10", sdn_role="evpn_leaf")
+    vsi_cmd = f"display l2vpn vsi name {vpc['vsi_name']} verbose"
+    vsi_if_cmd = f"display current-configuration interface Vsi-interface{vpc['vsi_interface']}"
+    binding, snap = _add_binding_and_snapshot(
+        db, vpc, tenant, leaf,
+        output={
+            vsi_cmd: "VSI Name: SECRET-TOKEN-LEAK\nVSI State               : Up",
+            vsi_if_cmd: f"interface Vsi-interface{vpc['vsi_interface']}\n l3-vni {tenant['l3_vni']}",
+            f"display current-configuration interface GigabitEthernet1/0/10": "service-instance 3200",
+        },
+    )
+    resp = client.get(f"/api/sdn/vpcs/{vpc['id']}/state-projection")
+    body = resp.json()
+    assert body["success"] is True
+    leaf0 = body["data"]["leaves"][0]
+    ev = leaf0["diff"]["vsi"]["evidence"]
+    assert ev["observed_source"]["kind"] == "snapshot"
+    assert ev["observed_source"]["snapshot_id"] == snap.id
+    assert ev["observed_source"]["command"] == vsi_cmd
+    # 脱敏：原始输出 / 错误 / 凭据绝不进入响应
+    assert "SECRET-TOKEN-LEAK" not in json.dumps(body)
+    assert "output" not in json.dumps(ev)
+    assert "error" not in json.dumps(ev)

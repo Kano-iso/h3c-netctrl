@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "package_id": "S2-001",
+  "package_id": "S2-003",
   "change_id": "next-s1-backend",
-  "baseline_sha": "10d032d34ae41b46a41200f323d92faaf84ec130",
+  "baseline_sha": "9e2709826e86262bdc7862452bae80c2fef96800",
   "worktree": "/root/workpace/h3c-netctrl/.agent-worktrees/next-s1-backend",
   "scope": [
     "backend/app/i18n_keys.py",
@@ -413,6 +413,17 @@
         "test_cli_error_text_is_unknown_not_drifted",
         "test_malformed_snapshot_record_is_evidence_missing_not_no_snapshot"
       ]
+    },
+    {
+      "id": "CR50",
+      "summary": "逐维差异证据指针（S2-003）：state-projection 每个可比较维度除 status/reason_code 外，附带稳定、脱敏的 evidence（desired_source / observed_source），让 STRATA 可下钻解释目标来源与设备事实来源；只含 deployment/binding/snapshot 元数据与 display 命令名，绝不回传原始 CLI output/error/凭据；不改变既有状态/reason/聚合/生命周期语义",
+      "implementation": "sdn_state_projection.py 纯函数：_observed_evidence（有快照记录 → {kind=snapshot, snapshot_id, collected_at, command}，命令失败/畸形/过期仍保留指针）+ _evidence（{desired_source, observed_source}）；vsi/vsi_up/vsi_interface/l3_vni 与每个绑定字段的 service_instance/access_vlan diff 都附加 evidence；desired_source 复用 lifecycle（deployment）或 binding / operable_binding_count 来源，无证明为 null；零 I/O、零写库、无迁移/表/采集命令/接口变更",
+      "tests": [
+        "test_evidence_aligned_pointers",
+        "test_evidence_command_failure_keeps_pointer_but_sanitizes",
+        "test_evidence_never_leaks_output_or_credentials",
+        "test_evidence_endpoint_sanitized"
+      ]
     }
   ],
   "invariants": [
@@ -446,7 +457,8 @@
     "诚实表达：succeeded 单元无观察证据只表达执行记录成功（succeeded_recorded/desired/not device-verified），不得冒充设备已验证成功；无法从真实数据证明的字段（protected_interfaces、unit freshness 等）一律 null，禁止编造",
     "state-projection GET 只读：不触发 SSH/NETCONF、不写库、不刷新时间戳、不隐式同步、不新增快照/binding/deployment",
     "观测诚实：快照命令 success!=true/缺失/error → unknown（采不到绝不 drift）；大于 600s TTL → stale；无法证明的维 unknown/no_snapshot，绝不编造设备事实",
-    "差异逐维表达：聚合（最差 stale>drifted>unknown>aligned）永不覆盖逐维事实；planned 绑定 not_applicable/planned_not_deployed、unbound 不进 desired、非 evpn_leaf 不进健康分母；远端 Type-2/BGP 摘要不冒充本地下联端口/主机事实；相关性≠根因"
+    "差异逐维表达：聚合（最差 stale>drifted>unknown>aligned）永不覆盖逐维事实；planned 绑定 not_applicable/planned_not_deployed、unbound 不进 desired、非 evpn_leaf 不进健康分母；远端 Type-2/BGP 摘要不冒充本地下联端口/主机事实；相关性≠根因",
+    "差异证据指针（S2-003）：evidence 只含稳定元数据（desired_source: deployment/binding/计数；observed_source: {kind=snapshot, snapshot_id, collected_at, command}），绝不携带原始 CLI output/error/凭据；命令失败/畸形/过期/not_applicable/conflict 仍保留能诚实证明的指针，不改动状态、reason、聚合与生命周期语义"
   ],
   "tests": [
     {
@@ -572,13 +584,13 @@
     {
       "command": "docker compose -f openspec/changes/next-s1-backend/qa/docker-compose.qa.yml run --rm qa-backend python -m pytest tests/test_s2_001_state_projection.py -q",
       "environment": "qa-backend 容器（image next-s1-qa-backend:local；S2-001 只读投影契约）",
-      "result": "24 passed（含 CR47-CR49、L2/L3 网关独立生命周期、CLI 错误正文与损坏快照反例）",
+      "result": "28 passed（含 CR47-CR49、L2/L3 网关独立生命周期、CLI 错误正文与损坏快照反例、S2-003 证据指针与脱敏）",
       "baseline_failed": false
     },
     {
       "command": "docker compose -f openspec/changes/next-s1-backend/qa/docker-compose.qa.yml run --rm qa-backend python -m pytest tests/test_sdn_port_binding_api.py tests/test_sdn_expansion_api.py tests/test_sdn_access_api.py tests/test_sdn_operation_service.py tests/test_sdn_explanation.py tests/test_sdn_migration.py tests/test_s1_007_adversarial.py tests/test_s1_016_adversarial.py -q",
       "environment": "qa-backend 容器（S2-001 直接受影响 SDN 回归）",
-      "result": "127 passed（S2-001 24 条 + 直接受影响 SDN 回归）",
+      "result": "131 passed（S2-003 28 条 + 直接受影响 SDN 回归）",
       "baseline_failed": false
     }
   ],

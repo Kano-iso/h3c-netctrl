@@ -407,3 +407,5 @@ reconcile(operation):
 - **CR49 token 精确匹配**：`_vsi_name_present`/`_vsi_state_up`/`_vsi_interface_present`/`_l3_vni_present` 改为行首/词边界正则（`(?m)` + `\b` + `lookahead`），杜绝 l3-vni 3000↔30000、Vsi-interface1↔10、VSI 名前缀串扰。
 - **Codex 复审补齐网关生命周期**：生命周期按 L2 基础对象与 L3 网关拆分。完整 create/delete 同时改变两者；局部 `create + unit=vsi-l3` 与 `gateway_delete + unit=vsi-l3` 只改变网关期望。由此网关撤回后仍可判定 L2 VSI aligned，且局部补回网关不能反向证明 L2 VSI 已存在。
 - **Codex 复审补齐失败证据边界**：SSH executor 返回 success 但正文含 H3C CLI 错误标记时，观测仍为 unknown；存在 snapshot id 但 JSON/commands 不可读时标 evidence_missing，不退化为 no_snapshot。
+
+**S2-003（CR50：逐维差异证据指针，只读，本轮未触真机）**：每个可比较维度（vsi / vsi_up / vsi_interface / l3_vni / 绑定 service-instance|access-vlan）的 diff 增加 `evidence = {desired_source, observed_source}`——desired 复用 lifecycle deployment / binding / operable_binding_count 来源（无证明 null），observed 在有快照记录时给 `{kind=snapshot, snapshot_id, collected_at, command}`（命令失败/畸形/过期/not_applicable/conflict 仍保留指针）。`_observed_evidence`/`_evidence` 纯函数，只含稳定元数据，绝不回传 output/error/凭据；不改状态/reason/聚合/生命周期语义，零 I/O、零写库、无迁移/表/采集命令/接口变更。
