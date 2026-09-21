@@ -582,3 +582,62 @@
 
 - **WHEN** evidence 为空、畸形 JSON 或 legacy operation 缺少 scope
 - **THEN** 投影对无法证明的字段返回 null、truth_kind 归为 pending，接口不 500、既有响应字段不变化
+
+### Requirement: VPC 目标态 / 观测态 / 差异投影（只读，STRATA 消费，S2-001）
+
+后端 SHALL 提供单一只读 API `GET /api/sdn/vpcs/{vpc_id}/state-projection`，复用现有 VPC/deployment/binding/validation snapshot 与设备 `sdn_role`，不新增执行器、不新增采集命令、不引入图数据库。响应 SHALL 含 VPC 稳定身份与版本、每台合格 EVPN Leaf（`sdn_role=evpn_leaf`）的稳定身份；对每台 Leaf 返回 `desired`（VPC/VSI/VSI-interface/L3VNI/端口绑定摘要 + 来源记录 kind/id/version）、`observed`（最新快照中可证明的结构化事实 + snapshot id + 采集完成时间）、`diff`（逐维 `aligned|drifted|unknown|stale|not_applicable` + 稳定 reason code）。聚合状态 SHALL NOT 覆盖逐维事实；非 EVPN Leaf SHALL NOT 进入可操作目标集合（仅作明确 excluded/unsupported 历史残留），不混入健康分母。
+
+#### Scenario: 无快照 → unknown
+
+- **WHEN** VPC 在合格 Leaf 上没有任何验证快照
+- **THEN** 各维 diff 均为 `unknown`（reason=no_snapshot），聚合为 unknown
+
+#### Scenario: 快照超过 TTL → stale
+
+- **WHEN** 最新快照采集完成时间距今超过 600s
+- **THEN** 可观测各维 diff 为 `stale`（reason=snapshot_stale），不因内容匹配而谎报 aligned
+
+#### Scenario: 命令失败或缺失 → unknown，不 drift
+
+- **WHEN** 快照中某命令 `success != true` 或缺失
+- **THEN** 依赖该命令的维为 `unknown`（采不到），绝不降级为 `drifted`
+
+#### Scenario: 明确偏差仅落在偏差维
+
+- **WHEN** VSI 存在但 l3-vni 在 VSI-interface 配置中缺失
+- **THEN** l3_vni 维为 `drifted`，vsi / vsi_interface 仍为 aligned；聚合为 drifted 但逐维事实不被覆盖
+
+#### Scenario: 非 EVPN Leaf 排除
+
+- **WHEN** 某设备在本 VPC 有历史 deployment/binding/snapshot 但 `sdn_role != evpn_leaf`
+- **THEN** 该设备进入 excluded（reason=not_evpn_leaf），不进入 leaves、不进健康分母
+
+#### Scenario: 只读无副作用
+
+- **WHEN** 调用该 GET 接口
+- **THEN** 不触发 SSH/NETCONF、不写库、不刷新时间戳、不新增快照/binding/deployment
+
+#### Scenario: 目标态由生命周期记录证明（CR47）
+
+- **WHEN** 每台设备有 create/delete deployment 与 binding 的 action/status/version/时间顺序记录
+- **THEN** 成功且当前版本有效的 create 表示基础对象期望存在；后续成功 delete 表示期望不存在；pending/failed/unknown 历史不覆盖最后一个确定结果；仅历史 snapshot 的设备为 observation-only（desired 不武断 present，diff 不制造 drift）；基础对象已 delete 但仍有 operable binding 时标 unknown/conflict，不凭空选一边；响应保留来源 deployment id/version/action/status
+
+#### Scenario: 多值接口配置按成员关系比较（CR48）
+
+- **WHEN** 端口接口含多个 service-instance / access-vlan
+- **THEN** 以「目标值是否精确属于观测集合」判定，观测值按有序列表返回；目标值不是第一个但存在 → aligned，确实缺失 → drifted
+
+#### Scenario: 配置 token 精确匹配（CR49）
+
+- **WHEN** l3-vni / Vsi-interface 编号 / VSI 名可能前缀串扰（如 3000 vs 30000、Vsi-interface1 vs Vsi-interface10）
+- **THEN** 用行首/词边界精确匹配；命令成功但目标 token 确实不存在才是 drift，命令失败/缺失仍是 unknown
+
+#### Scenario: L2 与 L3 网关生命周期独立
+
+- **WHEN** 完整 VPC 已部署后成功执行 `gateway_delete`，或只执行局部 `vsi-l3 create`
+- **THEN** 前者只把 VSI-interface/L3VNI 的目标态改为 absent、保留 L2 VSI 目标态；后者只证明网关目标态 present，不得冒充整套 L2 VSI 已部署
+
+#### Scenario: CLI 错误正文或损坏快照不是漂移
+
+- **WHEN** 命令传输成功但正文包含 H3C CLI 错误，或快照记录存在但载荷不可读
+- **THEN** 对应维度为 unknown/evidence_missing，不得判成配置缺失，也不得冒充从未采集

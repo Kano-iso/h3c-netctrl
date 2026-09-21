@@ -19,6 +19,7 @@
 """
 import json
 import logging
+from datetime import datetime
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -47,6 +48,11 @@ from app.schemas import (
 )
 from app.i18n_keys import err, error_response
 from app.services.sdn_deployment_executor import SdnDeploymentError, SdnDeploymentExecutor
+from app.services.sdn_state_projection import (
+    SNAPSHOT_TTL_SECONDS,
+    aggregate_vpc,
+    build_leaf_projection,
+)
 from app.services.sdn_validation_collector import SdnValidationCollector
 from app.services.sdn_operation_service import (
     SdnOperationError,
@@ -1516,3 +1522,136 @@ def get_latest_vpc_validation(vpc_id: int, device_id: int, db: Session = Depends
     if not snapshot:
         return APIResponse(success=True, data=None)
     return APIResponse(success=True, data=SdnValidationCollector.to_response(snapshot))
+
+
+# ── S2-001 VPC 目标态 / 观测态 / 差异投影（只读，不触发设备 I/O、不写库）──
+
+def _latest_snapshot(db: Session, vpc_id: int, device_id: int):
+    return (
+        db.query(SdnValidationSnapshot)
+        .filter(
+            SdnValidationSnapshot.vpc_id == vpc_id,
+            SdnValidationSnapshot.device_id == device_id,
+        )
+        .order_by(SdnValidationSnapshot.id.desc())
+        .first()
+    )
+
+
+@router.get("/vpcs/{vpc_id}/state-projection", response_model=APIResponse)
+def get_vpc_state_projection(vpc_id: int, db: Session = Depends(get_db)):
+    """单个 VPC 的目标态/观测态/差异投影（S2-001，只读）。
+
+    只读语义：不触发 SSH/NETCONF、不写库、不刷新时间戳；仅投影已持久化的期望记录
+    （VPC/binding/deployment）与最近验证快照。非 evpn_leaf 设备不进健康分母，仅作
+    excluded 呈现。
+    """
+    vpc = db.query(SdnVpc).filter(SdnVpc.id == vpc_id).first()
+    if not vpc:
+        return error_response(err.SDN_VPC_NOT_FOUND, params={"id": vpc_id})
+    tenant = db.query(SdnTenant).filter(SdnTenant.id == vpc.tenant_id).first()
+
+    # 该 VPC 的部署/绑定/快照所覆盖的设备 = 可操作目标集合的候选。
+    target_ids: set[int] = set()
+    for model in (SdnDeployment, SdnPortBinding, SdnValidationSnapshot):
+        rows = db.query(model.device_id).filter(model.vpc_id == vpc_id).distinct().all()
+        target_ids.update(int(r[0]) for r in rows if r[0] is not None)
+
+    devices = db.query(Device).filter(Device.id.in_(target_ids)).all() if target_ids else []
+    vpc_dict = {
+        "id": vpc.id,
+        "name": vpc.name,
+        "version": vpc.version,
+        "vni": vpc.vni,
+        "vsi_name": vpc.vsi_name,
+        "vsi_interface": vpc.vsi_interface,
+    }
+    tenant_dict = {"id": tenant.id, "l3_vni": tenant.l3_vni} if tenant else {"id": None, "l3_vni": None}
+
+    now = datetime.utcnow()
+    leaves: list[dict] = []
+    excluded: list[dict] = []
+    for device in devices:
+        binding_rows = (
+            db.query(SdnPortBinding)
+            .filter(SdnPortBinding.vpc_id == vpc_id, SdnPortBinding.device_id == device.id)
+            .order_by(SdnPortBinding.id.asc())
+            .all()
+        )
+        bindings = [
+            {
+                "id": b.id,
+                "if_index": b.if_index,
+                "interface_name": b.interface_name,
+                "access_vlan": b.access_vlan,
+                "service_instance": b.service_instance,
+                "status": b.status,
+                "version": b.version,
+            }
+            for b in binding_rows
+        ]
+        if not _is_sdn_fabric_member(device):
+            excluded.append(
+                {
+                    "device_id": device.id,
+                    "device_name": device.name,
+                    "device_host": device.host,
+                    "sdn_role": device.sdn_role,
+                    "reason": "not_evpn_leaf",
+                }
+            )
+            continue
+
+        snap = _latest_snapshot(db, vpc_id, device.id)
+        snapshot_payload = None
+        snapshot_meta: dict = {}
+        if snap is not None:
+            collected_at = snap.collection_completed_at or snap.created_at
+            snapshot_meta = {"snapshot_id": snap.id, "collected_at": collected_at}
+            try:
+                snapshot_payload = json.loads(snap.snapshot_data) if snap.snapshot_data else None
+            except (TypeError, json.JSONDecodeError):
+                snapshot_payload = None
+
+        deployment_rows = (
+            db.query(SdnDeployment)
+            .filter(SdnDeployment.vpc_id == vpc_id, SdnDeployment.device_id == device.id)
+            .order_by(SdnDeployment.id.asc())
+            .all()
+        )
+        deployments = [
+            {
+                "id": d.id,
+                "action": d.action,
+                "unit": d.unit,
+                "status": d.status,
+                "version": d.version,
+                "config_completed_at": d.config_completed_at,
+            }
+            for d in deployment_rows
+        ]
+
+        leaves.append(
+            build_leaf_projection(
+                device={"id": device.id, "name": device.name, "host": device.host, "sdn_role": device.sdn_role},
+                vpc=vpc_dict,
+                tenant=tenant_dict,
+                bindings=bindings,
+                deployments=deployments,
+                snapshot=snapshot_payload,
+                snapshot_meta=snapshot_meta,
+                now=now,
+            )
+        )
+
+    leaf_aggregates = [leaf["aggregate"] for leaf in leaves]
+    return APIResponse(
+        success=True,
+        data={
+            "vpc": vpc_dict,
+            "snapshot_ttl_seconds": SNAPSHOT_TTL_SECONDS,
+            "leaves": leaves,
+            "excluded": excluded,
+            "aggregate": aggregate_vpc(leaf_aggregates),
+        },
+    )

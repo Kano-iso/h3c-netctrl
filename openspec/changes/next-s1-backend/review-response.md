@@ -450,6 +450,10 @@
 
 **剩余不确定性**：因果令牌用 deployment id 还是显式时间窗，待 apply 阶段与 Codex 对齐后固化。
 
+## CR46-CR49：S2-001 只读状态差异投影
+
+已新增单 VPC 的 desired/observed/diff 只读投影。Codex 两轮复审修正：目标态必须由 deployment 生命周期与当前版本证明；多 service-instance 按成员关系比较；配置 token 精确匹配；L2 VSI 与可独立撤回/补回的 L3 网关分别折叠生命周期；CLI 错误正文和损坏快照保持 unknown。读取不触发采集、设备 I/O 或写库。隔离 QA 合并运行 127 passed，本轮未触真机。
+
 ## R5 撤回与资源所有权
 
 **修改入口**：design.md D16；specs 新增「撤回所有权与版本检查」需求；tasks 第 5 组补旧入口交错测试。

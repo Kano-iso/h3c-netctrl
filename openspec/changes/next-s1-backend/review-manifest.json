@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "package_id": "S1-026",
+  "package_id": "S2-001",
   "change_id": "next-s1-backend",
-  "baseline_sha": "6cd19fbfca9fab47896236debbb37816310eb915",
+  "baseline_sha": "10d032d34ae41b46a41200f323d92faaf84ec130",
   "worktree": "/root/workpace/h3c-netctrl/.agent-worktrees/next-s1-backend",
   "scope": [
     "backend/app/i18n_keys.py",
@@ -81,7 +81,9 @@
     "backend/app/services/sdn_explanation.py",
     "backend/tests/test_sdn_explanation.py",
     "backend/app/services/templates/h3c_v7_port_bind.py",
-    "backend/migrations/versions/0c1928618be4_add_assets_table.py"
+    "backend/migrations/versions/0c1928618be4_add_assets_table.py",
+    "backend/app/services/sdn_state_projection.py",
+    "backend/tests/test_s2_001_state_projection.py"
   ],
   "requirements": [
     {
@@ -380,6 +382,37 @@
         "test_access_mode_l2_alias_preview_and_execute",
         "test_fresh_empty_db_upgrade_head_bootstraps_base_tables"
       ]
+    },
+    {
+      "id": "CR46",
+      "summary": "VPC 目标态/观测态/差异投影（只读，S2-001）：GET /api/sdn/vpcs/{vpc_id}/state-projection 按合格 EVPN Leaf 返回 desired（含来源记录 kind/id/version）/observed（快照命令级解析 + snapshot_id + 采集完成时间 + stale）/diff（逐维 aligned|drifted|unknown|stale|not_applicable + 稳定 reason code）；聚合取最差不覆盖逐维；非 EVPN Leaf 仅 excluded；只读零设备 I/O 零写库",
+      "implementation": "新增 backend/app/services/sdn_state_projection.py 纯函数 build_leaf_projection/aggregate_vpc（零 I/O、畸形输入稳定降级）：目标态按 deployment 生命周期与当前版本证明，并拆分 L2 VSI 和 L3 网关生命周期；命令 success!=true/缺失/error → unknown；TTL 600s → stale；多 service-instance/access-vlan 按精确成员关系比较；VSI/Vsi-interface/L3VNI token 精确匹配；planned 绑定 not_applicable；远端 Type-2 不冒充本地。sdn.py 只读组装候选、latest 快照与 excluded，绝不触发 collector.sync/SSH/NETCONF/写库",
+      "tests": [
+        "test_no_snapshot_all_unknown",
+        "test_stale_snapshot_all_stale",
+        "test_all_aligned",
+        "test_l3vni_drifted_only_that_dimension",
+        "test_partial_command_failure_is_unknown_not_drifted",
+        "test_vsi_up_not_applicable_without_operable_binding",
+        "test_planned_binding_not_asserted",
+        "test_endpoint_zero_device_io_and_zero_writes",
+        "test_non_evpn_leaf_excluded_not_in_leaves",
+        "test_vpc_not_found",
+        "test_create_then_delete_base_absent_not_drift",
+        "test_delete_then_new_create_present",
+        "test_snapshot_only_desired_unknown_not_drift",
+        "test_failed_delete_does_not_override_last_determinate",
+        "test_absent_base_with_operable_binding_is_conflict",
+        "test_binding_target_not_first_but_present",
+        "test_binding_target_truly_missing",
+        "test_l3vni_prefix_not_matched",
+        "test_vsi_interface_prefix_not_matched",
+        "test_vsi_name_prefix_not_matched",
+        "test_gateway_delete_only_removes_l3_dimension",
+        "test_gateway_redeploy_does_not_prove_l2_vsi_exists",
+        "test_cli_error_text_is_unknown_not_drifted",
+        "test_malformed_snapshot_record_is_evidence_missing_not_no_snapshot"
+      ]
     }
   ],
   "invariants": [
@@ -410,7 +443,10 @@
     "ztp-stack 渲染脚本不把任何秘密拼入 python 源码/命令行：所有渲染变量经 os.environ 传递，特殊字符（单引号/反斜杠/换行等）原样渲染、不执行注入",
     "失败/中断不残留宽权限或含口令的中间文件（trap/unlink 清理）",
     "GET /api/sdn/operations/{id} 解释投影 additive：全部既有字段与原始 scope/evidence 原样返回，不得移除或改写；解释失败返回 {'unavailable': true} 降级标记，接口绝不 500",
-    "诚实表达：succeeded 单元无观察证据只表达执行记录成功（succeeded_recorded/desired/not device-verified），不得冒充设备已验证成功；无法从真实数据证明的字段（protected_interfaces、unit freshness 等）一律 null，禁止编造"
+    "诚实表达：succeeded 单元无观察证据只表达执行记录成功（succeeded_recorded/desired/not device-verified），不得冒充设备已验证成功；无法从真实数据证明的字段（protected_interfaces、unit freshness 等）一律 null，禁止编造",
+    "state-projection GET 只读：不触发 SSH/NETCONF、不写库、不刷新时间戳、不隐式同步、不新增快照/binding/deployment",
+    "观测诚实：快照命令 success!=true/缺失/error → unknown（采不到绝不 drift）；大于 600s TTL → stale；无法证明的维 unknown/no_snapshot，绝不编造设备事实",
+    "差异逐维表达：聚合（最差 stale>drifted>unknown>aligned）永不覆盖逐维事实；planned 绑定 not_applicable/planned_not_deployed、unbound 不进 desired、非 evpn_leaf 不进健康分母；远端 Type-2/BGP 摘要不冒充本地下联端口/主机事实；相关性≠根因"
   ],
   "tests": [
     {
@@ -532,6 +568,18 @@
       "environment": "qa-backend 容器全量 tests/（+ops-toolkit scripts 挂载；S1-027 当前代码）",
       "result": "695 passed / 7 failed / 24 skipped（failed 与基线 66da5e0 全量运行完全一致：test_ops_toolkit_task_monitor×5 需 ops-toolkit HTTP stub harness（返回 3 API 不可达）、test_s1_024_credential_hygiene×2 全量顺序下失败（单测通过）；均为预存在、非本变更引入；695 = 基线 693 + S1-027 新增 2 回归）",
       "baseline_failed": true
+    },
+    {
+      "command": "docker compose -f openspec/changes/next-s1-backend/qa/docker-compose.qa.yml run --rm qa-backend python -m pytest tests/test_s2_001_state_projection.py -q",
+      "environment": "qa-backend 容器（image next-s1-qa-backend:local；S2-001 只读投影契约）",
+      "result": "24 passed（含 CR47-CR49、L2/L3 网关独立生命周期、CLI 错误正文与损坏快照反例）",
+      "baseline_failed": false
+    },
+    {
+      "command": "docker compose -f openspec/changes/next-s1-backend/qa/docker-compose.qa.yml run --rm qa-backend python -m pytest tests/test_sdn_port_binding_api.py tests/test_sdn_expansion_api.py tests/test_sdn_access_api.py tests/test_sdn_operation_service.py tests/test_sdn_explanation.py tests/test_sdn_migration.py tests/test_s1_007_adversarial.py tests/test_s1_016_adversarial.py -q",
+      "environment": "qa-backend 容器（S2-001 直接受影响 SDN 回归）",
+      "result": "127 passed（S2-001 24 条 + 直接受影响 SDN 回归）",
+      "baseline_failed": false
     }
   ],
   "migrations": [
@@ -567,7 +615,8 @@
     }
   ],
   "unverified": [
-    "跨 leaf 数据面转发、网关 ping reachable、主机 ARP/MAC 学习（无下联主机，未伪造成功；complete 已诚实表达 degraded）"
+    "跨 leaf 数据面转发、网关 ping reachable、主机 ARP/MAC 学习（无下联主机，未伪造成功；complete 已诚实表达 degraded）",
+    "S2-001 投影只读语义基于单机 VSI/config 回读命令（display l2vpn vsi verbose / interface Vsi-interface{n} / interface {GE}）；不产出本地下联主机/ARP/MAC 观测；VPC 无任何 deployment/binding/snapshot 记录时 leaves 为空（聚合 unknown，不冒充已部署到全部 Fabric Leaf）"
   ],
   "forbidden_actions_confirmed": [
     "未修改前端、主工作树、常驻业务服务",
@@ -582,8 +631,9 @@
     "S1-024 本轮未运行真机测试、未执行任何设备 I/O（CR43 修复与对抗测试全部在隔离 QA 容器验证）",
     "S1-024 未修改设备口令、未轮换凭据（历史已暴露，用户须在设备与 .env 外部轮换；本包不重写 Git 历史、不改 archive/ 历史 change 与历史发布记录）",
     "S1-026 本轮未运行真机测试、未执行任何设备 I/O（解释投影与对抗测试全部在隔离 QA 容器验证）",
-    "S1-026 未新增表/未迁移数据库/未修改 apply/validate/withdraw/reconcile 执行语义/未修改 ops-toolkit"
+    "S1-026 未新增表/未迁移数据库/未修改 apply/validate/withdraw/reconcile 执行语义/未修改 ops-toolkit",
+    "S2-001 本轮未运行真机测试、未执行任何设备 I/O（投影与契约测试全部在隔离 qa-backend 容器验证）",
+    "S2-001 未新增执行器/采集命令/图数据库/迁移；未修改前端、主工作树、常驻业务服务、设备配置模板/ZTP/生产凭据；未 commit/push/tag/archive/release；未改真机 runner"
   ],
-  "ready_for_code_review": true,
-  "code_review_passed": true
+  "ready_for_code_review": true
 }

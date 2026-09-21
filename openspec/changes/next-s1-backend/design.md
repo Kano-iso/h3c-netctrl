@@ -390,3 +390,20 @@ reconcile(operation):
   - **unit 级**：`explanation`{`category`、`statement`、`truth_kind`（`desired|observed|inferred|pending`）、`source`、`scope`（继承 attempt scope，数据可证）、`observed_at`、`freshness`（单元级无独立时效时间戳→null，handoff 登记缺口）}。诚实表达：succeeded 无观察证据→`desired`/`execution_record`/「not device-verified」，且 `observed_at=null`，不把执行完成时间冒充观测时间；failed_known+definitive→`observed`/`device_rejection`/`device_response`；reconciled 单元 execute→`observed`/`readback_verified`、withdraw→`inferred`/`readback_syntax_match`（结构化语法匹配证明配置缺失）；unknown/started/not_started→`pending`。历史 JSON 损坏时只读详情安全降级为 null，不因投影解析 500。
   - **稳定性**：`_safe_explain` 包裹（解释失败→`{"unavailable": true, "reason": "explanation_failed"}`，绝不 500）；三个纯函数对 None/畸形主参稳定降级（`_dict`/`_s` 防御），绝不抛出。中文不固化后端，只回稳定 code + 语言中性 fallback statement，具体中文由前端 i18n 完成。
 - **对抗测试（`test_sdn_explanation.py`，27 条）**：除原投影契约外，增加 API 级畸形历史 JSON 降级测试；复审修正“历史 stale 永久污染当前 claim 状态”和“执行完成时间冒充设备观测时间”。相关回归 65 passed。本轮**未运行真机测试、无任何设备 I/O**。
+
+## 28. S2-001 增量（VPC 目标态/观测态/差异投影，只读 pure function，本轮未触真机）
+
+- **背景**：STRATA 需要直接消费「平台期望 vs 设备观测 vs 差异」的只读后端能力，且不能再把数据库配置记录冒充设备事实。复用 S1 已固化的 VPC/binding/deployment/snapshot 与设备 `sdn_role`，不新增执行器/采集命令/图数据库/迁移。
+- **范围约束（只读）**：`GET /api/sdn/vpcs/{vpc_id}/state-projection` 不触发 SSH/NETCONF、不写库、不刷新时间戳、不隐式同步；只比较现有验证快照可证明的维度。非 evpn_leaf 设备不进可操作目标集合（历史残留仅作 excluded/unsupported），不混入健康分母。
+- **实现（新增 `backend/app/services/sdn_state_projection.py` 纯函数；`sdn.py` 新增只读端点组装）**：
+  - `build_leaf_projection`：`desired`（VSI / VSI-interface / L3VNI / 端口绑定摘要，各带 `source = {kind, id, version}` 来源记录；vsi_up 期望由 operable 绑定数量驱动）、`observed`（从 `snapshot_data.commands[*]` 直接解析——命令键与 `SdnValidationCollector` 一致：`display l2vpn vsi name {vsi_name} verbose` / `display current-configuration interface Vsi-interface{n}` / `display current-configuration interface {GE}`，含 snapshot_id + 采集完成时间 + snapshot_age_seconds + stale）、`diff` 逐维 `aligned|drifted|unknown|stale|not_applicable` + 稳定 reason code。
+  - **诚实表达铁律**：命令 `success != true` / 缺失 / `error` 非空 → `unknown`（采不到，绝不降级 drift）；TTL 600s（对齐 `PREDEPLOY_EVIDENCE_MAX_AGE_SECONDS`）超时 → `stale`；`planned` 绑定（意图未下发）→ `not_applicable`/`planned_not_deployed`，不进健康分母；`unbound` 不进 desired；远端 EVPN Type-2/BGP 摘要不进本投影（只读本地 config 回读，绝不冒充本地下联端口/主机事实）；聚合取最差（stale>drifted>unknown>aligned），永不覆盖逐维事实；空 Leaf 集合 → 聚合 unknown。
+  - `sdn.py::get_vpc_state_projection`：目标集合 = `sdn_deployments ∪ sdn_port_bindings ∪ sdn_validation_snapshots` 覆盖的 device_id；`_is_sdn_fabric_member`（`sdn_role=evpn_leaf`）分 leaves / excluded（reason=not_evpn_leaf）；每台 leaf 取最新快照解码后投影。
+- **对抗测试（新增 `test_s2_001_state_projection.py`，10 条）**：无快照/过期/全一致/l3-vni 明确偏差/部分命令失败 unknown 不 drift/planned 不断言/vsi_up not_applicable/非 EVPN 排除/GET 零 I/O 零写入穿透契约。本轮**未运行真机测试、无任何设备 I/O**。
+
+**S2-001-R1（CR47-CR49 复审返工，本轮未触真机）**：
+- **CR47 目标态由生命周期证明**：路由把每台设备的 deployment（id/action/unit/status/version/config_completed_at）传入投影；新增 `resolve_base_lifecycle` 纯函数折叠基础对象存在性——只认 `action∈{create,delete}` 且 `status==success` 的确定事件，按 id 升序折叠；成功且 `version==vpc.version` 的 create → present，其后成功 delete → absent，pending/failed/unknown 不覆盖最后确定结果，版本不一致/无 create → unknown。`desired.vsi/vsi_interface/l3_vni.present` 依此取 True/False/None，diff 用 `_classify_presence`（desired absent + observed 存在 → `*_unexpected`，desired absent + observed 不存在 → `*_absent`，desired unknown → `desired_unknown`）；基础对象 absent 且仍有 operable binding → `desired.base.conflict=true`，绑定维与 vsi_up 标 `lifecycle_conflict`。响应 `desired.base={state,source,conflict}` 保留来源 deployment。
+- **CR48 多值成员比较**：`_service_instances`/`_access_vlans` 返回有序列表；`next(iter(set))` 改为「目标值 ∈ 观测列表」；绑定 diff 输出 `observed` 列表。
+- **CR49 token 精确匹配**：`_vsi_name_present`/`_vsi_state_up`/`_vsi_interface_present`/`_l3_vni_present` 改为行首/词边界正则（`(?m)` + `\b` + `lookahead`），杜绝 l3-vni 3000↔30000、Vsi-interface1↔10、VSI 名前缀串扰。
+- **Codex 复审补齐网关生命周期**：生命周期按 L2 基础对象与 L3 网关拆分。完整 create/delete 同时改变两者；局部 `create + unit=vsi-l3` 与 `gateway_delete + unit=vsi-l3` 只改变网关期望。由此网关撤回后仍可判定 L2 VSI aligned，且局部补回网关不能反向证明 L2 VSI 已存在。
+- **Codex 复审补齐失败证据边界**：SSH executor 返回 success 但正文含 H3C CLI 错误标记时，观测仍为 unknown；存在 snapshot id 但 JSON/commands 不可读时标 evidence_missing，不退化为 no_snapshot。

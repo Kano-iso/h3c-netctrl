@@ -225,3 +225,21 @@
 - [x] 28.4 Codex 复审修正：确定终态不被历史 stale/insufficient 永久标记歧义；无设备证据的执行记录 `observed_at=null`；JSON 解析纳入安全边界
 - [x] 28.5 QA（本轮未触真机）：`test_sdn_explanation.py` = **27 passed**；受影响回归（access/operation_service/validation/apply + 投影）= **65 passed**；`openspec validate --strict` valid；`git diff --check` clean
 - [x] 28.5 同步 design(§27)/tasks(§28)/spec.md(新 Requirement)/readiness/handoff/review-response/review-manifest（package_id=S1-026）/collaboration.md（S1-026 状态）
+
+## 29. S2-001（VPC 目标态/观测态/差异投影，只读，本轮未触真机）
+
+- [x] 29.1 新增 `backend/app/services/sdn_state_projection.py` 纯函数（零 I/O、畸形输入稳定降级）：`desired`（VSI/VSI-interface/L3VNI/端口绑定摘要 + kind/id/version 来源记录）、`observed`（最新快照命令级解析 + snapshot id + 采集完成时间 + stale 判定）、`diff` 逐维 `aligned|drifted|unknown|stale|not_applicable` + 稳定 reason code；命令 `success != true`/缺失 → unknown 绝不 drift；TTL 600s 对齐既有 PREDEPLOY_DEFAULT_MAX_AGE；`planned` 绑定不断言设备侧；聚合取最差，永不覆盖逐维
+- [x] 29.2 `sdn.py` 新增 `GET /api/sdn/vpcs/{vpc_id}/state-projection`：只读组装（VPC+tenant 身份与版本、deployment∪binding∪snapshot 覆盖设备 → `sdn_role==evpn_leaf` leaves + 非 evpn_leaf excluded(reason=not_evpn_leaf)、latest 快照解码）；绝不触发 collector.sync/SSH/NETCONF、绝不写库
+- [x] 29.3 新增契约测试 `backend/tests/test_s2_001_state_projection.py`（10 条）：无快照 unknown、过期 stale、全一致、l3-vni 明确偏差、部分命令失败 unknown 不 drift、vsi_up not_applicable、planned 绑定 not_asserted、非 EVPN 排除、GET 零设备 I/O/零写入、vpc_not_found
+- [x] 29.4 QA（本轮未触真机）：`test_s2_001_state_projection.py` = **10 passed**；直接受影响 SDN 回归（port_binding/expansion/access/operation_service/explanation/migration + S1-007/S1-016）= **103 passed**；openspec strict / manifest JSON / git diff --check 通过
+- [x] 29.5 同步 spec.md(新 Requirement：目标态/观测态/差异投影)/tasks(§29)/design(§28)/review-manifest（package_id=S2-001，baseline_sha=10d032d，新增 CR46/测试条目/文件清单）
+
+## 29-R1. S2-001-R1（CR47-CR49 复审返工，本轮未触真机）
+
+- [x] 29-R1.1 CR47 目标态由生命周期证明：`resolve_base_lifecycle` 折叠 create/delete（仅 success 确定、id 升序、版本因果），`desired` 存在性取 True/False/None，`_classify_presence` 消除假 drift；absent+operable binding → `lifecycle_conflict`；路由传入 deployment 序列；来源保留 deployment id/version/action/status
+- [x] 29-R1.2 CR48 多值成员比较：观测解析返回有序列表，`值∈列表` 判定，绑定 diff 输出 `observed` 列表
+- [x] 29-R1.3 CR49 token 精确匹配：l3-vni/Vsi-interface 编号/VSI 名改行首/词边界正则，杜绝前缀串扰
+- [x] 29-R1.4 契约测试补 10 条（create→delete / delete→new create / snapshot-only / failed delete / absent+operable conflict / 多值成员 2 / 前缀反例 3）
+- [x] 29-R1.5 Codex 复审补齐 L2 VSI 与 L3 网关独立生命周期：`gateway_delete` 仅令 VSI-interface/L3VNI 期望 absent，局部 `vsi-l3 create` 不冒充整套 L2 VSI 已部署；新增 2 条反例
+- [x] 29-R1.6 Codex 复审补齐 CLI 错误正文与损坏快照：命令返回成功但正文含 H3C CLI 错误时仍为 unknown；有 snapshot id 但载荷不可读时为 evidence_missing，不冒充 no_snapshot
+- [x] 29-R1.7 QA（本轮未触真机）：S2-001 投影与直接受影响 SDN 回归合并运行 = **127 passed**；openspec strict / manifest JSON / git diff --check 通过
