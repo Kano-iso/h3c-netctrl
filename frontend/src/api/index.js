@@ -111,6 +111,7 @@ export const sdnApi = {
 
   // NEXT S1：可信终端接入闭环
   accessOverview: (vpcId) => apiCall(`/sdn/vpcs/${vpcId}/access-overview`),
+  stateProjection: (vpcId) => apiCall(`/sdn/vpcs/${vpcId}/state-projection`),
   previewAccess: (vpcId, payload) =>
     apiCall(`/sdn/vpcs/${vpcId}/access-preview`, {
       method: 'POST',

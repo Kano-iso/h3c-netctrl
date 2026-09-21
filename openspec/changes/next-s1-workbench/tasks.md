@@ -16,4 +16,7 @@
 - [x] 9.2 S1-027 契约修复：后端接受前端语义 mode `l2`（schema + plan_port_bind 归一化）并加回归测试
 - [x] 9.3 S1-027 在干净环境重复通过真实栈联调；后端/前端基线不回归
 - [x] 9.5 S1-028 QA 通道可复现性整改：镜像改 FROM node:20-alpine 公开基座独立构建（前端锁文件 npm ci、失败即构建失败、删除 || true 吞错），compose 运行容器 network_mode: none（构建期联网、运行期无网络、loopback 内联调），文档口径同步
+- [x] 10.1 S2-002 STRATA 接入 VPC state-projection，只读呈现逐 Leaf 目标态、设备观测与逐维差异
+- [x] 10.2 对 aligned / drifted / unknown / stale / not_applicable 建立独立文案与视觉语义，非 EVPN 设备明确排除
+- [x] 10.3 QA 容器通过 lint、type-check、build、63 个组件测试与 46 个浏览器流程；新增 STRATA 组件和浏览器契约覆盖
 - [ ] 9.4 等待用户确认是否进入 OpenSpec 收尾与版本集成

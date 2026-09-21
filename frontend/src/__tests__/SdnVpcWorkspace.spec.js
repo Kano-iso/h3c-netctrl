@@ -11,7 +11,7 @@ vi.mock('../api/index.js', () => ({
   interfaceApi: { list: vi.fn() },
   sdnApi: {
     listTenants: vi.fn(), createTenant: vi.fn(), listVpcs: vi.fn(), createVpc: vi.fn(),
-    deployVpc: vi.fn(), withdrawVpc: vi.fn(), accessOverview: vi.fn(), previewAccess: vi.fn(),
+    deployVpc: vi.fn(), withdrawVpc: vi.fn(), accessOverview: vi.fn(), stateProjection: vi.fn(), previewAccess: vi.fn(),
     executeAccess: vi.fn(), getOperation: vi.fn(), completeOperation: vi.fn(),
     withdrawOperation: vi.fn(), reconcileOperation: vi.fn(),
   },
@@ -44,6 +44,21 @@ describe('SdnVpcWorkspace.vue', () => {
       latest_validation: [{ id: 3, device_id: 5, validation_result: 'active' }],
       observations: [{ operation_id: 41, device_id: 5, expected_host_ip: '192.168.1.3', host_observed: true, items: [] }],
     } })
+    sdnApi.stateProjection.mockResolvedValue({ success: true, data: {
+      aggregate: 'drifted', excluded: [{ device_id: 4, reason: 'not_evpn_leaf' }], leaves: [{
+        device_id: 5, device_name: 'Leaf-04', device_host: '192.168.100.5', aggregate: 'drifted',
+        desired: {
+          vsi: { present: true }, vsi_up: { expected: true }, vsi_interface: { present: true }, l3_vni: { present: true },
+          port_bindings: [{ binding_id: 9, interface_name: 'GigabitEthernet1/0/3', service_instance: 3100, access_vlan: null }],
+        },
+        observed: { collected_at: '2026-09-14T10:00:00Z', facts: { vsi_exists: true, vsi_up: true, vsi_interface_exists: true, l3_vni_present: false } },
+        diff: {
+          vsi: { status: 'aligned', reason_code: 'vsi_present' }, vsi_up: { status: 'aligned', reason_code: 'vsi_up' },
+          vsi_interface: { status: 'aligned', reason_code: 'vsi_interface_present' }, l3_vni: { status: 'drifted', reason_code: 'l3_vni_missing' },
+          port_bindings: [{ binding_id: 9, interface_name: 'GigabitEthernet1/0/3', service_instance: { status: 'aligned', reason_code: 'service_instance_present', observed: [3100] }, access_vlan: { status: 'not_applicable', reason_code: 'not_required', observed: null } }],
+        },
+      }],
+    } })
     sdnApi.getOperation.mockResolvedValue({ success: true, data: operationDetail })
     sdnApi.previewAccess.mockResolvedValue({ success: true, data: { plan_id: 'plan-1', predeploy_status: 'ready', blocking: [] } })
     sdnApi.executeAccess.mockResolvedValue({ success: true, data: { operation_id: 42, status: 'awaiting_validation', expected_host_ip: '192.168.1.4' } })
@@ -64,6 +79,18 @@ describe('SdnVpcWorkspace.vue', () => {
     expect(wrapper.text()).toContain('192.168.1.3')
     expect(wrapper.text()).not.toContain('Leaf-03')
     expect(sdnApi.accessOverview).toHaveBeenCalledWith(2)
+    expect(sdnApi.stateProjection).toHaveBeenCalledWith(2)
+  })
+
+  it('keeps desired, observed, and drift as separate STRATA facts', async () => {
+    const wrapper = mountPage()
+    await flushPromises()
+    await wrapper.findAll('button').find((button) => button.text().includes('STRATA')).trigger('click')
+
+    expect(wrapper.text()).toContain('存在差异')
+    expect(wrapper.text()).toContain('三层网关接口')
+    expect(wrapper.text()).toContain('SI 3100')
+    expect(wrapper.text()).toContain('1 台非 EVPN 设备已排除')
   })
 
   it('previews an access request before executing it', async () => {

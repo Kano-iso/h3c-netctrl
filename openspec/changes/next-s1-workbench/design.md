@@ -39,3 +39,9 @@ PULSE 优先消费后端 S1-026 的三级 `explanation` 投影：operation 用 i
 ## Compatibility
 
 VPC 创建和 Fabric 管理继续使用既有 API，放入次级工具区。旧数据缺少 operation 时按“历史信息不完整”显示，不补造过程。
+
+## STRATA State Projection（S2-002）
+
+STRATA 读取 S2-001 的只读 `state-projection`，不再用 access-overview 的粗粒度校验灯推测设备状态。首层保留 VPC 业务意图，第二层按 EVPN Leaf 展开；每台 Leaf 同屏呈现目标值、最近设备快照与差异结论，VSI、运行状态、网关接口、L3VNI 和端口绑定均保持独立维度。
+
+`unknown` 表示证据不足，`stale` 表示证据过期，只有有效回读与目标不符才显示 `drifted`；三者使用不同文字和视觉语义。非 EVPN 设备仅显示排除数量，不进入聚合健康度。页面切换和刷新只读取持久化事实，不触发设备采集或配置下发。
