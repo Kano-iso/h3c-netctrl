@@ -12,7 +12,7 @@ vi.mock('../api/index.js', () => ({
   sdnApi: {
     listTenants: vi.fn(), createTenant: vi.fn(), listVpcs: vi.fn(), createVpc: vi.fn(),
     deployVpc: vi.fn(), withdrawVpc: vi.fn(), accessOverview: vi.fn(), stateProjection: vi.fn(), previewAccess: vi.fn(),
-    executeAccess: vi.fn(), getOperation: vi.fn(), completeOperation: vi.fn(),
+    executeAccess: vi.fn(), getOperation: vi.fn(), completeOperation: vi.fn(), syncValidation: vi.fn(),
     withdrawOperation: vi.fn(), reconcileOperation: vi.fn(),
   },
 }))
@@ -65,6 +65,7 @@ describe('SdnVpcWorkspace.vue', () => {
     sdnApi.completeOperation.mockResolvedValue({ success: true, data: { status: 'validated' } })
     sdnApi.withdrawOperation.mockResolvedValue({ success: true, data: { status: 'withdrawn' } })
     sdnApi.reconcileOperation.mockResolvedValue({ success: true, data: { status: 'validated' } })
+    sdnApi.syncValidation.mockResolvedValue({ success: true, data: { cached: false } })
   })
 
   it('renders a VPC-centered map and excludes non-EVPN devices', async () => {
@@ -91,6 +92,18 @@ describe('SdnVpcWorkspace.vue', () => {
     expect(wrapper.text()).toContain('三层网关接口')
     expect(wrapper.text()).toContain('SI 3100')
     expect(wrapper.text()).toContain('1 台非 EVPN 设备已排除')
+  })
+
+  it('only collects device evidence after an explicit STRATA refresh', async () => {
+    const wrapper = mountPage()
+    await flushPromises()
+    expect(sdnApi.syncValidation).not.toHaveBeenCalled()
+    await wrapper.findAll('button').find((button) => button.text().includes('STRATA')).trigger('click')
+    await wrapper.find('button[title="重新采集此设备的状态证据"]').trigger('click')
+    await flushPromises()
+
+    expect(sdnApi.syncValidation).toHaveBeenCalledWith(2, 5, true)
+    expect(wrapper.text()).toContain('设备证据已更新')
   })
 
   it('previews an access request before executing it', async () => {

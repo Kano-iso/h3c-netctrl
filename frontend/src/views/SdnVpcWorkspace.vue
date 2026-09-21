@@ -162,6 +162,19 @@ async function loadContext() {
 async function refreshAll() { await loadBase(); await loadContext(); message.value = t('sdn.next.refreshed') }
 function selectObject(kind, value) { selectedObject.value = { kind, value }; inspectorTab.value = 'summary' }
 
+async function refreshProjectionLeaf(deviceId) {
+  busy.value = `projection-${deviceId}`
+  clearNotice()
+  const result = await sdnApi.syncValidation(selectedVpcId.value, deviceId, true)
+  if (!result.success) {
+    busy.value = ''
+    return void (error.value = result.error || t('sdn.next.projection_refresh_failed'))
+  }
+  await loadContext()
+  busy.value = ''
+  message.value = t('sdn.next.projection_refreshed')
+}
+
 async function openOperation(summary) {
   busy.value = `operation-${summary.operation_id}`
   const result = await sdnApi.getOperation(summary.operation_id)
@@ -390,7 +403,7 @@ onMounted(loadBase)
               <article v-for="projection in stateProjection.leaves" :key="projection.device_id" class="projection-card" :class="`is-${projection.aggregate}`" @click="selectObject('device', deviceById(projection.device_id) || projection)">
                 <header>
                   <span><small>{{ t('sdn.next.device_layer') }}</small><strong>{{ projection.device_name }}</strong><b>{{ projection.device_host }}</b></span>
-                  <span class="status-chip" :class="projectionMeta(projection.aggregate).tone">{{ projectionMeta(projection.aggregate).label }}</span>
+                  <span class="projection-card-actions"><span class="status-chip" :class="projectionMeta(projection.aggregate).tone">{{ projectionMeta(projection.aggregate).label }}</span><button :title="t('sdn.next.refresh_device_evidence')" :disabled="busy === `projection-${projection.device_id}`" @click.stop="refreshProjectionLeaf(projection.device_id)">↻</button></span>
                 </header>
                 <div class="projection-evidence">
                   <span><small>{{ t('sdn.next.observed_at') }}</small><b>{{ projection.observed ? formatTime(projection.observed.collected_at) : t('sdn.next.no_evidence') }}</b></span>
@@ -460,4 +473,5 @@ onMounted(loadBase)
 .vpc-copy strong{font-size:13px;line-height:1.2;overflow-wrap:normal}
 @media(max-width:720px){.scope-pane{display:block}.vpc-copy strong{white-space:nowrap}}
 .evidence-statement{margin:0 0 14px;padding:10px;border-left:3px solid #198568;background:#f1f7f5;color:#52656a;font-size:12px}
+.projection-card-actions{display:flex;align-items:center;gap:5px}.projection-card-actions>button{display:grid;place-items:center;width:28px;height:28px;border:1px solid #cbd5d8;border-radius:4px;background:#fff;color:#315a60;font-size:16px;cursor:pointer}.projection-card-actions>button:disabled{opacity:.4;cursor:not-allowed}
 </style>

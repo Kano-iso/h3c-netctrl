@@ -493,6 +493,9 @@ export default {
       no_projection: '尚无可投影的 EVPN Leaf',
       no_projection_hint: '创建部署或端口接入记录后，这里会展示平台目标与设备快照的逐项对照。',
       excluded_devices: '{count} 台非 EVPN 设备已排除，不计入结果。',
+      refresh_device_evidence: '重新采集此设备的状态证据',
+      projection_refreshed: '设备证据已更新',
+      projection_refresh_failed: '设备证据更新失败',
       projection_status: {
         aligned: '一致', drifted: '存在差异', unknown: '证据不足', stale: '证据过期', not_applicable: '不适用',
       },

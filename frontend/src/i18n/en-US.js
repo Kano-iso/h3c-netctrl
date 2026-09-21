@@ -488,6 +488,9 @@ export default {
       no_projection: 'No EVPN Leaf can be projected yet',
       no_projection_hint: 'Create a deployment or access binding to compare platform intent with device snapshots here.',
       excluded_devices: '{count} non-EVPN devices are excluded from the result.',
+      refresh_device_evidence: 'Collect fresh state evidence from this device',
+      projection_refreshed: 'Device evidence updated',
+      projection_refresh_failed: 'Failed to update device evidence',
       projection_status: {
         aligned: 'Aligned', drifted: 'Drift detected', unknown: 'Evidence missing', stale: 'Evidence stale', not_applicable: 'Not applicable',
       },
