@@ -11,7 +11,7 @@ vi.mock('../api/index.js', () => ({
   interfaceApi: { list: vi.fn() },
   sdnApi: {
     listTenants: vi.fn(), createTenant: vi.fn(), listVpcs: vi.fn(), createVpc: vi.fn(),
-    deployVpc: vi.fn(), withdrawVpc: vi.fn(), accessOverview: vi.fn(), stateProjection: vi.fn(), previewAccess: vi.fn(),
+    deployVpc: vi.fn(), withdrawVpc: vi.fn(), accessOverview: vi.fn(), stateProjection: vi.fn(), stateProjectionHistory: vi.fn(), previewAccess: vi.fn(),
     executeAccess: vi.fn(), getOperation: vi.fn(), completeOperation: vi.fn(), syncValidation: vi.fn(),
     withdrawOperation: vi.fn(), reconcileOperation: vi.fn(),
   },
@@ -59,6 +59,13 @@ describe('SdnVpcWorkspace.vue', () => {
         },
       }],
     } })
+    sdnApi.stateProjectionHistory.mockResolvedValue({ success: true, data: { timelines: [{
+      device_id: 5, points: [{
+        snapshot_id: 2, collected_at: '2026-09-13T10:00:00Z', validation_result: 'degraded', aggregate: 'drifted',
+        desired: { basis: 'current_target' },
+        diff: { vsi: { status: 'aligned' }, vsi_interface: { status: 'aligned' }, l3_vni: { status: 'drifted' } },
+      }],
+    }] } })
     sdnApi.getOperation.mockResolvedValue({ success: true, data: operationDetail })
     sdnApi.previewAccess.mockResolvedValue({ success: true, data: { plan_id: 'plan-1', predeploy_status: 'ready', blocking: [] } })
     sdnApi.executeAccess.mockResolvedValue({ success: true, data: { operation_id: 42, status: 'awaiting_validation', expected_host_ip: '192.168.1.4' } })
@@ -129,6 +136,35 @@ describe('SdnVpcWorkspace.vue', () => {
     expect(wrapper.text()).toContain('vpc-demo')
     await wrapper.findAll('.projection-filters button').find((button) => button.text().includes('差异')).trigger('click')
     expect(wrapper.find('.projection-card').text()).toContain('Leaf-04')
+  })
+
+  it('loads a Leaf evidence trail only when the user expands it', async () => {
+    const wrapper = mountPage()
+    await flushPromises()
+    expect(sdnApi.stateProjectionHistory).not.toHaveBeenCalled()
+    await wrapper.findAll('button').find((button) => button.text().includes('STRATA')).trigger('click')
+    await wrapper.find('.history-toggle').trigger('click')
+    await flushPromises()
+
+    expect(sdnApi.stateProjectionHistory).toHaveBeenCalledWith(2, 5, 10)
+    expect(wrapper.text()).toContain('历史设备快照均与当前目标配置比较')
+    expect(wrapper.text()).toContain('#2 · degraded')
+    await wrapper.find('.history-track button').trigger('click')
+    expect(wrapper.text()).toContain('采集结论')
+  })
+
+  it('reloads an open evidence trail after an explicit device refresh', async () => {
+    const wrapper = mountPage()
+    await flushPromises()
+    await wrapper.findAll('button').find((button) => button.text().includes('STRATA')).trigger('click')
+    await wrapper.find('.history-toggle').trigger('click')
+    await flushPromises()
+    await wrapper.find('button[title="重新采集此设备的状态证据"]').trigger('click')
+    await flushPromises()
+
+    expect(sdnApi.syncValidation).toHaveBeenCalledWith(2, 5, true)
+    expect(sdnApi.stateProjectionHistory).toHaveBeenCalledTimes(2)
+    expect(wrapper.text()).toContain('#2 · degraded')
   })
 
   it('previews an access request before executing it', async () => {

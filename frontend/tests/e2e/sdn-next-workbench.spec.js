@@ -29,6 +29,21 @@ const stateProjection = {
   }],
 }
 
+const stateProjectionHistory = {
+  desired_basis: 'current_target',
+  timelines: [{
+    device_id: 5,
+    points: [{
+      snapshot_id: 2,
+      collected_at: '2026-09-13T10:00:00Z',
+      validation_result: 'degraded',
+      aggregate: 'drifted',
+      desired: { basis: 'current_target' },
+      diff: { vsi: { status: 'aligned' }, vsi_interface: { status: 'aligned' }, l3_vni: { status: 'drifted' } },
+    }],
+  }],
+}
+
 const operation = {
   ...overview.operations[0],
   device_id: 5,
@@ -64,6 +79,7 @@ async function installMocks(page) {
     if (url.pathname === '/api/sdn/vpcs') data = { vpcs: [{ id: 2, name: 'production-a', tenant_id: 1, tenant_name: 'tenant-a', cidr: '192.168.1.0/24', gateway_ip: '192.168.1.254', vni: 10, vsi_name: 'vpna', status: 'active' }] }
     if (url.pathname === '/api/sdn/vpcs/2/access-overview') data = overview
     if (url.pathname === '/api/sdn/vpcs/2/state-projection') data = stateProjection
+    if (url.pathname === '/api/sdn/vpcs/2/state-projection/history') data = stateProjectionHistory
     if (url.pathname === '/api/devices/5/interfaces') data = [{ if_index: 3, name: 'GigabitEthernet1/0/3', status: 'up' }]
     if (url.pathname === '/api/sdn/vpcs/2/access-preview') data = { plan_id: 'visual-plan', predeploy_status: 'ready', blocking: [] }
     if (url.pathname === '/api/sdn/vpcs/2/access') data = { operation_id: 42, status: 'awaiting_validation', expected_host_ip: '192.168.1.4' }
@@ -125,6 +141,9 @@ test.describe('NEXT S1 network service workbench', () => {
     await expect(page.getByText('VNI 10 · vpna')).toBeVisible()
     await expect(page.getByText('一致').first()).toBeVisible()
     await expect(page.getByText('SI 3100').first()).toBeVisible()
+    await page.getByRole('button', { name: '查看证据轨迹' }).click()
+    await expect(page.getByText('历史设备快照均与当前目标配置比较').first()).toBeVisible()
+    await expect(page.getByText('#2 · degraded')).toBeVisible()
 
     await page.getByRole('button', { name: /ATLAS/ }).click()
     await expect(page.locator('.stage-label')).toContainText('接入关系')

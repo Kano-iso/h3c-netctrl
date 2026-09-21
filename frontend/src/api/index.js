@@ -112,6 +112,10 @@ export const sdnApi = {
   // NEXT S1：可信终端接入闭环
   accessOverview: (vpcId) => apiCall(`/sdn/vpcs/${vpcId}/access-overview`),
   stateProjection: (vpcId) => apiCall(`/sdn/vpcs/${vpcId}/state-projection`),
+  stateProjectionHistory: (vpcId, deviceId, limit = 10) => {
+    const qs = new URLSearchParams({ device_id: deviceId, limit }).toString()
+    return apiCall(`/sdn/vpcs/${vpcId}/state-projection/history?${qs}`)
+  },
   previewAccess: (vpcId, payload) =>
     apiCall(`/sdn/vpcs/${vpcId}/access-preview`, {
       method: 'POST',

@@ -502,6 +502,13 @@ export default {
       projection_filters: 'State projection filters',
       projection_filter: { all: 'All', aligned: 'Aligned', attention: 'Drift', unknown: 'Evidence gaps' },
       no_projection_matches: 'No Leafs match this filter',
+      show_history: 'View evidence trail',
+      hide_history: 'Hide evidence trail',
+      history_title: 'Device evidence trail',
+      history_current_basis: 'Historical device snapshots are compared with the current target',
+      history_failed: 'Failed to load the evidence trail',
+      no_history: 'No historical snapshots exist for this device.',
+      validation_result: 'Collection result',
       projection_status: {
         aligned: 'Aligned', drifted: 'Drift detected', unknown: 'Evidence missing', stale: 'Evidence stale', not_applicable: 'Not applicable',
       },

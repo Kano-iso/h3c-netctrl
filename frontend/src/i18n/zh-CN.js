@@ -507,6 +507,13 @@ export default {
       projection_filters: '状态投影筛选',
       projection_filter: { all: '全部', aligned: '一致', attention: '差异', unknown: '证据不足' },
       no_projection_matches: '当前筛选条件下没有 Leaf',
+      show_history: '查看证据轨迹',
+      hide_history: '收起证据轨迹',
+      history_title: '设备证据轨迹',
+      history_current_basis: '历史设备快照均与当前目标配置比较',
+      history_failed: '证据轨迹加载失败',
+      no_history: '这台设备还没有历史快照。',
+      validation_result: '采集结论',
       projection_status: {
         aligned: '一致', drifted: '存在差异', unknown: '证据不足', stale: '证据过期', not_applicable: '不适用',
       },

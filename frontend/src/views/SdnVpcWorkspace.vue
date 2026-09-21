@@ -20,6 +20,8 @@ const selectedObject = ref(null)
 const inspectorTab = ref('summary')
 const workspaceMode = ref('atlas')
 const projectionFilter = ref('all')
+const projectionHistory = ref({})
+const historyOpenDeviceId = ref(null)
 
 const accessOpen = ref(false)
 const accessStep = ref('form')
@@ -162,6 +164,36 @@ function projectionSourceLabel(source) {
   if (source.kind === 'operable_binding_count') return t('sdn.next.source_binding_count', { count: source.count ?? 0 })
   return source.kind || t('sdn.next.unknown')
 }
+function historyPoints(deviceId) {
+  return projectionHistory.value[deviceId]?.points || []
+}
+async function toggleProjectionHistory(deviceId) {
+  if (historyOpenDeviceId.value === deviceId) {
+    historyOpenDeviceId.value = null
+    return
+  }
+  historyOpenDeviceId.value = deviceId
+  if (projectionHistory.value[deviceId]) return
+  busy.value = `history-${deviceId}`
+  const result = await sdnApi.stateProjectionHistory(selectedVpcId.value, deviceId, 10)
+  busy.value = ''
+  if (!result.success) {
+    historyOpenDeviceId.value = null
+    return void (error.value = result.error || t('sdn.next.history_failed'))
+  }
+  projectionHistory.value = {
+    ...projectionHistory.value,
+    [deviceId]: result.data?.timelines?.[0] || { device_id: deviceId, points: [] },
+  }
+}
+function selectHistoryPoint(projection, point) {
+  selectObject('history', {
+    ...point,
+    device_id: projection.device_id,
+    device_name: projection.device_name,
+    device_host: projection.device_host,
+  })
+}
 
 async function loadBase() {
   loading.value = true
@@ -206,6 +238,18 @@ async function refreshProjectionLeaf(deviceId) {
     return void (error.value = result.error || t('sdn.next.projection_refresh_failed'))
   }
   await loadContext()
+  const nextHistory = { ...projectionHistory.value }
+  delete nextHistory[deviceId]
+  projectionHistory.value = nextHistory
+  if (historyOpenDeviceId.value === deviceId) {
+    const historyResult = await sdnApi.stateProjectionHistory(selectedVpcId.value, deviceId, 10)
+    if (historyResult.success) {
+      projectionHistory.value = {
+        ...projectionHistory.value,
+        [deviceId]: historyResult.data?.timelines?.[0] || { device_id: deviceId, points: [] },
+      }
+    }
+  }
   busy.value = ''
   message.value = t('sdn.next.projection_refreshed')
 }
@@ -334,6 +378,8 @@ const canWithdraw = (op) => !['withdrawn', 'withdrawing'].includes(op?.status)
 
 watch(selectedVpcId, async () => {
   selectedObject.value = selectedVpc.value ? { kind: 'vpc', value: selectedVpc.value } : null
+  projectionHistory.value = {}
+  historyOpenDeviceId.value = null
   await loadContext()
 })
 watch(() => accessForm.value.device_id, loadAccessInterfaces)
@@ -453,6 +499,18 @@ onMounted(loadBase)
                   <span>{{ dimension.desired }}</span><span>{{ dimension.observed }}</span>
                   <b class="projection-result" :class="projectionMeta(dimension.result?.status).tone" :title="translatedCode('projection_reason', dimension.result?.reason_code, dimension.result?.reason_code)">{{ projectionMeta(dimension.result?.status).label }}</b>
                 </button>
+                <button type="button" class="history-toggle" :class="{ active: historyOpenDeviceId === projection.device_id }" :disabled="busy === `history-${projection.device_id}`" @click.stop="toggleProjectionHistory(projection.device_id)">
+                  <span>{{ historyOpenDeviceId === projection.device_id ? t('sdn.next.hide_history') : t('sdn.next.show_history') }}</span><b>{{ historyOpenDeviceId === projection.device_id ? '−' : '+' }}</b>
+                </button>
+                <div v-if="historyOpenDeviceId === projection.device_id" class="history-panel" @click.stop>
+                  <header><span><small>{{ t('sdn.next.history_title') }}</small><strong>{{ t('sdn.next.history_current_basis') }}</strong></span><b>{{ historyPoints(projection.device_id).length }}</b></header>
+                  <div v-if="historyPoints(projection.device_id).length" class="history-track">
+                    <button v-for="point in historyPoints(projection.device_id)" :key="point.snapshot_id" type="button" :class="`is-${point.aggregate}`" @click="selectHistoryPoint(projection, point)">
+                      <i></i><span><strong>{{ formatTime(point.collected_at) }}</strong><small>#{{ point.snapshot_id }} · {{ point.validation_result || t('sdn.next.unknown') }}</small></span><b :class="projectionMeta(point.aggregate).tone">{{ projectionMeta(point.aggregate).label }}</b>
+                    </button>
+                  </div>
+                  <p v-else class="quiet-copy">{{ t('sdn.next.no_history') }}</p>
+                </div>
               </article>
             </div>
             <div v-else class="strata-empty compact"><strong>{{ t('sdn.next.no_projection_matches') }}</strong></div>
@@ -473,6 +531,7 @@ onMounted(loadBase)
             <template v-else-if="selectedObject.kind === 'binding'"><p class="object-type">ACCESS PORT</p><h3>{{ selectedObject.value.interface_name }}</h3><dl><dt>{{ t('sdn.next.device') }}</dt><dd>{{ deviceById(selectedObject.value.device_id)?.name || selectedObject.value.device_id }}</dd><dt>if_index</dt><dd>{{ selectedObject.value.if_index }}</dd><dt>Service instance</dt><dd>{{ selectedObject.value.service_instance }}</dd></dl></template>
             <template v-else-if="selectedObject.kind === 'operation'"><p class="object-type">OPERATION</p><h3>#{{ selectedObject.value.operation_id }}</h3><span class="status-chip large" :class="statusMeta(selectedObject.value.status).tone">{{ statusMeta(selectedObject.value.status).label }}</span><dl><dt>{{ t('sdn.next.host') }}</dt><dd>{{ selectedObject.value.expected_host_ip || '—' }}</dd><dt>{{ t('sdn.next.updated') }}</dt><dd>{{ formatTime(selectedObject.value.updated_at) }}</dd></dl><div class="operation-actions"><button v-if="canComplete(selectedObject.value)" class="primary" @click="runOperation('complete')">{{ t('sdn.next.verify_now') }}</button><button v-if="canReconcile(selectedObject.value)" class="secondary" @click="runOperation('reconcile')">{{ t('sdn.next.reconcile') }}</button><button v-if="canWithdraw(selectedObject.value)" class="danger-text" @click="runOperation('withdraw')">{{ t('sdn.next.withdraw_access') }}</button></div></template>
             <template v-else-if="selectedObject.kind === 'projection'"><p class="object-type">STRATA EVIDENCE</p><h3>{{ selectedObject.value.label }}</h3><span class="status-chip large" :class="projectionMeta(selectedObject.value.result?.status).tone">{{ projectionMeta(selectedObject.value.result?.status).label }}</span><p class="evidence-statement">{{ translatedCode('projection_reason', selectedObject.value.result?.reason_code, selectedObject.value.result?.reason_code) }}</p><dl><dt>{{ t('sdn.next.device') }}</dt><dd>{{ selectedObject.value.device_name }} · {{ selectedObject.value.device_host }}</dd><dt>{{ t('sdn.next.desired_state') }}</dt><dd>{{ selectedObject.value.desired }}</dd><dt>{{ t('sdn.next.observed_state') }}</dt><dd>{{ selectedObject.value.observed }}</dd><dt>{{ t('sdn.next.desired_source') }}</dt><dd>{{ projectionSourceLabel(selectedObject.value.result?.evidence?.desired_source) }}</dd><dt>{{ t('sdn.next.observed_source') }}</dt><dd>{{ projectionSourceLabel(selectedObject.value.result?.evidence?.observed_source) }}</dd><dt>{{ t('sdn.next.display_command') }}</dt><dd>{{ selectedObject.value.result?.evidence?.observed_source?.command || '—' }}</dd><dt>{{ t('sdn.next.observed_at') }}</dt><dd>{{ formatTime(selectedObject.value.result?.evidence?.observed_source?.collected_at || selectedObject.value.observed_at) }}</dd></dl></template>
+            <template v-else-if="selectedObject.kind === 'history'"><p class="object-type">STRATA HISTORY</p><h3>{{ selectedObject.value.device_name }}</h3><span class="status-chip large" :class="projectionMeta(selectedObject.value.aggregate).tone">{{ projectionMeta(selectedObject.value.aggregate).label }}</span><p class="evidence-statement">{{ t('sdn.next.history_current_basis') }}</p><dl><dt>{{ t('sdn.next.observed_at') }}</dt><dd>{{ formatTime(selectedObject.value.collected_at) }}</dd><dt>{{ t('sdn.next.observed_source') }}</dt><dd>{{ t('sdn.next.source_snapshot', { id: selectedObject.value.snapshot_id }) }}</dd><dt>{{ t('sdn.next.validation_result') }}</dt><dd>{{ selectedObject.value.validation_result || '—' }}</dd><dt>VSI</dt><dd>{{ projectionMeta(selectedObject.value.diff?.vsi?.status).label }}</dd><dt>{{ t('sdn.next.gateway_interface') }}</dt><dd>{{ projectionMeta(selectedObject.value.diff?.vsi_interface?.status).label }}</dd><dt>L3VNI</dt><dd>{{ projectionMeta(selectedObject.value.diff?.l3_vni?.status).label }}</dd></dl></template>
             <template v-else><p class="object-type">EVIDENCE</p><h3>{{ selectedObject.value.unit_name }}</h3><span class="status-chip large" :class="statusMeta(selectedObject.value.state).tone">{{ truthLabel(selectedObject.value) }}</span><p class="evidence-statement">{{ unitExplanation(selectedObject.value) }}</p><dl><dt>{{ t('sdn.next.source') }}</dt><dd>{{ evidenceSource(selectedObject.value) }}</dd><dt>{{ t('sdn.next.scope') }}</dt><dd>{{ evidenceScope(selectedObject.value) }}</dd><dt>{{ t('sdn.next.observed_at') }}</dt><dd>{{ formatTime(selectedObject.value.explanation?.observed_at) }}</dd></dl></template>
           </div><pre v-else class="technical-view">{{ JSON.stringify(selectedObject.value, null, 2) }}</pre>
         </template>
@@ -516,5 +575,6 @@ onMounted(loadBase)
 .projection-card-actions{display:flex;align-items:center;gap:5px}.projection-card-actions>button{display:grid;place-items:center;width:28px;height:28px;border:1px solid #cbd5d8;border-radius:4px;background:#fff;color:#315a60;font-size:16px;cursor:pointer}.projection-card-actions>button:disabled{opacity:.4;cursor:not-allowed}
 .projection-row{width:100%;padding:0;border-right:0;border-bottom:0;border-left:0;background:transparent;color:inherit;text-align:left;cursor:pointer}.projection-row:hover{background:#f1f7f5}.projection-row:focus-visible{outline:2px solid #16796b;outline-offset:2px}
 .projection-filters{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));margin:0 0 12px;border:1px solid #d4dddf;border-radius:5px;overflow:hidden;background:#fff}.projection-filters button{display:flex;align-items:center;justify-content:center;gap:7px;min-width:0;height:36px;border:0;border-right:1px solid #e0e6e7;background:#fff;color:#607177;font-size:10px;font-weight:750;cursor:pointer}.projection-filters button:last-child{border-right:0}.projection-filters button.active{background:#20343a;color:#fff}.projection-filters b{display:grid;place-items:center;min-width:19px;height:19px;border-radius:10px;background:#edf1f2;color:#4f6268;font-size:9px}.projection-filters button.active b{background:#d3e7e3;color:#174f48}.strata-empty.compact{padding:22px}
+.history-toggle{display:flex;align-items:center;justify-content:space-between;width:100%;height:34px;margin-top:9px;padding:0 2px;border:0;border-top:1px solid #dfe6e7;background:transparent;color:#315a60;font-size:10px;font-weight:800;cursor:pointer}.history-toggle b{font-size:17px;font-weight:500}.history-toggle.active{color:#16796b}.history-panel{margin:0 -3px -3px;padding:10px;background:#f4f7f7;border:1px solid #dce4e5;border-radius:4px}.history-panel>header{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px}.history-panel>header span{display:flex;flex-direction:column}.history-panel>header small{font-size:9px;font-weight:850;color:#64787d;text-transform:uppercase}.history-panel>header strong{margin-top:2px;color:#4f6268;font-size:10px;font-weight:600}.history-panel>header>b{min-width:22px;text-align:right;color:#708287;font-size:10px}.history-track{position:relative}.history-track:before{position:absolute;top:10px;bottom:10px;left:5px;width:1px;background:#c5d3d4;content:''}.history-track>button{position:relative;display:grid;grid-template-columns:12px minmax(0,1fr) auto;align-items:center;gap:7px;width:100%;min-height:38px;padding:4px 0;border:0;background:transparent;text-align:left;cursor:pointer}.history-track>button>i{z-index:1;width:11px;height:11px;border:3px solid #f4f7f7;border-radius:50%;background:#7c8d91;box-shadow:0 0 0 1px #aebdbf}.history-track>button.is-aligned>i{background:#198568}.history-track>button.is-drifted>i{background:#c94d4d}.history-track>button.is-stale>i{background:#c28b25}.history-track>button>span{display:flex;flex-direction:column;min-width:0}.history-track>button strong{color:#314a50;font-size:10px}.history-track>button small{margin-top:1px;color:#7b8a8e;font-size:9px}.history-track>button>b{padding:3px 5px;border-radius:3px;background:#e8edef;color:#5d6d72;font-size:9px}.history-track>button>b.good{background:#dff3eb;color:#12674f}.history-track>button>b.warn{background:#fff1d6;color:#8a5d08}.history-track>button>b.bad{background:#fde5e3;color:#a02e2e}.history-track>button:hover span strong{color:#0d6f61}
 @media(max-width:720px){.projection-filters{grid-template-columns:1fr 1fr}.projection-filters button:nth-child(2){border-right:0}.projection-filters button:nth-child(-n+2){border-bottom:1px solid #e0e6e7}}
 </style>
