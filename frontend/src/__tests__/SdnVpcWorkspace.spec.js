@@ -118,6 +118,19 @@ describe('SdnVpcWorkspace.vue', () => {
     expect(wrapper.text()).toContain('VSI 已存在')
   })
 
+  it('filters STRATA leaves without changing the selected VPC context', async () => {
+    const wrapper = mountPage()
+    await flushPromises()
+    await wrapper.findAll('button').find((button) => button.text().includes('STRATA')).trigger('click')
+
+    expect(wrapper.find('.projection-card').exists()).toBe(true)
+    await wrapper.findAll('.projection-filters button').find((button) => button.text().includes('一致')).trigger('click')
+    expect(wrapper.text()).toContain('当前筛选条件下没有 Leaf')
+    expect(wrapper.text()).toContain('vpc-demo')
+    await wrapper.findAll('.projection-filters button').find((button) => button.text().includes('差异')).trigger('click')
+    expect(wrapper.find('.projection-card').text()).toContain('Leaf-04')
+  })
+
   it('previews an access request before executing it', async () => {
     const wrapper = mountPage()
     await flushPromises()

@@ -19,6 +19,7 @@ const selectedVpcId = ref(null)
 const selectedObject = ref(null)
 const inspectorTab = ref('summary')
 const workspaceMode = ref('atlas')
+const projectionFilter = ref('all')
 
 const accessOpen = ref(false)
 const accessStep = ref('form')
@@ -48,6 +49,23 @@ const focusedAttempts = computed(() => focusedOperation.value?.attempts || [])
 const focusedUnits = computed(() => focusedAttempts.value.flatMap((attempt) =>
   (attempt.units || []).map((unit) => ({ ...unit, attempt_kind: attempt.kind, attempt_status: attempt.status }))
 ))
+const projectionCounts = computed(() => {
+  const counts = { all: 0, aligned: 0, attention: 0, unknown: 0 }
+  for (const leaf of stateProjection.value.leaves || []) {
+    counts.all += 1
+    if (leaf.aggregate === 'aligned') counts.aligned += 1
+    else if (['drifted', 'stale'].includes(leaf.aggregate)) counts.attention += 1
+    else counts.unknown += 1
+  }
+  return counts
+})
+const filteredProjectionLeaves = computed(() => {
+  const leaves = stateProjection.value.leaves || []
+  if (projectionFilter.value === 'aligned') return leaves.filter((leaf) => leaf.aggregate === 'aligned')
+  if (projectionFilter.value === 'attention') return leaves.filter((leaf) => ['drifted', 'stale'].includes(leaf.aggregate))
+  if (projectionFilter.value === 'unknown') return leaves.filter((leaf) => !['aligned', 'drifted', 'stale'].includes(leaf.aggregate))
+  return leaves
+})
 function statusMeta(status) {
   const key = String(status || 'unknown').toLowerCase()
   const good = ['active', 'success', 'succeeded', 'validated', 'online', 'ready', 'aligned']
@@ -415,9 +433,12 @@ onMounted(loadBase)
               <span><small>{{ t('sdn.next.business_layer') }}</small><strong>{{ selectedVpc.name }}</strong><b>{{ selectedVpc.tenant_name }} · {{ selectedVpc.cidr }}</b></span>
               <i></i><span><small>{{ t('sdn.next.logic_layer') }}</small><strong>VNI {{ selectedVpc.vni }} · {{ selectedVpc.vsi_name }}</strong><b>{{ t('sdn.next.gateway') }} {{ selectedVpc.gateway_ip || '—' }}</b></span>
             </div>
+            <div class="projection-filters" :aria-label="t('sdn.next.projection_filters')">
+              <button v-for="filter in ['all', 'aligned', 'attention', 'unknown']" :key="filter" :class="{ active: projectionFilter === filter }" @click="projectionFilter = filter"><span>{{ t(`sdn.next.projection_filter.${filter}`) }}</span><b>{{ projectionCounts[filter] }}</b></button>
+            </div>
             <div v-if="!stateProjection.leaves?.length" class="strata-empty"><strong>{{ t('sdn.next.no_projection') }}</strong><p>{{ t('sdn.next.no_projection_hint') }}</p></div>
-            <div v-else class="projection-grid">
-              <article v-for="projection in stateProjection.leaves" :key="projection.device_id" class="projection-card" :class="`is-${projection.aggregate}`" @click="selectObject('device', deviceById(projection.device_id) || projection)">
+            <div v-else-if="filteredProjectionLeaves.length" class="projection-grid">
+              <article v-for="projection in filteredProjectionLeaves" :key="projection.device_id" class="projection-card" :class="`is-${projection.aggregate}`" @click="selectObject('device', deviceById(projection.device_id) || projection)">
                 <header>
                   <span><small>{{ t('sdn.next.device_layer') }}</small><strong>{{ projection.device_name }}</strong><b>{{ projection.device_host }}</b></span>
                   <span class="projection-card-actions"><span class="status-chip" :class="projectionMeta(projection.aggregate).tone">{{ projectionMeta(projection.aggregate).label }}</span><button :title="t('sdn.next.refresh_device_evidence')" :disabled="busy === `projection-${projection.device_id}`" @click.stop="refreshProjectionLeaf(projection.device_id)">↻</button></span>
@@ -434,6 +455,7 @@ onMounted(loadBase)
                 </button>
               </article>
             </div>
+            <div v-else class="strata-empty compact"><strong>{{ t('sdn.next.no_projection_matches') }}</strong></div>
             <p v-if="stateProjection.excluded?.length" class="projection-excluded">{{ t('sdn.next.excluded_devices', { count: stateProjection.excluded.length }) }}</p>
             <div class="truth-legend"><span><i class="desired"></i>{{ t('sdn.next.desired_state') }}</span><span><i class="observed"></i>{{ t('sdn.next.observed_state') }}</span><span><i class="inferred"></i>{{ t('sdn.next.comparison') }}</span></div>
           </section>
@@ -493,4 +515,6 @@ onMounted(loadBase)
 .evidence-statement{margin:0 0 14px;padding:10px;border-left:3px solid #198568;background:#f1f7f5;color:#52656a;font-size:12px}
 .projection-card-actions{display:flex;align-items:center;gap:5px}.projection-card-actions>button{display:grid;place-items:center;width:28px;height:28px;border:1px solid #cbd5d8;border-radius:4px;background:#fff;color:#315a60;font-size:16px;cursor:pointer}.projection-card-actions>button:disabled{opacity:.4;cursor:not-allowed}
 .projection-row{width:100%;padding:0;border-right:0;border-bottom:0;border-left:0;background:transparent;color:inherit;text-align:left;cursor:pointer}.projection-row:hover{background:#f1f7f5}.projection-row:focus-visible{outline:2px solid #16796b;outline-offset:2px}
+.projection-filters{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));margin:0 0 12px;border:1px solid #d4dddf;border-radius:5px;overflow:hidden;background:#fff}.projection-filters button{display:flex;align-items:center;justify-content:center;gap:7px;min-width:0;height:36px;border:0;border-right:1px solid #e0e6e7;background:#fff;color:#607177;font-size:10px;font-weight:750;cursor:pointer}.projection-filters button:last-child{border-right:0}.projection-filters button.active{background:#20343a;color:#fff}.projection-filters b{display:grid;place-items:center;min-width:19px;height:19px;border-radius:10px;background:#edf1f2;color:#4f6268;font-size:9px}.projection-filters button.active b{background:#d3e7e3;color:#174f48}.strata-empty.compact{padding:22px}
+@media(max-width:720px){.projection-filters{grid-template-columns:1fr 1fr}.projection-filters button:nth-child(2){border-right:0}.projection-filters button:nth-child(-n+2){border-bottom:1px solid #e0e6e7}}
 </style>

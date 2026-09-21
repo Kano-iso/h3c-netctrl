@@ -504,6 +504,9 @@ export default {
       source_binding: '端口绑定 #{id} · 版本 {version}',
       source_snapshot: '设备快照 #{id}',
       source_binding_count: '{count} 个有效端口绑定',
+      projection_filters: '状态投影筛选',
+      projection_filter: { all: '全部', aligned: '一致', attention: '差异', unknown: '证据不足' },
+      no_projection_matches: '当前筛选条件下没有 Leaf',
       projection_status: {
         aligned: '一致', drifted: '存在差异', unknown: '证据不足', stale: '证据过期', not_applicable: '不适用',
       },

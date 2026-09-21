@@ -499,6 +499,9 @@ export default {
       source_binding: 'Port binding #{id} · version {version}',
       source_snapshot: 'Device snapshot #{id}',
       source_binding_count: '{count} operable bindings',
+      projection_filters: 'State projection filters',
+      projection_filter: { all: 'All', aligned: 'Aligned', attention: 'Drift', unknown: 'Evidence gaps' },
+      no_projection_matches: 'No Leafs match this filter',
       projection_status: {
         aligned: 'Aligned', drifted: 'Drift detected', unknown: 'Evidence missing', stale: 'Evidence stale', not_applicable: 'Not applicable',
       },
