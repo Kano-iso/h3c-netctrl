@@ -646,3 +646,8 @@
 
 - **WHEN** 每个可比较维度的 diff 附带 evidence 指针
 - **THEN** `desired_source` 复用 deployment/binding/operable_binding_count 来源（无可证明目标为 null），`observed_source` 在有快照记录时含 `{kind=snapshot, snapshot_id, collected_at, command}`（无快照为 null）；仅含稳定元数据与 display 命令名，绝不回传原始 CLI output/error/凭据；命令失败/快照畸形/stale/not_applicable/lifecycle conflict 仍保留能诚实证明的指针，且不改变既有状态、reason、聚合或生命周期语义
+
+#### Scenario: 设备快照时间线（S2-004）
+
+- **WHEN** STRATA 查询 `GET /api/sdn/vpcs/{vpc_id}/state-projection/history`（`device_id` 可选，`limit` 默认 10、1..50）
+- **THEN** 每台 evpn_leaf 返回按 snapshot id/采集时间倒序的 points（非 EVPN 仅 excluded、不进聚合）；每个点至少含 snapshot_id/collected_at/validation_result，以及复用纯函数得到的 aggregate 与逐维 diff，desired 标记 `basis=current_target`（复用当前 deployment/binding 生命周期），明确是「历史设备快照 vs 当前目标态」而非历史目标态；快照 JSON 损坏/命令失败/时间缺失诚实降级 unknown/evidence_missing，不跳过坏点、不改写快照；端点零 SSH/NETCONF、零写库、零刷新时间戳，响应只保留 S2-003 脱敏 evidence 指针

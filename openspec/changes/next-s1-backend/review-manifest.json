@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "package_id": "S2-003",
+  "package_id": "S2-004",
   "change_id": "next-s1-backend",
-  "baseline_sha": "9e2709826e86262bdc7862452bae80c2fef96800",
+  "baseline_sha": "655fc53f489f00f3d19d10d9a57be4dc2d5d7bf8",
   "worktree": "/root/workpace/h3c-netctrl/.agent-worktrees/next-s1-backend",
   "scope": [
     "backend/app/i18n_keys.py",
@@ -83,7 +83,9 @@
     "backend/app/services/templates/h3c_v7_port_bind.py",
     "backend/migrations/versions/0c1928618be4_add_assets_table.py",
     "backend/app/services/sdn_state_projection.py",
-    "backend/tests/test_s2_001_state_projection.py"
+    "backend/app/routers/sdn.py",
+    "backend/tests/test_s2_001_state_projection.py",
+    "backend/tests/test_s2_004_state_projection_history.py"
   ],
   "requirements": [
     {
@@ -424,6 +426,23 @@
         "test_evidence_never_leaks_output_or_credentials",
         "test_evidence_endpoint_sanitized"
       ]
+    },
+    {
+      "id": "CR51",
+      "summary": "设备快照时间线（S2-004，只读）：GET /api/sdn/vpcs/{vpc_id}/state-projection/history 按设备返回历史 validation snapshots 倒序时间线（device_id 可选过滤；limit 默认 10、1..50）；每个点 = 历史设备快照与当前目标态的比较（desired 标记 basis=current_target，复用当前 deployment/binding 生命周期），至少含 snapshot_id/collected_at/validation_result + 复用纯函数的 aggregate 与逐维 diff；非 evpn_leaf 仅 excluded 不进聚合；坏快照保留为 unknown/evidence_missing 不跳过不改写；零 I/O、零写库、响应脱敏",
+      "implementation": "sdn.py 抽取共享投影助手（_load_projection_context/_projection_target_devices/_serialize_bindings/_serialize_deployments/_decode_snapshot/_projection_excluded_entry/_projection_device_dict），既有 state-projection endpoint 改用同一批助手且行为不变；新增 history endpoint 逐快照复用 build_leaf_projection（当前目标 desired + 该历史快照观测），每点叠加 desired.basis=current_target/snapshot_id/collected_at/validation_result，按 snapshot id 倒序 limit 截断；不新增迁移/表/采集命令/接口字段",
+      "tests": [
+        "test_history_desc_order_and_limit",
+        "test_history_device_filter",
+        "test_history_non_evpn_excluded_not_in_timelines",
+        "test_history_bad_snapshot_kept_as_unknown",
+        "test_history_desired_basis_current_target",
+        "test_history_validation_result_in_point",
+        "test_history_zero_io_and_zero_writes",
+        "test_history_response_sanitized",
+        "test_history_vpc_not_found",
+        "test_history_limit_bounds_rejected"
+      ]
     }
   ],
   "invariants": [
@@ -458,7 +477,8 @@
     "state-projection GET 只读：不触发 SSH/NETCONF、不写库、不刷新时间戳、不隐式同步、不新增快照/binding/deployment",
     "观测诚实：快照命令 success!=true/缺失/error → unknown（采不到绝不 drift）；大于 600s TTL → stale；无法证明的维 unknown/no_snapshot，绝不编造设备事实",
     "差异逐维表达：聚合（最差 stale>drifted>unknown>aligned）永不覆盖逐维事实；planned 绑定 not_applicable/planned_not_deployed、unbound 不进 desired、非 evpn_leaf 不进健康分母；远端 Type-2/BGP 摘要不冒充本地下联端口/主机事实；相关性≠根因",
-    "差异证据指针（S2-003）：evidence 只含稳定元数据（desired_source: deployment/binding/计数；observed_source: {kind=snapshot, snapshot_id, collected_at, command}），绝不携带原始 CLI output/error/凭据；命令失败/畸形/过期/not_applicable/conflict 仍保留能诚实证明的指针，不改动状态、reason、聚合与生命周期语义"
+    "差异证据指针（S2-003）：evidence 只含稳定元数据（desired_source: deployment/binding/计数；observed_source: {kind=snapshot, snapshot_id, collected_at, command}），绝不携带原始 CLI output/error/凭据；命令失败/畸形/过期/not_applicable/conflict 仍保留能诚实证明的指针，不改动状态、reason、聚合与生命周期语义",
+    "历史时间线只读（S2-004）：每个点是历史设备快照 vs 当前目标态（desired.basis=current_target），不得冒充历史目标态；坏快照保留为 unknown/evidence_missing 不跳过不改写；非 evpn_leaf 仅 excluded 不进聚合；GET 零 SSH/NETCONF、零写库、零刷新时间戳，响应脱敏"
   ],
   "tests": [
     {
@@ -584,13 +604,13 @@
     {
       "command": "docker compose -f openspec/changes/next-s1-backend/qa/docker-compose.qa.yml run --rm qa-backend python -m pytest tests/test_s2_001_state_projection.py -q",
       "environment": "qa-backend 容器（image next-s1-qa-backend:local；S2-001 只读投影契约）",
-      "result": "28 passed（含 CR47-CR49、L2/L3 网关独立生命周期、CLI 错误正文与损坏快照反例、S2-003 证据指针与脱敏）",
+      "result": "28 passed（含 CR47-CR49、L2/L3 网关独立生命周期、CLI 错误正文与损坏快照反例、S2-003 证据指针与脱敏）；S2-004 历史时间线 10 条合并 = 38 passed",
       "baseline_failed": false
     },
     {
       "command": "docker compose -f openspec/changes/next-s1-backend/qa/docker-compose.qa.yml run --rm qa-backend python -m pytest tests/test_sdn_port_binding_api.py tests/test_sdn_expansion_api.py tests/test_sdn_access_api.py tests/test_sdn_operation_service.py tests/test_sdn_explanation.py tests/test_sdn_migration.py tests/test_s1_007_adversarial.py tests/test_s1_016_adversarial.py -q",
       "environment": "qa-backend 容器（S2-001 直接受影响 SDN 回归）",
-      "result": "131 passed（S2-003 28 条 + 直接受影响 SDN 回归）",
+      "result": "141 passed（S2-004 10 条 + S2-003 28 条 + 直接受影响 SDN 回归）",
       "baseline_failed": false
     }
   ],

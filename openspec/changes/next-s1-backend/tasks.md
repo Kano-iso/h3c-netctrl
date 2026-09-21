@@ -250,3 +250,11 @@
 - [x] 30.2 脱敏边界：evidence 只含稳定元数据与 display 命令名，绝不回传原始 CLI output/error/凭据；不改状态/reason/聚合/生命周期语义；零 I/O、零写库、无迁移/表/采集命令/接口变更
 - [x] 30.3 对抗测试补 4 条（aligned 指针 / 命令失败保留指针但脱敏 / 整棵投影永不泄漏 output 或凭据 / 端点证据脱敏）
 - [x] 30.4 QA（本轮未触真机）：`test_s2_001_state_projection.py` = **28 passed**；直接受影响 SDN 回归 = **131 passed**；openspec strict / manifest JSON / git diff --check 通过
+
+## 31. S2-004（设备快照时间线，只读，本轮未触真机）
+
+- [x] 31.1 抽取共享投影助手（load context / target devices / serialize bindings / deployments / decode snapshot / excluded entry / device dict），既有 state-projection endpoint 改用且行为不变
+- [x] 31.2 新增 `GET /vpcs/{vpc_id}/state-projection/history`：device_id 可选、limit 默认 10（1..50）；evpn_leaf 时间线按 snapshot id 倒序，每点复用 build_leaf_projection（当前目标 desired + 该历史快照观测）+ desired.basis=current_target + snapshot_id/collected_at/validation_result；非 EVPN 仅 excluded；坏快照保留 unknown/evidence_missing 不跳过不改写
+- [x] 31.3 只读零 I/O 零写库、响应脱敏（只保留 S2-003 evidence 指针，无原始 output/error/凭据）；无迁移/表/采集命令/接口字段
+- [x] 31.4 对抗测试 10 条（倒序与 limit / device 过滤 / 非 EVPN 排除 / 坏快照保留 unknown / current target basis / validation_result / 零 I/O 零写入 / 响应脱敏 / VPC 404 / limit 越界 422）
+- [x] 31.5 QA（本轮未触真机）：`test_s2_004_state_projection_history.py` + 投影 = **38 passed**；直接受影响 SDN 回归 = **141 passed**；openspec strict / manifest JSON / git diff --check 通过
