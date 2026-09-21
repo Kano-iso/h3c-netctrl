@@ -20,4 +20,5 @@
 - [x] 10.2 对 aligned / drifted / unknown / stale / not_applicable 建立独立文案与视觉语义，非 EVPN 设备明确排除
 - [x] 10.3 QA 容器通过 lint、type-check、build、63 个组件测试与 46 个浏览器流程；新增 STRATA 组件和浏览器契约覆盖
 - [x] 10.4 STRATA 按 Leaf 提供显式证据刷新；普通查询与视图切换不触发设备采集，用户点击后才强制同步并重新读取投影
+- [x] 10.5 STRATA 差异行接入 S2-003 脱敏证据指针；右侧详情展示目标来源、快照、采集命令与时间，技术页保留结构化元数据
 - [ ] 9.4 等待用户确认是否进入 OpenSpec 收尾与版本集成

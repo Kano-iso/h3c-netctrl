@@ -53,7 +53,7 @@ describe('SdnVpcWorkspace.vue', () => {
         },
         observed: { collected_at: '2026-09-14T10:00:00Z', facts: { vsi_exists: true, vsi_up: true, vsi_interface_exists: true, l3_vni_present: false } },
         diff: {
-          vsi: { status: 'aligned', reason_code: 'vsi_present' }, vsi_up: { status: 'aligned', reason_code: 'vsi_up' },
+          vsi: { status: 'aligned', reason_code: 'vsi_present', evidence: { desired_source: { kind: 'deployment', deployment_id: 17, version: 2 }, observed_source: { kind: 'snapshot', snapshot_id: 3, collected_at: '2026-09-14T10:00:00Z', command: 'display l2vpn vsi name vpna verbose' } } }, vsi_up: { status: 'aligned', reason_code: 'vsi_up' },
           vsi_interface: { status: 'aligned', reason_code: 'vsi_interface_present' }, l3_vni: { status: 'drifted', reason_code: 'l3_vni_missing' },
           port_bindings: [{ binding_id: 9, interface_name: 'GigabitEthernet1/0/3', service_instance: { status: 'aligned', reason_code: 'service_instance_present', observed: [3100] }, access_vlan: { status: 'not_applicable', reason_code: 'not_required', observed: null } }],
         },
@@ -104,6 +104,18 @@ describe('SdnVpcWorkspace.vue', () => {
 
     expect(sdnApi.syncValidation).toHaveBeenCalledWith(2, 5, true)
     expect(wrapper.text()).toContain('设备证据已更新')
+  })
+
+  it('opens a sanitized evidence pointer for a STRATA dimension', async () => {
+    const wrapper = mountPage()
+    await flushPromises()
+    await wrapper.findAll('button').find((button) => button.text().includes('STRATA')).trigger('click')
+    await wrapper.findAll('.projection-row').find((row) => row.text().startsWith('VSI')).trigger('click')
+
+    expect(wrapper.text()).toContain('部署记录 #17 · 版本 2')
+    expect(wrapper.text()).toContain('设备快照 #3')
+    expect(wrapper.text()).toContain('display l2vpn vsi name vpna verbose')
+    expect(wrapper.text()).toContain('VSI 已存在')
   })
 
   it('previews an access request before executing it', async () => {

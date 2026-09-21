@@ -127,6 +127,23 @@ function projectionDimensions(leaf) {
   }
   return dimensions
 }
+function selectProjectionDimension(projection, dimension) {
+  selectObject('projection', {
+    ...dimension,
+    device_id: projection.device_id,
+    device_name: projection.device_name,
+    device_host: projection.device_host,
+    observed_at: projection.observed?.collected_at || null,
+  })
+}
+function projectionSourceLabel(source) {
+  if (!source) return t('sdn.next.no_source')
+  if (source.kind === 'deployment') return t('sdn.next.source_deployment', { id: source.deployment_id ?? '—', version: source.version ?? '—' })
+  if (source.kind === 'binding') return t('sdn.next.source_binding', { id: source.binding_id ?? '—', version: source.version ?? '—' })
+  if (source.kind === 'snapshot') return t('sdn.next.source_snapshot', { id: source.snapshot_id ?? '—' })
+  if (source.kind === 'operable_binding_count') return t('sdn.next.source_binding_count', { count: source.count ?? 0 })
+  return source.kind || t('sdn.next.unknown')
+}
 
 async function loadBase() {
   loading.value = true
@@ -410,11 +427,11 @@ onMounted(loadBase)
                   <span><small>{{ t('sdn.next.access_ports') }}</small><b>{{ projection.desired?.port_bindings?.length || 0 }}</b></span>
                 </div>
                 <div class="projection-columns"><span>{{ t('sdn.next.desired_state') }}</span><span>{{ t('sdn.next.observed_state') }}</span><span>{{ t('sdn.next.comparison') }}</span></div>
-                <div v-for="dimension in projectionDimensions(projection)" :key="dimension.key" class="projection-row">
+                <button v-for="dimension in projectionDimensions(projection)" :key="dimension.key" type="button" class="projection-row" @click.stop="selectProjectionDimension(projection, dimension)">
                   <strong>{{ dimension.label }}</strong>
                   <span>{{ dimension.desired }}</span><span>{{ dimension.observed }}</span>
                   <b class="projection-result" :class="projectionMeta(dimension.result?.status).tone" :title="translatedCode('projection_reason', dimension.result?.reason_code, dimension.result?.reason_code)">{{ projectionMeta(dimension.result?.status).label }}</b>
-                </div>
+                </button>
               </article>
             </div>
             <p v-if="stateProjection.excluded?.length" class="projection-excluded">{{ t('sdn.next.excluded_devices', { count: stateProjection.excluded.length }) }}</p>
@@ -433,6 +450,7 @@ onMounted(loadBase)
             <template v-else-if="selectedObject.kind === 'device'"><p class="object-type">EVPN LEAF</p><h3>{{ selectedObject.value.name }}</h3><dl><dt>{{ t('sdn.next.management_ip') }}</dt><dd>{{ selectedObject.value.host }}</dd><dt>{{ t('sdn.next.platform') }}</dt><dd>{{ selectedObject.value.platform || '—' }}</dd><dt>{{ t('sdn.next.access_count') }}</dt><dd>{{ bindingForLeaf(selectedObject.value.id).length }}</dd></dl></template>
             <template v-else-if="selectedObject.kind === 'binding'"><p class="object-type">ACCESS PORT</p><h3>{{ selectedObject.value.interface_name }}</h3><dl><dt>{{ t('sdn.next.device') }}</dt><dd>{{ deviceById(selectedObject.value.device_id)?.name || selectedObject.value.device_id }}</dd><dt>if_index</dt><dd>{{ selectedObject.value.if_index }}</dd><dt>Service instance</dt><dd>{{ selectedObject.value.service_instance }}</dd></dl></template>
             <template v-else-if="selectedObject.kind === 'operation'"><p class="object-type">OPERATION</p><h3>#{{ selectedObject.value.operation_id }}</h3><span class="status-chip large" :class="statusMeta(selectedObject.value.status).tone">{{ statusMeta(selectedObject.value.status).label }}</span><dl><dt>{{ t('sdn.next.host') }}</dt><dd>{{ selectedObject.value.expected_host_ip || '—' }}</dd><dt>{{ t('sdn.next.updated') }}</dt><dd>{{ formatTime(selectedObject.value.updated_at) }}</dd></dl><div class="operation-actions"><button v-if="canComplete(selectedObject.value)" class="primary" @click="runOperation('complete')">{{ t('sdn.next.verify_now') }}</button><button v-if="canReconcile(selectedObject.value)" class="secondary" @click="runOperation('reconcile')">{{ t('sdn.next.reconcile') }}</button><button v-if="canWithdraw(selectedObject.value)" class="danger-text" @click="runOperation('withdraw')">{{ t('sdn.next.withdraw_access') }}</button></div></template>
+            <template v-else-if="selectedObject.kind === 'projection'"><p class="object-type">STRATA EVIDENCE</p><h3>{{ selectedObject.value.label }}</h3><span class="status-chip large" :class="projectionMeta(selectedObject.value.result?.status).tone">{{ projectionMeta(selectedObject.value.result?.status).label }}</span><p class="evidence-statement">{{ translatedCode('projection_reason', selectedObject.value.result?.reason_code, selectedObject.value.result?.reason_code) }}</p><dl><dt>{{ t('sdn.next.device') }}</dt><dd>{{ selectedObject.value.device_name }} · {{ selectedObject.value.device_host }}</dd><dt>{{ t('sdn.next.desired_state') }}</dt><dd>{{ selectedObject.value.desired }}</dd><dt>{{ t('sdn.next.observed_state') }}</dt><dd>{{ selectedObject.value.observed }}</dd><dt>{{ t('sdn.next.desired_source') }}</dt><dd>{{ projectionSourceLabel(selectedObject.value.result?.evidence?.desired_source) }}</dd><dt>{{ t('sdn.next.observed_source') }}</dt><dd>{{ projectionSourceLabel(selectedObject.value.result?.evidence?.observed_source) }}</dd><dt>{{ t('sdn.next.display_command') }}</dt><dd>{{ selectedObject.value.result?.evidence?.observed_source?.command || '—' }}</dd><dt>{{ t('sdn.next.observed_at') }}</dt><dd>{{ formatTime(selectedObject.value.result?.evidence?.observed_source?.collected_at || selectedObject.value.observed_at) }}</dd></dl></template>
             <template v-else><p class="object-type">EVIDENCE</p><h3>{{ selectedObject.value.unit_name }}</h3><span class="status-chip large" :class="statusMeta(selectedObject.value.state).tone">{{ truthLabel(selectedObject.value) }}</span><p class="evidence-statement">{{ unitExplanation(selectedObject.value) }}</p><dl><dt>{{ t('sdn.next.source') }}</dt><dd>{{ evidenceSource(selectedObject.value) }}</dd><dt>{{ t('sdn.next.scope') }}</dt><dd>{{ evidenceScope(selectedObject.value) }}</dd><dt>{{ t('sdn.next.observed_at') }}</dt><dd>{{ formatTime(selectedObject.value.explanation?.observed_at) }}</dd></dl></template>
           </div><pre v-else class="technical-view">{{ JSON.stringify(selectedObject.value, null, 2) }}</pre>
         </template>
@@ -474,4 +492,5 @@ onMounted(loadBase)
 @media(max-width:720px){.scope-pane{display:block}.vpc-copy strong{white-space:nowrap}}
 .evidence-statement{margin:0 0 14px;padding:10px;border-left:3px solid #198568;background:#f1f7f5;color:#52656a;font-size:12px}
 .projection-card-actions{display:flex;align-items:center;gap:5px}.projection-card-actions>button{display:grid;place-items:center;width:28px;height:28px;border:1px solid #cbd5d8;border-radius:4px;background:#fff;color:#315a60;font-size:16px;cursor:pointer}.projection-card-actions>button:disabled{opacity:.4;cursor:not-allowed}
+.projection-row{width:100%;padding:0;border-right:0;border-bottom:0;border-left:0;background:transparent;color:inherit;text-align:left;cursor:pointer}.projection-row:hover{background:#f1f7f5}.projection-row:focus-visible{outline:2px solid #16796b;outline-offset:2px}
 </style>
