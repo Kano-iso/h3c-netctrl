@@ -353,3 +353,192 @@ def explain_unit(unit: dict, attempt_kind: str = "execute", attempt_scope: Optio
             statement="unit not started",
         )
     return expl
+
+
+# ── S2-008 多对象变更影响投影（只读、additive、复用同一 truth 系统）──
+
+# 关系名只表达 operation scope 中可证明的业务范围，不是真实物理邻接 / 实时转发路径 /
+# 因果链：vpc targets device、device exposes interface；interface 对 host 的语义按
+# operation type 区分（access 期望主机 expects / withdraw 撤回或移除目标 withdraws；
+# legacy 无法证明则不编造关系）。
+IMPACT_RELATION_TARGETS = "targets"
+IMPACT_RELATION_EXPOSES = "exposes"
+IMPACT_RELATION_EXPECTS = "expects"
+IMPACT_RELATION_WITHDRAWS = "withdraws"
+
+# 接口稳定复合身份：device identity + if_index（跨 Leaf 不碰撞）；scope 缺 device 时
+# 不编造全局接口身份（id 为 null，可读字段仍保留）。
+IMPACT_IFACE_ID_TEMPLATE = "device:{device_id}:if_index:{if_index}"
+
+
+def _impact_node(kind: str, node_id: Any, label: Optional[str], source: str) -> dict:
+    return {
+        "kind": kind,
+        "id": node_id,
+        "label": label,
+        "truth_kind": TRUTH_DESIRED,  # 节点来自 operation 记录/scope（记录的目标），非设备观测
+        "source": source,
+    }
+
+
+def _impact_relation(from_kind: str, from_id: Any, relation: str, to_kind: str, to_id: Any) -> dict:
+    return {
+        "from_kind": from_kind,
+        "from_id": from_id,
+        "relation": relation,
+        "to_kind": to_kind,
+        "to_id": to_id,
+    }
+
+
+def _find_node(nodes: list, kind: str) -> Optional[dict]:
+    for n in nodes:
+        if n["kind"] == kind:
+            return n
+    return None
+
+
+def build_operation_impact(
+    operation: dict,
+    scope: Optional[dict],
+    attempts: Optional[list] = None,
+    explanation: Optional[dict] = None,
+    attempt_facts: Optional[list] = None,
+) -> dict:
+    """operation 级多对象变更影响投影（S2-008，只读纯函数，绝不抛异常）。
+
+    输入已序列化 operation 字典 + scope dict + attempt_data 列表（每 attempt 须含
+    已计算的 ``explanation`` 与每 unit 的 ``explanation``），以及可选的 explain_operation
+    输出（用于复用同一 truth 判定）。未传 explanation 时调用既有 ``explain_operation``
+    （从真实 attempt facts 组装），绝不另写简化判定；主参畸形/缺字段稳定降级。
+
+    - 节点：VPC / 目标 EVPN Leaf / 目标接口 / 期望主机，仅持久化字段出现时出现；缺失
+      字段为 null，不编造；以稳定 id 为身份（接口为 device+if_index 复合身份），名称只
+      是 label，不把名称当唯一身份；source 如实区分 operation_scope / operation_record。
+    - 关系：只表达 scope 可证明的业务范围（targets / exposes；interface→host 按操作类型
+      取 expects / withdraws），不称物理邻接；legacy 无法证明则不编造。
+    - 变更项：按 attempt/unit 持久化顺序输出，truth_kind/source/statement 直接复用
+      explain_attempt/explain_unit 已计算的解释（同一 truth 系统，无第二套真假判定）。
+    - safety：target_only / ambiguous_claims 复用 explain_operation 判定（含 attempt 中
+      stale_takeover / insufficient evidence 的歧义）；共享 VPC/网关不属于 terminal
+      access/withdraw 的操作目标（既有受控边界）；无法证明的 protected list 仍为 null。
+    """
+    operation = _dict(operation)
+    scope = scope if isinstance(scope, dict) and scope else {}
+    attempts = attempts if isinstance(attempts, list) else []
+    explanation = explanation if isinstance(explanation, dict) and explanation else {}
+
+    op_type = _s(operation.get("operation_type")) or "unknown"
+    op_vpc_id = operation.get("vpc_id")
+    op_device_id = operation.get("device_id")
+    expected_host_ip = _s(operation.get("expected_host_ip"))
+
+    # ── 节点（顺序稳定：vpc → device → interface → host；按 (kind, id) 去重；
+    #    source 如实区分 operation_scope 与 operation_record）──
+    nodes: list[dict] = []
+    sc_vpc_id = scope.get("vpc_id")
+    vpc_id_value = sc_vpc_id if sc_vpc_id is not None else op_vpc_id
+    vpc_source = "operation_scope" if sc_vpc_id is not None else ("operation_record" if op_vpc_id is not None else None)
+    if vpc_id_value is not None:
+        nodes.append(_impact_node("vpc", vpc_id_value, _s(scope.get("vpc_name")), vpc_source))
+
+    sc_device_id = scope.get("device_id")
+    device_id_value = sc_device_id if sc_device_id is not None else op_device_id
+    device_source = "operation_scope" if sc_device_id is not None else ("operation_record" if op_device_id is not None else None)
+    if device_id_value is not None:
+        nodes.append(_impact_node("device", device_id_value, _s(scope.get("device_name")), device_source))
+
+    if_index = scope.get("if_index")
+    interface_name = _s(scope.get("interface_name"))
+    if if_index is not None or interface_name:
+        # 稳定复合接口身份：scope 声明的 device identity + if_index；scope 缺 device 时
+        # 不编造全局接口身份（id 为 null，可读字段仍保留）——op 记录的 device_id 不能
+        # 证明接口归属该设备，不得借用来拼身份。
+        iface_id = None
+        if sc_device_id is not None and if_index is not None:
+            iface_id = IMPACT_IFACE_ID_TEMPLATE.format(device_id=sc_device_id, if_index=if_index)
+        nodes.append(
+            {
+                "kind": "interface",
+                "id": iface_id,
+                "label": interface_name,
+                "device_id": sc_device_id if sc_device_id is not None else None,
+                "if_index": if_index if if_index is not None else None,
+                "interface_name": interface_name,
+                "truth_kind": TRUTH_DESIRED,
+                "source": "operation_scope",
+            }
+        )
+
+    if expected_host_ip:
+        nodes.append(_impact_node("host", expected_host_ip, expected_host_ip, "operation_record"))
+
+    # ── 关系（仅两端节点都有稳定身份时出现；接口端点引用同一复合身份）──
+    relations: list[dict] = []
+    vpc_node = _find_node(nodes, "vpc")
+    device_node = _find_node(nodes, "device")
+    iface_node = _find_node(nodes, "interface")
+    host_node = _find_node(nodes, "host")
+    if vpc_node and device_node:
+        relations.append(_impact_relation("vpc", vpc_node["id"], IMPACT_RELATION_TARGETS, "device", device_node["id"]))
+    if device_node and iface_node and iface_node.get("id") is not None:
+        relations.append(_impact_relation("device", device_node["id"], IMPACT_RELATION_EXPOSES, "interface", iface_node["id"]))
+    # interface→host 语义按操作类型区分；legacy 无法证明则不编造。
+    host_relation = None
+    if op_type == "terminal_access":
+        host_relation = IMPACT_RELATION_EXPECTS
+    elif op_type == "terminal_withdraw":
+        host_relation = IMPACT_RELATION_WITHDRAWS
+    if host_relation and iface_node and iface_node.get("id") is not None and host_node:
+        relations.append(_impact_relation("interface", iface_node["id"], host_relation, "host", host_node["id"]))
+
+    # ── 变更项：attempt/unit 持久化顺序；truth_kind/source/statement 复用已有解释 ──
+    changes: list[dict] = []
+    for a0 in attempts:
+        a = _dict(a0)
+        unit_items = []
+        units = a.get("units") if isinstance(a.get("units"), list) else []
+        for u0 in units:
+            u = _dict(u0)
+            u_expl = _dict(u.get("explanation"))
+            unit_items.append(
+                {
+                    "unit_index": u.get("unit_index"),
+                    "unit_name": _s(u.get("unit_name")),
+                    "state": _s(u.get("state")) or "not_started",
+                    "truth_kind": u_expl.get("truth_kind"),
+                    "source": u_expl.get("source"),
+                    "statement": u_expl.get("statement"),
+                }
+            )
+        changes.append(
+            {
+                "attempt_id": a.get("attempt_id"),
+                "attempt_kind": _s(a.get("kind")) or "unknown",
+                "units": unit_items,
+            }
+        )
+
+    # ── safety：复用 explain_operation 的 truth 判定（同源）；未传 explanation 时用
+    #    真实 attempt facts 调用既有 explain_operation，绝不另写简化判定 ──
+    boundary = _dict(explanation.get("safety_boundary"))
+    if not boundary:
+        facts = attempt_facts if isinstance(attempt_facts, list) else []
+        boundary = _dict(explain_operation(operation, scope if scope else None, facts).get("safety_boundary"))
+    target_only = boundary.get("target_only")
+    ambiguous_claims = boundary.get("ambiguous_claims")
+    # 既有受控边界：共享 VPC/网关对象不属于 terminal access/withdraw 的操作目标；
+    # legacy_apply 无法证明该边界 → null，不编造。
+    shared_vpc_gateway_not_target = True if target_only else None
+
+    return {
+        "nodes": nodes,
+        "relations": relations,
+        "changes": changes,
+        "safety": {
+            "target_only": target_only,
+            "ambiguous_claims": ambiguous_claims,
+            "shared_vpc_gateway_not_target": shared_vpc_gateway_not_target,
+            "protected_interfaces": None,  # 未持久化于 operation → null（禁止编造）
+        },
+    }

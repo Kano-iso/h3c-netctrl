@@ -656,3 +656,8 @@
 
 - **WHEN** 历史时间线每个 point 附带 correlation（快照自带的 operation_id/attempt_id + 状态 linked/unlinked/missing/mismatch）
 - **THEN** 仅当 operation 存在且其 vpc_id/device_id 与当前时间线一致时返回脱敏 operation 摘要（id/operation_type/status/expected_host_ip/created_at/updated_at），仅当 attempt 存在、属于该 operation 且与快照引用一致时返回脱敏 attempt 摘要（id/kind/status/started_at/completed_at）；dangling 引用、attempt 属于另一 operation、operation 属于另一 VPC/设备不得错误关联，保留快照点并以 missing/mismatch 表达；零引用为 unlinked；不返回 request_payload_json/scope_json/idempotency_key/fingerprint/owner/evidence_json/凭据；correlation 只表达「证据归属/时间相关」，不宣称操作导致状态变化
+
+#### Scenario: 多对象变更影响投影（S2-008）
+
+- **WHEN** STRATA/NEXT PULSE 查询 `GET /api/sdn/operations/{id}`（既有 additive `explanation` 之下的 `explanation.impact`，顶层无影子字段）
+- **THEN** impact 至少含：稳定对象节点（VPC/目标 EVPN Leaf/目标接口/期望主机，仅持久化字段出现、缺失为 null、接口为 device identity + if_index 稳定复合身份且 scope 缺 device 不编造全局身份、稳定 kind/id/label/truth_kind/source、名称不充当唯一身份，source 如实区分 operation_scope/operation_record）；稳定业务范围关系（vpc targets device / device exposes interface；interface→host 按操作类型取 expects|withdraws，不得称为真实物理邻接、实时转发路径或因果链，legacy 无法证明不编造）；按 attempt/unit 真实持久化顺序的变更项（attempt_id/kind、unit_index/unit_name/state + 复用 explanation 的 truth_kind/source/statement）；safety 明确 target_only、ambiguous_claims、共享 VPC/网关不属于 terminal access/withdraw 操作目标（既有受控边界）、无法证明的 protected list 仍为 null；truth 复用 sdn_explanation 同一判定（execute succeeded 无回读仍 desired/recorded，validate readback 才 observed，unknown 诚实保留）；legacy/畸形/字段缺失稳定降级不 500，explanation 或 impact builder 异常时 detail 仍 200 且 explanation.impact 明确 unavailable；只读零 DB 写、零 SSH/NETCONF、零隐式采集，不回传凭据/raw/owner/fingerprint/idempotency key

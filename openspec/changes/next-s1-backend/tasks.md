@@ -266,3 +266,11 @@
 - [x] 32.3 只读零 I/O 零写库零隐式采集；correlation 只表达证据归属/时间相关，不宣称操作导致状态变化；不改变既有 history 字段语义；无迁移/表/接口字段
 - [x] 32.4 对抗测试 9 条（linked 摘要 / unlinked / op dangling / attempt dangling / attempt 跨 operation mismatch / operation 跨 VPC mismatch / operation 跨设备 mismatch / 响应脱敏 / 零 I/O 零写入）
 - [x] 32.5 QA（本轮未触真机）：`test_s2_006_history_correlation.py` + S2-004 + S2-001 = **47 passed**；直接受影响 SDN 回归 = **150 passed**；openspec strict / manifest JSON / git diff --check 通过
+
+## 33. S2-008（多对象变更影响投影，只读 additive，本轮未触真机）
+
+- [x] 33.1 `build_operation_impact` 纯函数：节点（vpc/device/interface/host，仅持久化字段、缺失 null、接口为 device+if_index 稳定复合身份、id 为身份、名称只是 label、source 区分 operation_scope/operation_record）+ 业务范围关系（targets/exposes；interface→host 按类型 expects|withdraws，不称物理邻接/因果链，legacy 不编造）+ 变更项（attempt/unit 持久化顺序，truth_kind/source/statement 复用 explain_attempt/explain_unit）
+- [x] 33.2 safety 复用 explain_operation 判定（target_only/ambiguous_claims，未传 explanation 时用真实 attempt facts 调用既有 explain_operation）；共享 VPC/网关不属于 terminal access/withdraw 操作目标，legacy_apply 不可证明 → null；protected_interfaces 未持久化 → null
+- [x] 33.3 `_operation_to_dict` 只读组装嵌套 `explanation.impact`（_safe_explain 包裹、explanation/impact 异常置 unavailable 且 detail 仍 200、复用已加载数据无逐 unit/attempt N+1、旧字段不删不改、顶层无影子字段）；legacy/畸形/字段缺失稳定降级不 500；零 DB 写零 SSH/NETCONF 零隐式采集；无迁移/表/采集命令/接口字段
+- [x] 33.4 对抗测试 14 条（完整 terminal_access / withdraw 用 withdraws 关系 / legacy 不编造 / 畸形 source=operation_record / 缺 device 接口不编造全局身份 / 多 attempts-units 顺序与去重 / 脱敏 / stale_takeover 歧义同源 / fallback 复用 explain_operation / builder 异常 200 + unavailable / unknown 歧义 / 零 I/O 零写入 / 垃圾输入纯函数 / API 端到端）
+- [x] 33.5 QA（本轮未触真机）：`test_s2_008_operation_impact.py` = **14 passed**；直接受影响 SDN 回归（含 S1-026 解释 24 条）= **125 passed**；openspec strict / manifest JSON / git diff --check 通过

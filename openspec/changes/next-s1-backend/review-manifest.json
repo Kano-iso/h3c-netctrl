@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "package_id": "S2-006",
+  "package_id": "S2-008",
   "change_id": "next-s1-backend",
-  "baseline_sha": "b39b90ff15449b52bb690ee30deb6e789a46c64f",
+  "baseline_sha": "c720a45f757824c25aeb93cbdeca7088e437d65c",
   "worktree": "/root/workpace/h3c-netctrl/.agent-worktrees/next-s1-backend",
   "scope": [
     "backend/app/i18n_keys.py",
@@ -86,7 +86,8 @@
     "backend/app/routers/sdn.py",
     "backend/tests/test_s2_001_state_projection.py",
     "backend/tests/test_s2_004_state_projection_history.py",
-    "backend/tests/test_s2_006_history_correlation.py"
+    "backend/tests/test_s2_006_history_correlation.py",
+    "backend/tests/test_s2_008_operation_impact.py"
   ],
   "requirements": [
     {
@@ -461,6 +462,27 @@
         "test_correlation_response_sanitized",
         "test_correlation_zero_io_and_zero_writes"
       ]
+    },
+    {
+      "id": "CR53",
+      "summary": "多对象变更影响投影（S2-008/S2-008-R1，只读 additive）：GET /api/sdn/operations/{id} 在既有 additive `explanation.impact` 下返回影响投影（顶层无影子字段）——稳定对象节点（VPC/目标 EVPN Leaf/目标接口/期望主机，仅持久化字段出现、缺失 null 不编造、接口为 device identity + if_index 稳定复合身份不跨 Leaf 碰撞且 scope 缺 device 不编造全局身份、名称只是 label）+ 稳定业务范围关系（vpc targets device / device exposes interface；interface→host 按操作类型取 expects|withdraws，不称物理邻接/转发路径/因果链，legacy 不编造）+ 按 attempt/unit 持久化顺序的变更项（attempt_id/kind、unit_index/name/state + 复用 explanation 的 truth_kind/source/statement）+ safety（target_only/ambiguous_claims 复用 explain_operation 判定含 stale_takeover/insufficient 歧义、共享 VPC/网关不属于 terminal access/withdraw 操作目标、protected_interfaces 无法证明为 null）；source 如实区分 operation_scope/operation_record；explanation 或 impact builder 异常时 detail 仍 200 且 explanation.impact 明确 unavailable；不新增表/迁移/设备命令、零 DB 写零 SSH/NETCONF 零隐式采集、不回传凭据/raw/owner/fingerprint/idempotency key",
+      "implementation": "sdn_explanation.py 新增 build_operation_impact 纯函数（复用同模块 TRUTH_* 与 _operation_ambiguous/explain_operation 的 safety 判定，未传 explanation 时用真实 attempt facts 调用既有 explain_operation，绝不另写简化判定；execute succeeded 无回读仍 desired/recorded，validate readback 才 observed，unknown 诚实保留）；节点按 (kind,id) 去重、顺序稳定，接口身份编码 device:{device_id}:if_index:{if_index}、可读字段 device_id/if_index/interface_name 保留且关系端点引用同一身份，source 按 id 来源区分 operation_scope/operation_record；withdraw 关系用 withdraws 不表达继续期望主机；sdn_access.py::_operation_to_dict 只读组装嵌套 explanation.impact（_safe_explain 包裹、异常置 {unavailable, impact_unavailable}、复用已加载的 attempt_data/unit explanation，无逐 unit/attempt N+1）；legacy/畸形/字段缺失稳定降级不 500；无迁移/表/采集命令/接口字段变更",
+      "tests": [
+        "test_impact_pure_function_never_raises_on_garbage",
+        "test_impact_full_terminal_access",
+        "test_impact_withdraw_uses_withdraws_relation",
+        "test_impact_legacy_apply_no_fabricated_relations",
+        "test_impact_malformed_scope_source_operation_record",
+        "test_impact_scope_interface_without_device_no_fabricated_identity",
+        "test_impact_multiple_attempts_units_order_and_dedup",
+        "test_impact_sanitized",
+        "test_impact_ambiguous_consistent_with_explanation",
+        "test_impact_fallback_safety_reuses_explain_operation",
+        "test_impact_builder_exception_detail_200_and_unavailable",
+        "test_impact_unknown_status_ambiguous",
+        "test_impact_zero_io_and_zero_writes",
+        "test_api_operation_detail_impact_end_to_end"
+      ]
     }
   ],
   "invariants": [
@@ -497,7 +519,8 @@
     "差异逐维表达：聚合（最差 stale>drifted>unknown>aligned）永不覆盖逐维事实；planned 绑定 not_applicable/planned_not_deployed、unbound 不进 desired、非 evpn_leaf 不进健康分母；远端 Type-2/BGP 摘要不冒充本地下联端口/主机事实；相关性≠根因",
     "差异证据指针（S2-003）：evidence 只含稳定元数据（desired_source: deployment/binding/计数；observed_source: {kind=snapshot, snapshot_id, collected_at, command}），绝不携带原始 CLI output/error/凭据；命令失败/畸形/过期/not_applicable/conflict 仍保留能诚实证明的指针，不改动状态、reason、聚合与生命周期语义",
     "历史时间线只读（S2-004）：每个点是历史设备快照 vs 当前目标态（desired.basis=current_target），不得冒充历史目标态；坏快照保留为 unknown/evidence_missing 不跳过不改写；非 evpn_leaf 仅 excluded 不进聚合；GET 零 SSH/NETCONF、零写库、零刷新时间戳，响应脱敏",
-    "证据关联只表达归属（S2-006）：correlation 稳定优先级——任何被引用实体不存在 → missing（dangling 优先于归属不一致）；引用实体都存在但归属/作用域不一致（跨 operation/跨 VPC/设备）→ mismatch；全部一致 → linked 并给白名单摘要；零引用 → unlinked；绝不宣称操作导致状态变化；响应不携带 request_payload_json/scope_json/idempotency_key/fingerprint/owner/evidence_json/凭据"
+    "证据关联只表达归属（S2-006）：correlation 稳定优先级——任何被引用实体不存在 → missing（dangling 优先于归属不一致）；引用实体都存在但归属/作用域不一致（跨 operation/跨 VPC/设备）→ mismatch；全部一致 → linked 并给白名单摘要；零引用 → unlinked；绝不宣称操作导致状态变化；响应不携带 request_payload_json/scope_json/idempotency_key/fingerprint/owner/evidence_json/凭据",
+    "影响投影只读复用 truth（S2-008）：impact 节点/关系只表达 scope 可证明的业务对象与业务范围（targets/exposes/expects），不称物理邻接/转发路径/因果链；变更项 truth_kind/source/statement 复用 explain_unit 同一判定，不建第二套真假系统；共享 VPC/网关不属于 terminal access/withdraw 操作目标，legacy 不可证明为 null；节点缺失 null 不编造、名称不充当唯一身份；只读零 DB 写零 SSH/NETCONF 零隐式采集，响应不含凭据/raw/owner/fingerprint/idempotency_key"
   ],
   "tests": [
     {
@@ -630,6 +653,12 @@
       "command": "docker compose -f openspec/changes/next-s1-backend/qa/docker-compose.qa.yml run --rm qa-backend python -m pytest tests/test_sdn_port_binding_api.py tests/test_sdn_expansion_api.py tests/test_sdn_access_api.py tests/test_sdn_operation_service.py tests/test_sdn_explanation.py tests/test_sdn_migration.py tests/test_s1_007_adversarial.py tests/test_s1_016_adversarial.py -q",
       "environment": "qa-backend 容器（S2-001 直接受影响 SDN 回归）",
       "result": "151 passed（S2-006 10 条 + S2-004 10 条 + S2-003 28 条 + 直接受影响 SDN 回归）",
+      "baseline_failed": false
+    },
+    {
+      "command": "docker compose -f openspec/changes/next-s1-backend/qa/docker-compose.qa.yml run --rm qa-backend python -m pytest tests/test_s2_008_operation_impact.py tests/test_sdn_explanation.py tests/test_sdn_access_api.py tests/test_sdn_operation_service.py tests/test_s2_004_state_projection_history.py tests/test_s2_006_history_correlation.py tests/test_sdn_migration.py tests/test_s1_007_adversarial.py tests/test_s1_016_adversarial.py -q",
+      "environment": "qa-backend 容器（S2-008 多对象影响投影 + 直接受影响 SDN 回归）",
+      "result": "125 passed（S2-008-R1 14 条 + S1-026 解释 24 条 + 直接受影响回归）",
       "baseline_failed": false
     }
   ],

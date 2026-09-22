@@ -43,7 +43,7 @@ from app.schemas import (
     SdnWithdrawRequest,
 )
 from app.services.sdn_deployment_executor import SdnDeploymentError, SdnDeploymentExecutor
-from app.services.sdn_explanation import explain_attempt, explain_operation, explain_unit
+from app.services.sdn_explanation import build_operation_impact, explain_attempt, explain_operation, explain_unit
 from app.services.sdn_operation_service import (
     ACTIVE_PHASE_EXPECTED_KIND,
     SdnOperationError,
@@ -422,7 +422,7 @@ def _operation_to_dict(db: Session, op: SdnOperation) -> dict:
         "updated_at": op.updated_at,
     }
     # S1-026: operation 级解释投影（只读、additive；异常降级不 500）
-    result["explanation"] = _safe_explain(lambda: explain_operation(
+    op_explanation = _safe_explain(lambda: explain_operation(
         {
             "operation_type": op.operation_type,
             "status": op.status,
@@ -431,6 +431,26 @@ def _operation_to_dict(db: Session, op: SdnOperation) -> dict:
         scope,
         attempt_facts,
     ))
+    # S2-008: 多对象变更影响投影（只读、additive；嵌套在 explanation 之下，与工作单/spec
+    # 契约一致；复用同一 truth 判定与 unit 解释；异常时 explanation.impact 明确 unavailable）
+    impact = _safe_explain(lambda: build_operation_impact(
+        {
+            "operation_type": op.operation_type,
+            "status": op.status,
+            "expected_host_ip": op.expected_host_ip,
+            "vpc_id": op.vpc_id,
+            "device_id": op.device_id,
+        },
+        scope,
+        attempt_data,
+        op_explanation,
+        attempt_facts,
+    ))
+    if op_explanation.get("unavailable") is True or impact.get("unavailable") is True:
+        op_explanation["impact"] = {"unavailable": True, "reason": "impact_unavailable"}
+    else:
+        op_explanation["impact"] = impact
+    result["explanation"] = op_explanation
     return result
 
 
