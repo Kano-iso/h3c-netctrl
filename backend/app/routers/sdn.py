@@ -51,7 +51,9 @@ from app.services.sdn_deployment_executor import SdnDeploymentError, SdnDeployme
 from app.services.sdn_state_projection import (
     SNAPSHOT_TTL_SECONDS,
     aggregate_vpc,
+    baseline_unavailable_transition,
     build_leaf_projection,
+    build_transition,
 )
 from app.services.sdn_validation_collector import SdnValidationCollector
 from app.services.sdn_operation_service import (
@@ -1832,6 +1834,14 @@ def get_vpc_state_projection_history(
                 device.id,
             )
             points.append(point)
+        # S2-010: 每个较新的点与紧邻较旧点比较给出 transition_from_prior（同一 current_target
+        # 基准）；窗口最旧点明确 baseline_unavailable，不拿窗口外状态或当前实时状态补造基线。
+        # 只读纯投影，零 I/O、零写库、零隐式采集。
+        for i, point in enumerate(points):
+            if i == len(points) - 1:
+                point["transition_from_prior"] = baseline_unavailable_transition(point)
+            else:
+                point["transition_from_prior"] = build_transition(points[i + 1], point)
         timelines.append(
             {
                 "device_id": device.id,

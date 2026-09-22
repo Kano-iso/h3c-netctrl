@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "package_id": "S2-008",
+  "package_id": "S2-010",
   "change_id": "next-s1-backend",
-  "baseline_sha": "c720a45f757824c25aeb93cbdeca7088e437d65c",
+  "baseline_sha": "3d2cdcdbb6a8a5a833c26b448d56bcd7c32e6c12",
   "worktree": "/root/workpace/h3c-netctrl/.agent-worktrees/next-s1-backend",
   "scope": [
     "backend/app/i18n_keys.py",
@@ -87,7 +87,10 @@
     "backend/tests/test_s2_001_state_projection.py",
     "backend/tests/test_s2_004_state_projection_history.py",
     "backend/tests/test_s2_006_history_correlation.py",
-    "backend/tests/test_s2_008_operation_impact.py"
+    "backend/tests/test_s2_008_operation_impact.py",
+    "backend/app/services/sdn_state_projection.py",
+    "backend/app/routers/sdn.py",
+    "backend/tests/test_s2_010_transition_projection.py"
   ],
   "requirements": [
     {
@@ -483,6 +486,23 @@
         "test_impact_zero_io_and_zero_writes",
         "test_api_operation_detail_impact_end_to_end"
       ]
+    },
+    {
+      "id": "CR54",
+      "summary": "快照状态转变投影（S2-010，只读 additive）：既有 history 每点增加 transition_from_prior（较新点与紧邻较旧点比较；窗口最旧点明确 baseline_unavailable，不拿窗口外/当前实时状态补造基线），固定维度 vsi/vsi_up/vsi_interface/l3_vni + 按数据库整数 binding_id 匹配的 service_instance/access_vlan；每项含 dimension key、from/to status、from/to reason_code、transition kind，顶层含 from/to snapshot_id 与 collected_at；kind 用语言中性稳定枚举且保守（drifted→unknown/stale 只能 evidence_lost、unknown/stale→drifted 只能 drift_detected、not_applicable 变化按 state_changed）；每 transition 给脱敏 summary（changed_dimensions + 按 kind counts），desired_basis=current_target；零 DB 写零 SSH/NETCONF 零隐式采集、无迁移、无新 endpoint、既有字段兼容、不回传原始 CLI output/error/凭据",
+      "implementation": "sdn_state_projection.py 新增 build_transition 纯函数（逐维状态转变矩阵，输入畸形/缺字段稳定降级不抛异常；绑定维度按稳定 binding_id 匹配并取两侧并集保持顺序稳定）+ baseline_unavailable_transition 纯标记；sdn.py history endpoint 每点只读组装 transition_from_prior（复用同一查询窗口与已加载数据，无新查询/N+1；旧字段不删不改）；无迁移/表/采集命令/接口字段变更",
+      "tests": [
+        "test_transition_desc_adjacent_pairing_and_oldest_baseline_unavailable",
+        "test_transition_drifted_to_unknown_is_evidence_lost_not_cleared",
+        "test_transition_unknown_to_aligned_is_evidence_gained",
+        "test_transition_unchanged_same_status",
+        "test_transition_binding_compound_dimension_matched_by_binding_id",
+        "test_transition_limit_truncation_oldest_baseline",
+        "test_transition_bad_snapshot_stable_not_500",
+        "test_transition_sanitized_no_raw_output_or_secrets",
+        "test_transition_zero_io_and_zero_writes",
+        "test_transition_pure_functions_never_raise_on_garbage"
+      ]
     }
   ],
   "invariants": [
@@ -520,7 +540,8 @@
     "差异证据指针（S2-003）：evidence 只含稳定元数据（desired_source: deployment/binding/计数；observed_source: {kind=snapshot, snapshot_id, collected_at, command}），绝不携带原始 CLI output/error/凭据；命令失败/畸形/过期/not_applicable/conflict 仍保留能诚实证明的指针，不改动状态、reason、聚合与生命周期语义",
     "历史时间线只读（S2-004）：每个点是历史设备快照 vs 当前目标态（desired.basis=current_target），不得冒充历史目标态；坏快照保留为 unknown/evidence_missing 不跳过不改写；非 evpn_leaf 仅 excluded 不进聚合；GET 零 SSH/NETCONF、零写库、零刷新时间戳，响应脱敏",
     "证据关联只表达归属（S2-006）：correlation 稳定优先级——任何被引用实体不存在 → missing（dangling 优先于归属不一致）；引用实体都存在但归属/作用域不一致（跨 operation/跨 VPC/设备）→ mismatch；全部一致 → linked 并给白名单摘要；零引用 → unlinked；绝不宣称操作导致状态变化；响应不携带 request_payload_json/scope_json/idempotency_key/fingerprint/owner/evidence_json/凭据",
-    "影响投影只读复用 truth（S2-008）：impact 节点/关系只表达 scope 可证明的业务对象与业务范围（targets/exposes/expects），不称物理邻接/转发路径/因果链；变更项 truth_kind/source/statement 复用 explain_unit 同一判定，不建第二套真假系统；共享 VPC/网关不属于 terminal access/withdraw 操作目标，legacy 不可证明为 null；节点缺失 null 不编造、名称不充当唯一身份；只读零 DB 写零 SSH/NETCONF 零隐式采集，响应不含凭据/raw/owner/fingerprint/idempotency_key"
+    "影响投影只读复用 truth（S2-008）：impact 节点/关系只表达 scope 可证明的业务对象与业务范围（targets/exposes/expects），不称物理邻接/转发路径/因果链；变更项 truth_kind/source/statement 复用 explain_unit 同一判定，不建第二套真假系统；共享 VPC/网关不属于 terminal access/withdraw 操作目标，legacy 不可证明为 null；节点缺失 null 不编造、名称不充当唯一身份；只读零 DB 写零 SSH/NETCONF 零隐式采集，响应不含凭据/raw/owner/fingerprint/idempotency_key",
+    "状态转变只表达证据变化（S2-010）：transition_from_prior 只比较同一 Leaf、同一 current_target 基准下紧邻历史点，窗口最旧点明确 baseline_unavailable 不补造基线；drifted→unknown/stale 只能 evidence_lost、unknown/stale→drifted 只能 drift_detected、not_applicable 变化按 state_changed；绑定维度按稳定 binding_id 匹配不按显示名；只读零 DB 写零 SSH/NETCONF 零隐式采集，脱敏不含原始 CLI output/error/凭据"
   ],
   "tests": [
     {
@@ -659,6 +680,12 @@
       "command": "docker compose -f openspec/changes/next-s1-backend/qa/docker-compose.qa.yml run --rm qa-backend python -m pytest tests/test_s2_008_operation_impact.py tests/test_sdn_explanation.py tests/test_sdn_access_api.py tests/test_sdn_operation_service.py tests/test_s2_004_state_projection_history.py tests/test_s2_006_history_correlation.py tests/test_sdn_migration.py tests/test_s1_007_adversarial.py tests/test_s1_016_adversarial.py -q",
       "environment": "qa-backend 容器（S2-008 多对象影响投影 + 直接受影响 SDN 回归）",
       "result": "125 passed（S2-008-R1 14 条 + S1-026 解释 24 条 + 直接受影响回归）",
+      "baseline_failed": false
+    },
+    {
+      "command": "docker compose -f openspec/changes/next-s1-backend/qa/docker-compose.qa.yml run --rm qa-backend python -m pytest tests/test_s2_010_transition_projection.py tests/test_s2_001_state_projection.py tests/test_s2_004_state_projection_history.py tests/test_s2_006_history_correlation.py tests/test_s2_008_operation_impact.py tests/test_sdn_explanation.py tests/test_sdn_access_api.py tests/test_sdn_operation_service.py tests/test_sdn_migration.py tests/test_s1_007_adversarial.py tests/test_s1_016_adversarial.py -q",
+      "environment": "qa-backend 容器（S2-010 快照状态转变投影 + 直接受影响 SDN 回归）",
+      "result": "163 passed（S2-010 10 条 + S2-001/S2-004/S2-006/S2-008 与 S1-026 及直接受影响 SDN 回归）",
       "baseline_failed": false
     }
   ],

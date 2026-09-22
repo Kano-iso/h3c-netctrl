@@ -49,3 +49,7 @@ STRATA 读取 S2-001 的只读 `state-projection`，不再用 access-overview �
 ## PULSE Operation Impact（S2-009）
 
 PULSE 直接消费 S2-008 持久化操作详情中的 `explanation.impact`，按后端返回顺序呈现 VPC、EVPN Leaf、接入接口和目标终端。关系词仅在后端明确返回对应 relation 时出现；前端不依据节点相邻、名称或当前页面状态补造关系。界面同时固定声明该链路只表达操作记录中的业务影响范围，不是物理拓扑、实时转发路径或因果证明。节点的 `truth_kind` 与 `source` 继续沿用统一 explanation 体系。
+
+## STRATA Evidence Transitions（S2-011）
+
+STRATA 消费 S2-010 的 `transition_from_prior`，在历史轨迹标示相邻快照的变化数量，并在历史详情中展示各维度的前后状态和后端保守分类。`drifted → unknown/stale` 只显示证据丢失，不显示漂移解除；最旧窗口点明确没有比较基线。视图固定说明转变只表达相邻设备证据相对当前目标的变化，不推断根因、物理路径或关联 operation 的因果关系。

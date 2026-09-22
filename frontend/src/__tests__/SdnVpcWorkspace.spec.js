@@ -83,11 +83,25 @@ describe('SdnVpcWorkspace.vue', () => {
         snapshot_id: 2, collected_at: '2026-09-13T10:00:00Z', validation_result: 'degraded', aggregate: 'drifted',
         desired: { basis: 'current_target' },
         diff: { vsi: { status: 'aligned' }, vsi_interface: { status: 'aligned' }, l3_vni: { status: 'drifted' } },
+        transition_from_prior: {
+          kind: 'transition', from_snapshot_id: 1, to_snapshot_id: 2,
+          summary: { changed_dimensions: ['l3_vni'], counts: { drift_detected: 1, unchanged: 3 } },
+          dimensions: [
+            { dimension: 'vsi', from_status: 'aligned', to_status: 'aligned', transition: 'unchanged' },
+            { dimension: 'l3_vni', from_status: 'aligned', to_status: 'drifted', transition: 'drift_detected' },
+          ],
+        },
         correlation: {
           status: 'linked', operation_id: 41, attempt_id: 8,
           operation: { id: 41, operation_type: 'terminal_access', status: 'awaiting_validation' },
           attempt: { id: 8, kind: 'validate', status: 'succeeded' },
         },
+      }, {
+        snapshot_id: 1, collected_at: '2026-09-12T10:00:00Z', validation_result: 'active', aggregate: 'aligned',
+        desired: { basis: 'current_target' },
+        diff: { vsi: { status: 'aligned' }, vsi_interface: { status: 'aligned' }, l3_vni: { status: 'aligned' } },
+        transition_from_prior: { kind: 'baseline_unavailable', from_snapshot_id: null, to_snapshot_id: 1, summary: { changed_dimensions: [], counts: { baseline_unavailable: 1 } }, dimensions: [] },
+        correlation: { status: 'unlinked', operation: null, attempt: null },
       }],
     }] } })
     sdnApi.getOperation.mockResolvedValue({ success: true, data: operationDetail })
@@ -192,10 +206,17 @@ describe('SdnVpcWorkspace.vue', () => {
     expect(sdnApi.stateProjectionHistory).toHaveBeenCalledWith(2, 5, 10)
     expect(wrapper.text()).toContain('历史设备快照均与当前目标配置比较')
     expect(wrapper.text()).toContain('#2 · degraded')
+    expect(wrapper.text()).toContain('1 项状态发生变化')
     await wrapper.find('.history-track button').trigger('click')
     expect(wrapper.text()).toContain('采集结论')
     expect(wrapper.text()).toContain('已关联，仅表示证据归属')
     expect(wrapper.text()).toContain('#41 · terminal_access · awaiting_validation')
+    expect(wrapper.text()).toContain('相邻证据变化')
+    expect(wrapper.text()).toContain('#1 → #2')
+    expect(wrapper.text()).toContain('L3VNI')
+    expect(wrapper.text()).toContain('一致 → 存在差异')
+    expect(wrapper.text()).toContain('发现漂移')
+    expect(wrapper.text()).toContain('不代表根因、物理路径或操作因果')
     await wrapper.find('.history-operation-link').trigger('click')
     await flushPromises()
     expect(sdnApi.getOperation).toHaveBeenCalledWith(41)

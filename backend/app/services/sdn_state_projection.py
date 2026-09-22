@@ -582,3 +582,151 @@ def build_leaf_projection(
 def aggregate_vpc(leaf_statuses: list) -> str:
     """VPC 级汇总：各 Leaf aggregate 取最差；空集合 → unknown。"""
     return _aggregate_statuses(*list(leaf_statuses)) if leaf_statuses else STATUS_UNKNOWN
+
+
+# ── S2-010 快照状态转变投影（只读、additive、保守语义）──
+#
+# 只表达相邻历史快照之间的“状态维度变化”，是证据状态转变，不是根因、物理拓扑、
+# 转发路径，也不证明关联 operation 导致了变化。desired_basis 始终是 current_target
+# （同一当前目标基准下的比较，不称历史目标差异）。
+
+TRANSITION_UNCHANGED = "unchanged"
+TRANSITION_DRIFT_DETECTED = "drift_detected"
+TRANSITION_DRIFT_CLEARED = "drift_cleared"
+TRANSITION_EVIDENCE_GAINED = "evidence_gained"
+TRANSITION_EVIDENCE_LOST = "evidence_lost"
+TRANSITION_STATE_CHANGED = "state_changed"
+TRANSITION_BASELINE_UNAVAILABLE = "baseline_unavailable"
+
+# 固定比较维度（同一 Leaf、同一 current_target 基准下逐维比较）。
+TRANSITION_FIXED_DIMENSIONS = ("vsi", "vsi_up", "vsi_interface", "l3_vni")
+# 按稳定 binding_id 匹配的绑定列（名称不是唯一身份）。
+TRANSITION_BINDING_COLUMNS = ("service_instance", "access_vlan")
+
+# 保守 transition 语义矩阵（按 from/to status）：
+#   drifted → unknown/stale     只能 evidence_lost（不能称 drift_cleared）
+#   unknown/stale → drifted     只能是 drift_detected
+#   not_applicable 参与的变化   一律 state_changed（非漂移语义）
+#   unknown ↔ stale（无漂移方向的状态变化）→ state_changed
+#   aligned → unknown/stale     证据丢失 evidence_lost；unknown/stale → aligned 证据获得 evidence_gained
+def _transition_kind(from_status: Optional[str], to_status: Optional[str]) -> str:
+    if from_status == to_status:
+        return TRANSITION_UNCHANGED
+    if from_status is None or to_status is None:
+        # 一侧维度不存在（如绑定只出现在其中一个快照）→ 存在性状态变化，不称漂移。
+        return TRANSITION_STATE_CHANGED
+    if from_status == STATUS_DRIFTED:
+        if to_status in (STATUS_UNKNOWN, STATUS_STALE):
+            return TRANSITION_EVIDENCE_LOST
+        if to_status == STATUS_ALIGNED:
+            return TRANSITION_DRIFT_CLEARED
+        return TRANSITION_STATE_CHANGED
+    if from_status in (STATUS_UNKNOWN, STATUS_STALE):
+        if to_status == STATUS_DRIFTED:
+            return TRANSITION_DRIFT_DETECTED
+        if to_status == STATUS_ALIGNED:
+            return TRANSITION_EVIDENCE_GAINED
+        return TRANSITION_STATE_CHANGED
+    if from_status == STATUS_ALIGNED:
+        if to_status == STATUS_DRIFTED:
+            return TRANSITION_DRIFT_DETECTED
+        if to_status in (STATUS_UNKNOWN, STATUS_STALE):
+            return TRANSITION_EVIDENCE_LOST
+        return TRANSITION_STATE_CHANGED
+    # 其余（含 not_applicable 参与的变化）→ state_changed
+    return TRANSITION_STATE_CHANGED
+
+
+def baseline_unavailable_transition(current: Optional[dict] = None) -> dict:
+    """窗口最旧点的基线标记：明确无可用基线，绝不拿窗口外状态或当前实时状态补造。"""
+    current = current if isinstance(current, dict) else {}
+    return {
+        "kind": TRANSITION_BASELINE_UNAVAILABLE,
+        "desired_basis": "current_target",
+        "baseline_unavailable": True,
+        "from_snapshot_id": None,
+        "to_snapshot_id": current.get("snapshot_id"),
+        "from_collected_at": None,
+        "to_collected_at": current.get("collected_at"),
+        "dimensions": [],
+        "summary": {
+            "changed_dimensions": [],
+            "counts": {TRANSITION_BASELINE_UNAVAILABLE: 1},
+        },
+    }
+
+
+def build_transition(prior: dict, current: dict) -> dict:
+    """比较同一 Leaf 相邻两个历史投影的逐维状态转变（S2-010，只读纯函数）。
+
+    ``prior`` 为较旧点、``current`` 为较新点；两者都是 build_leaf_projection 的叶子投影
+    字典（含 ``diff`` 与 ``aggregate``），且都基于同一 current_target。输入畸形/缺字段
+    稳定降级（对应维度 from/to 取 None），绝不抛异常；只返回脱敏维度与摘要，不含原始
+    CLI output/error/凭据。输出不宣称 operation 导致了变化。
+    """
+    prior = prior if isinstance(prior, dict) else {}
+    current = current if isinstance(current, dict) else {}
+    prior_diff = prior.get("diff") if isinstance(prior.get("diff"), dict) else {}
+    current_diff = current.get("diff") if isinstance(current.get("diff"), dict) else {}
+
+    dimensions: list[dict] = []
+    for dim in TRANSITION_FIXED_DIMENSIONS:
+        p_dim = prior_diff.get(dim) if isinstance(prior_diff.get(dim), dict) else {}
+        c_dim = current_diff.get(dim) if isinstance(current_diff.get(dim), dict) else {}
+        dimensions.append(
+            {
+                "dimension": dim,
+                "from_status": p_dim.get("status"),
+                "from_reason_code": p_dim.get("reason_code"),
+                "to_status": c_dim.get("status"),
+                "to_reason_code": c_dim.get("reason_code"),
+                "transition": _transition_kind(p_dim.get("status"), c_dim.get("status")),
+            }
+        )
+
+    # 绑定维度：按稳定 binding_id 匹配（不按显示名称）；两侧 binding 取并集保证顺序稳定。
+    prior_bindings = {}
+    for b in prior_diff.get("port_bindings") if isinstance(prior_diff.get("port_bindings"), list) else []:
+        if isinstance(b, dict) and isinstance(b.get("binding_id"), int) and not isinstance(b.get("binding_id"), bool):
+            prior_bindings[b["binding_id"]] = b
+    current_bindings = {}
+    for b in current_diff.get("port_bindings") if isinstance(current_diff.get("port_bindings"), list) else []:
+        if isinstance(b, dict) and isinstance(b.get("binding_id"), int) and not isinstance(b.get("binding_id"), bool):
+            current_bindings[b["binding_id"]] = b
+    for binding_id in sorted(set(prior_bindings) | set(current_bindings)):
+        p_binding = prior_bindings.get(binding_id, {})
+        c_binding = current_bindings.get(binding_id, {})
+        for col in TRANSITION_BINDING_COLUMNS:
+            p_field = p_binding.get(col) if isinstance(p_binding.get(col), dict) else {}
+            c_field = c_binding.get(col) if isinstance(c_binding.get(col), dict) else {}
+            dimensions.append(
+                {
+                    "dimension": f"binding:{binding_id}:{col}",
+                    "binding_id": binding_id,
+                    "column": col,
+                    "from_status": p_field.get("status"),
+                    "from_reason_code": p_field.get("reason_code"),
+                    "to_status": c_field.get("status"),
+                    "to_reason_code": c_field.get("reason_code"),
+                    "transition": _transition_kind(p_field.get("status"), c_field.get("status")),
+                }
+            )
+
+    # 脱敏摘要：变更维度清单 + 按 kind 计数（不含任何原始证据）。
+    changed_dimensions = [d["dimension"] for d in dimensions if d["transition"] != TRANSITION_UNCHANGED]
+    counts: dict = {}
+    for d in dimensions:
+        counts[d["transition"]] = counts.get(d["transition"], 0) + 1
+    return {
+        "kind": "transition",
+        "desired_basis": "current_target",
+        "from_snapshot_id": prior.get("snapshot_id"),
+        "to_snapshot_id": current.get("snapshot_id"),
+        "from_collected_at": prior.get("collected_at"),
+        "to_collected_at": current.get("collected_at"),
+        "dimensions": dimensions,
+        "summary": {
+            "changed_dimensions": changed_dimensions,
+            "counts": counts,
+        },
+    }

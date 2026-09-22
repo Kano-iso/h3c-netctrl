@@ -511,3 +511,7 @@
 **代码证据**：`backend/Dockerfile.qa:3` `WORKDIR /app`、`:17` `COPY backend/ .`；`docker-compose.dev.yml:130-146` qa-backend（container_name :135、env_file :136、docker.sock :144）；`conftest.py:52` `Base.metadata.create_all`、`:8` `DB_PATH=/tmp/test_h3c.db`。
 
 **剩余不确定性**：QA 容器是否允许挂 docker.sock（真机 e2e 才需要）需 Codex 后续放行精确测试范围。
+
+**S2-010（CR54：快照状态转变投影）**：只读 additive，纯函数在 sdn_state_projection.py（build_transition / baseline_unavailable_transition），history 每点加 transition_from_prior；保守 kind 语义与稳定 binding_id 匹配；脱敏零 I/O 零写入无迁移。真实 QA：聚焦 10 passed + 受影响回归 163 passed；openspec strict / manifest JSON / git diff --check 通过。未提交、未推送、未触真机。
+
+**Codex 复审（S2-010/S2-011）**：补齐 transition 的 from/to snapshot_id 与 collected_at，使历史点脱离列表后仍可解释比较区间；binding_id 只接受数据库整数身份，畸形混合类型不再触发排序异常。STRATA 已接入变化数量、逐维前后状态与保守分类，并明确不宣称根因或 operation 因果。后端受影响回归 163 passed；前端 lint/type-check/build、69 个组件测试、46 个浏览器流程通过；本轮未触真机。

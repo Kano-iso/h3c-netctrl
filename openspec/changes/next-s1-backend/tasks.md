@@ -274,3 +274,11 @@
 - [x] 33.3 `_operation_to_dict` 只读组装嵌套 `explanation.impact`（_safe_explain 包裹、explanation/impact 异常置 unavailable 且 detail 仍 200、复用已加载数据无逐 unit/attempt N+1、旧字段不删不改、顶层无影子字段）；legacy/畸形/字段缺失稳定降级不 500；零 DB 写零 SSH/NETCONF 零隐式采集；无迁移/表/采集命令/接口字段
 - [x] 33.4 对抗测试 14 条（完整 terminal_access / withdraw 用 withdraws 关系 / legacy 不编造 / 畸形 source=operation_record / 缺 device 接口不编造全局身份 / 多 attempts-units 顺序与去重 / 脱敏 / stale_takeover 歧义同源 / fallback 复用 explain_operation / builder 异常 200 + unavailable / unknown 歧义 / 零 I/O 零写入 / 垃圾输入纯函数 / API 端到端）
 - [x] 33.5 QA（本轮未触真机）：`test_s2_008_operation_impact.py` = **14 passed**；直接受影响 SDN 回归（含 S1-026 解释 24 条）= **125 passed**；openspec strict / manifest JSON / git diff --check 通过
+
+## 34. S2-010（快照状态转变投影，只读 additive，本轮未触真机）
+
+- [x] 34.1 `build_transition` 纯函数：逐维状态转变矩阵（unchanged / drift_detected / drift_cleared / evidence_gained / evidence_lost / state_changed / baseline_unavailable；drifted→unknown/stale 只能 evidence_lost、unknown/stale→drifted 只能 drift_detected、not_applicable 变化按 state_changed）；固定维度 vsi/vsi_up/vsi_interface/l3_vni 恒出现、绑定维度按稳定 binding_id 匹配并取两侧并集顺序稳定
+- [x] 34.2 每项含 dimension key / from-to status / from-to reason_code / transition kind；顶层含 from/to snapshot_id 与 collected_at；输出脱敏 summary（changed_dimensions + 按 kind counts）、desired_basis=current_target，不含原始 CLI output/error/凭据
+- [x] 34.3 history endpoint 每点只读组装 `transition_from_prior`（较新点与紧邻较旧点比较；窗口最旧点明确 baseline_unavailable，不拿窗口外/当前实时状态补造基线；复用同一查询窗口与已加载数据无新查询/N+1；旧字段不删不改）；零 DB 写零 SSH/NETCONF 零隐式采集；无迁移/新 endpoint/表/采集命令
+- [x] 34.4 对抗测试 10 条（倒序相邻配对 / 最旧点无基线 / aligned→drifted / drifted→unknown 只能 evidence_lost / unknown→aligned evidence_gained / unchanged / binding 复合维度按 binding_id / limit 截断边界 / 坏快照稳定 / 脱敏 / 零 I/O 零写入 / 垃圾输入纯函数矩阵）
+- [x] 34.5 QA（本轮未触真机）：`test_s2_010_transition_projection.py` = **10 passed**；S2-001/S2-004/S2-006/S2-008 与 S1-026 及直接受影响 SDN 回归 = **163 passed**；openspec strict / manifest JSON / git diff --check 通过

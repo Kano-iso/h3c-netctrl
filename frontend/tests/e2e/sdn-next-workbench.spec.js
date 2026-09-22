@@ -40,11 +40,25 @@ const stateProjectionHistory = {
       aggregate: 'drifted',
       desired: { basis: 'current_target' },
       diff: { vsi: { status: 'aligned' }, vsi_interface: { status: 'aligned' }, l3_vni: { status: 'drifted' } },
+      transition_from_prior: {
+        kind: 'transition', from_snapshot_id: 1, to_snapshot_id: 2,
+        summary: { changed_dimensions: ['l3_vni'], counts: { drift_detected: 1, unchanged: 3 } },
+        dimensions: [
+          { dimension: 'vsi', from_status: 'aligned', to_status: 'aligned', transition: 'unchanged' },
+          { dimension: 'l3_vni', from_status: 'aligned', to_status: 'drifted', transition: 'drift_detected' },
+        ],
+      },
       correlation: {
         status: 'linked', operation_id: 41, attempt_id: 8,
         operation: { id: 41, operation_type: 'terminal_access', status: 'awaiting_validation' },
         attempt: { id: 8, kind: 'validate', status: 'succeeded' },
       },
+    }, {
+      snapshot_id: 1, collected_at: '2026-09-12T10:00:00Z', validation_result: 'active', aggregate: 'aligned',
+      desired: { basis: 'current_target' },
+      diff: { vsi: { status: 'aligned' }, vsi_interface: { status: 'aligned' }, l3_vni: { status: 'aligned' } },
+      transition_from_prior: { kind: 'baseline_unavailable', from_snapshot_id: null, to_snapshot_id: 1, summary: { changed_dimensions: [], counts: { baseline_unavailable: 1 } }, dimensions: [] },
+      correlation: { status: 'unlinked', operation: null, attempt: null },
     }],
   }],
 }
@@ -172,8 +186,13 @@ test.describe('NEXT S1 network service workbench', () => {
     await page.getByRole('button', { name: '查看证据轨迹' }).click()
     await expect(page.getByText('历史设备快照均与当前目标配置比较').first()).toBeVisible()
     await expect(page.getByText('#2 · degraded · 操作 #41')).toBeVisible()
-    await page.locator('.history-track').getByRole('button').click()
+    await expect(page.getByText('1 项状态发生变化')).toBeVisible()
+    await page.locator('.history-track').getByRole('button').first().click()
     await expect(page.getByText('已关联，仅表示证据归属')).toBeVisible()
+    await expect(page.getByText('相邻证据变化')).toBeVisible()
+    await expect(page.getByText('#1 → #2')).toBeVisible()
+    await expect(page.getByText('一致 → 存在差异')).toBeVisible()
+    await expect(page.getByText('发现漂移')).toBeVisible()
     await page.getByRole('button', { name: '查看关联操作生命线' }).click()
     await expect(page.getByText('一次操作的完整生命线')).toBeVisible()
 
