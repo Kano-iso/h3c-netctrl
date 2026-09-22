@@ -28,7 +28,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Device, SdnDeployment, SdnPortBinding, SdnTenant, SdnValidationSnapshot, SdnVpc
+from app.models import Device, SdnAttempt, SdnDeployment, SdnOperation, SdnPortBinding, SdnTenant, SdnValidationSnapshot, SdnVpc
 from app.schemas import (
     APIResponse,
     SdnDeploymentCreate,
@@ -1624,6 +1624,65 @@ def _projection_device_dict(device) -> dict:
     return {"id": device.id, "name": device.name, "host": device.host, "sdn_role": device.sdn_role}
 
 
+def _snapshot_correlation(snap, operation, attempt, vpc_id: int, device_id: int) -> dict:
+    """历史快照 → 脱敏操作关联（S2-006）。
+
+    只表达「证据归属/时间相关」：operation/attempt 与快照引用、与当前时间线
+    （vpc_id/device_id）一致才 linked；零引用 unlinked；dangling 引用 missing；
+    operation 属于另一 VPC/设备或 attempt 属于另一 operation → mismatch。
+    绝不宣称操作导致状态变化。linked 时只返回白名单摘要，不携带
+    request_payload_json/scope_json/idempotency_key/fingerprint/owner/凭据。
+    """
+    op_id = snap.operation_id
+    at_id = snap.attempt_id
+    if op_id is None and at_id is None:
+        return {"operation_id": None, "attempt_id": None, "status": "unlinked", "operation": None, "attempt": None}
+
+    # 稳定优先级（dangling 优先，不被后续归属判定覆盖）：
+    # 1) 任何被引用实体不存在 → missing；
+    # 2) 引用实体都存在但归属/作用域不一致（operation 跨 VPC/设备、attempt 属于另一
+    #    operation、或有 attempt 引用而无对应的 operation 引用可核对）→ mismatch；
+    # 3) 全部一致 → linked。
+    if op_id is not None and operation is None:
+        status = "missing"  # dangling operation 引用
+    elif at_id is not None and attempt is None:
+        status = "missing"  # dangling attempt 引用
+    elif op_id is not None and (operation.vpc_id != vpc_id or operation.device_id != device_id):
+        status = "mismatch"  # operation 属于另一 VPC/设备
+    elif at_id is not None and (op_id is None or attempt.operation_id != op_id):
+        status = "mismatch"  # attempt 属于另一 operation 或无对应的 operation 引用可核对
+    else:
+        status = "linked"
+
+    operation_summary = None
+    attempt_summary = None
+    if status == "linked":
+        if operation is not None:
+            operation_summary = {
+                "id": operation.id,
+                "operation_type": operation.operation_type,
+                "status": operation.status,
+                "expected_host_ip": operation.expected_host_ip,
+                "created_at": operation.created_at,
+                "updated_at": operation.updated_at,
+            }
+        if attempt is not None:
+            attempt_summary = {
+                "id": attempt.id,
+                "kind": attempt.kind,
+                "status": attempt.status,
+                "started_at": attempt.started_at,
+                "completed_at": attempt.completed_at,
+            }
+    return {
+        "operation_id": op_id,
+        "attempt_id": at_id,
+        "status": status,
+        "operation": operation_summary,
+        "attempt": attempt_summary,
+    }
+
+
 def _latest_snapshot(db: Session, vpc_id: int, device_id: int):
     return (
         db.query(SdnValidationSnapshot)
@@ -1696,12 +1755,15 @@ def get_vpc_state_projection_history(
     limit: int = Query(10, ge=1, le=50, description="每台设备最多返回的历史快照点数"),
     db: Session = Depends(get_db),
 ):
-    """设备快照时间线（S2-004，只读）。
+    """设备快照时间线（S2-004/S2-006，只读）。
 
     只读语义：不触发 SSH/NETCONF、不写库、不刷新时间戳；只读取已有 validation snapshots。
     每个历史点都是「历史设备快照与当前目标态的比较」——desired 复用当前 deployment/binding
     生命周期并标记 basis=current_target，绝不冒充历史目标态。坏快照保留为 unknown，不跳过、
     不改写。
+    每点 correlation（S2-006）只表达「证据归属/时间相关」：operation/attempt 与快照引用及
+    当前时间线一致才 linked（脱敏白名单摘要）；零引用 unlinked；dangling missing；跨
+    VPC/设备/operation mismatch。绝不宣称操作导致状态变化。
     """
     ctx = _load_projection_context(db, vpc_id)
     if ctx is None:
@@ -1715,14 +1777,11 @@ def get_vpc_state_projection_history(
     now = datetime.utcnow()
     timelines: list[dict] = []
     excluded: list[dict] = []
+    window: list[tuple] = []  # (device, snapshots)：当前返回窗口，避免逐点 N+1 关联查询
     for device in devices:
         if not _is_sdn_fabric_member(device):
             excluded.append(_projection_excluded_entry(device))
             continue
-
-        device_dict = _projection_device_dict(device)
-        bindings = _serialize_bindings(db, vpc_id, device.id)
-        deployments = _serialize_deployments(db, vpc_id, device.id)
 
         snapshots = (
             db.query(SdnValidationSnapshot)
@@ -1734,6 +1793,19 @@ def get_vpc_state_projection_history(
             .limit(limit)
             .all()
         )
+        window.append((device, snapshots))
+
+    # 批量读取窗口涉及的 operation/attempt（一次查询，避免逐点 N+1）。
+    op_ids = {s.operation_id for _, snaps in window for s in snaps if s.operation_id is not None}
+    at_ids = {s.attempt_id for _, snaps in window for s in snaps if s.attempt_id is not None}
+    operations = {o.id: o for o in db.query(SdnOperation).filter(SdnOperation.id.in_(op_ids)).all()} if op_ids else {}
+    attempts = {a.id: a for a in db.query(SdnAttempt).filter(SdnAttempt.id.in_(at_ids)).all()} if at_ids else {}
+
+    for device, snapshots in window:
+        device_dict = _projection_device_dict(device)
+        bindings = _serialize_bindings(db, vpc_id, device.id)
+        deployments = _serialize_deployments(db, vpc_id, device.id)
+
         points: list[dict] = []
         for snap in snapshots:
             snapshot_payload, snapshot_meta = _decode_snapshot(snap)
@@ -1752,6 +1824,13 @@ def get_vpc_state_projection_history(
             point["snapshot_id"] = snap.id
             point["collected_at"] = snapshot_meta.get("collected_at")
             point["validation_result"] = snap.validation_result
+            point["correlation"] = _snapshot_correlation(
+                snap,
+                operations.get(snap.operation_id),
+                attempts.get(snap.attempt_id),
+                vpc_id,
+                device.id,
+            )
             points.append(point)
         timelines.append(
             {

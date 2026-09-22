@@ -258,3 +258,11 @@
 - [x] 31.3 只读零 I/O 零写库、响应脱敏（只保留 S2-003 evidence 指针，无原始 output/error/凭据）；无迁移/表/采集命令/接口字段
 - [x] 31.4 对抗测试 10 条（倒序与 limit / device 过滤 / 非 EVPN 排除 / 坏快照保留 unknown / current target basis / validation_result / 零 I/O 零写入 / 响应脱敏 / VPC 404 / limit 越界 422）
 - [x] 31.5 QA（本轮未触真机）：`test_s2_004_state_projection_history.py` + 投影 = **38 passed**；直接受影响 SDN 回归 = **141 passed**；openspec strict / manifest JSON / git diff --check 通过
+
+## 32. S2-006（历史快照 × 操作/尝试关联，只读，本轮未触真机）
+
+- [x] 32.1 `_snapshot_correlation` 纯函数：零引用 unlinked；op/attempt 引用 dangling → missing；operation 跨 VPC/设备、attempt 属于另一 operation → mismatch；全部一致 → linked（白名单 operation 摘要 id/operation_type/status/expected_host_ip/created_at/updated_at + attempt 摘要 id/kind/status/started_at/completed_at）
+- [x] 32.2 history endpoint 批量读取窗口内 op/attempt（一次 IN 查询避免逐点 N+1），逐点附加 correlation；linked 只复制白名单字段，绝不携带 request_payload_json/scope_json/idempotency_key/fingerprint/owner/evidence_json/凭据
+- [x] 32.3 只读零 I/O 零写库零隐式采集；correlation 只表达证据归属/时间相关，不宣称操作导致状态变化；不改变既有 history 字段语义；无迁移/表/接口字段
+- [x] 32.4 对抗测试 9 条（linked 摘要 / unlinked / op dangling / attempt dangling / attempt 跨 operation mismatch / operation 跨 VPC mismatch / operation 跨设备 mismatch / 响应脱敏 / 零 I/O 零写入）
+- [x] 32.5 QA（本轮未触真机）：`test_s2_006_history_correlation.py` + S2-004 + S2-001 = **47 passed**；直接受影响 SDN 回归 = **150 passed**；openspec strict / manifest JSON / git diff --check 通过

@@ -651,3 +651,8 @@
 
 - **WHEN** STRATA 查询 `GET /api/sdn/vpcs/{vpc_id}/state-projection/history`（`device_id` 可选，`limit` 默认 10、1..50）
 - **THEN** 每台 evpn_leaf 返回按 snapshot id/采集时间倒序的 points（非 EVPN 仅 excluded、不进聚合）；每个点至少含 snapshot_id/collected_at/validation_result，以及复用纯函数得到的 aggregate 与逐维 diff，desired 标记 `basis=current_target`（复用当前 deployment/binding 生命周期），明确是「历史设备快照 vs 当前目标态」而非历史目标态；快照 JSON 损坏/命令失败/时间缺失诚实降级 unknown/evidence_missing，不跳过坏点、不改写快照；端点零 SSH/NETCONF、零写库、零刷新时间戳，响应只保留 S2-003 脱敏 evidence 指针
+
+#### Scenario: 历史快照 × 操作/尝试关联（S2-006）
+
+- **WHEN** 历史时间线每个 point 附带 correlation（快照自带的 operation_id/attempt_id + 状态 linked/unlinked/missing/mismatch）
+- **THEN** 仅当 operation 存在且其 vpc_id/device_id 与当前时间线一致时返回脱敏 operation 摘要（id/operation_type/status/expected_host_ip/created_at/updated_at），仅当 attempt 存在、属于该 operation 且与快照引用一致时返回脱敏 attempt 摘要（id/kind/status/started_at/completed_at）；dangling 引用、attempt 属于另一 operation、operation 属于另一 VPC/设备不得错误关联，保留快照点并以 missing/mismatch 表达；零引用为 unlinked；不返回 request_payload_json/scope_json/idempotency_key/fingerprint/owner/evidence_json/凭据；correlation 只表达「证据归属/时间相关」，不宣称操作导致状态变化

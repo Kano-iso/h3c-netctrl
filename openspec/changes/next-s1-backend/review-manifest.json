@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "package_id": "S2-004",
+  "package_id": "S2-006",
   "change_id": "next-s1-backend",
-  "baseline_sha": "655fc53f489f00f3d19d10d9a57be4dc2d5d7bf8",
+  "baseline_sha": "b39b90ff15449b52bb690ee30deb6e789a46c64f",
   "worktree": "/root/workpace/h3c-netctrl/.agent-worktrees/next-s1-backend",
   "scope": [
     "backend/app/i18n_keys.py",
@@ -85,7 +85,8 @@
     "backend/app/services/sdn_state_projection.py",
     "backend/app/routers/sdn.py",
     "backend/tests/test_s2_001_state_projection.py",
-    "backend/tests/test_s2_004_state_projection_history.py"
+    "backend/tests/test_s2_004_state_projection_history.py",
+    "backend/tests/test_s2_006_history_correlation.py"
   ],
   "requirements": [
     {
@@ -443,6 +444,23 @@
         "test_history_vpc_not_found",
         "test_history_limit_bounds_rejected"
       ]
+    },
+    {
+      "id": "CR52",
+      "summary": "历史快照 × 操作/尝试关联（S2-006，只读）：state-projection/history 每个 point 增加脱敏 correlation（operation_id/attempt_id + 状态 linked/unlinked/missing/mismatch）；仅当 operation 存在且 vpc_id/device_id 与当前时间线一致时返回白名单 operation 摘要（id/operation_type/status/expected_host_ip/created_at/updated_at），仅当 attempt 存在、属于该 operation 且与快照引用一致时返回白名单 attempt 摘要（id/kind/status/started_at/completed_at）；dangling/跨 operation/跨 VPC/设备一律 missing/mismatch 不错误关联；零引用 unlinked；只表达证据归属/时间相关，不宣称操作导致状态变化",
+      "implementation": "sdn.py 新增 _snapshot_correlation 纯函数（快照引用 + 批量载入的 operation/attempt + 当前 vpc_id/device_id 一致性判定），稳定优先级：任何被引用实体不存在 → missing（dangling 优先，不被归属判定覆盖）；引用实体都存在但归属/作用域不一致 → mismatch；全部一致 → linked；零引用 → unlinked；history endpoint 先收集当前返回窗口内快照涉及的 op/attempt id 集合，一次 IN 批量查询（避免逐点 N+1），逐点附加 correlation；linked 只复制白名单字段，绝不携带 request_payload_json/scope_json/idempotency_key/fingerprint/owner/evidence_json/凭据；保持端点零设备 I/O、零写库、零隐式采集，不改变既有 history 字段语义；无迁移/表/接口字段变更",
+      "tests": [
+        "test_correlation_linked_full_summaries",
+        "test_correlation_unlinked_when_no_references",
+        "test_correlation_dangling_operation_missing",
+        "test_correlation_dangling_attempt_missing",
+        "test_correlation_dangling_operation_with_existing_attempt_missing",
+        "test_correlation_attempt_of_other_operation_mismatch",
+        "test_correlation_operation_of_other_vpc_mismatch",
+        "test_correlation_operation_of_other_device_mismatch",
+        "test_correlation_response_sanitized",
+        "test_correlation_zero_io_and_zero_writes"
+      ]
     }
   ],
   "invariants": [
@@ -478,7 +496,8 @@
     "观测诚实：快照命令 success!=true/缺失/error → unknown（采不到绝不 drift）；大于 600s TTL → stale；无法证明的维 unknown/no_snapshot，绝不编造设备事实",
     "差异逐维表达：聚合（最差 stale>drifted>unknown>aligned）永不覆盖逐维事实；planned 绑定 not_applicable/planned_not_deployed、unbound 不进 desired、非 evpn_leaf 不进健康分母；远端 Type-2/BGP 摘要不冒充本地下联端口/主机事实；相关性≠根因",
     "差异证据指针（S2-003）：evidence 只含稳定元数据（desired_source: deployment/binding/计数；observed_source: {kind=snapshot, snapshot_id, collected_at, command}），绝不携带原始 CLI output/error/凭据；命令失败/畸形/过期/not_applicable/conflict 仍保留能诚实证明的指针，不改动状态、reason、聚合与生命周期语义",
-    "历史时间线只读（S2-004）：每个点是历史设备快照 vs 当前目标态（desired.basis=current_target），不得冒充历史目标态；坏快照保留为 unknown/evidence_missing 不跳过不改写；非 evpn_leaf 仅 excluded 不进聚合；GET 零 SSH/NETCONF、零写库、零刷新时间戳，响应脱敏"
+    "历史时间线只读（S2-004）：每个点是历史设备快照 vs 当前目标态（desired.basis=current_target），不得冒充历史目标态；坏快照保留为 unknown/evidence_missing 不跳过不改写；非 evpn_leaf 仅 excluded 不进聚合；GET 零 SSH/NETCONF、零写库、零刷新时间戳，响应脱敏",
+    "证据关联只表达归属（S2-006）：correlation 稳定优先级——任何被引用实体不存在 → missing（dangling 优先于归属不一致）；引用实体都存在但归属/作用域不一致（跨 operation/跨 VPC/设备）→ mismatch；全部一致 → linked 并给白名单摘要；零引用 → unlinked；绝不宣称操作导致状态变化；响应不携带 request_payload_json/scope_json/idempotency_key/fingerprint/owner/evidence_json/凭据"
   ],
   "tests": [
     {
@@ -604,13 +623,13 @@
     {
       "command": "docker compose -f openspec/changes/next-s1-backend/qa/docker-compose.qa.yml run --rm qa-backend python -m pytest tests/test_s2_001_state_projection.py -q",
       "environment": "qa-backend 容器（image next-s1-qa-backend:local；S2-001 只读投影契约）",
-      "result": "28 passed（含 CR47-CR49、L2/L3 网关独立生命周期、CLI 错误正文与损坏快照反例、S2-003 证据指针与脱敏）；S2-004 历史时间线 10 条合并 = 38 passed",
+      "result": "28 passed（含 CR47-CR49、L2/L3 网关独立生命周期、CLI 错误正文与损坏快照反例、S2-003 证据指针与脱敏）；S2-004 历史时间线 10 条合并 = 38 passed；S2-006 关联 10 条合并 = 48 passed",
       "baseline_failed": false
     },
     {
       "command": "docker compose -f openspec/changes/next-s1-backend/qa/docker-compose.qa.yml run --rm qa-backend python -m pytest tests/test_sdn_port_binding_api.py tests/test_sdn_expansion_api.py tests/test_sdn_access_api.py tests/test_sdn_operation_service.py tests/test_sdn_explanation.py tests/test_sdn_migration.py tests/test_s1_007_adversarial.py tests/test_s1_016_adversarial.py -q",
       "environment": "qa-backend 容器（S2-001 直接受影响 SDN 回归）",
-      "result": "141 passed（S2-004 10 条 + S2-003 28 条 + 直接受影响 SDN 回归）",
+      "result": "151 passed（S2-006 10 条 + S2-004 10 条 + S2-003 28 条 + 直接受影响 SDN 回归）",
       "baseline_failed": false
     }
   ],
