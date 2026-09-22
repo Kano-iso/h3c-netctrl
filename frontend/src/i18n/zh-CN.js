@@ -514,6 +514,13 @@ export default {
       history_failed: '证据轨迹加载失败',
       no_history: '这台设备还没有历史快照。',
       validation_result: '采集结论',
+      correlation: '操作关联',
+      operation_ref: '操作 #{id}',
+      related_operation: '关联操作',
+      related_attempt: '关联尝试',
+      open_related_operation: '查看关联操作生命线',
+      correlation_unlinked: '独立采集，未关联操作',
+      correlation_status: { linked: '已关联，仅表示证据归属', unlinked: '独立采集，未关联操作', missing: '关联记录已经缺失', mismatch: '关联记录不一致' },
       projection_status: {
         aligned: '一致', drifted: '存在差异', unknown: '证据不足', stale: '证据过期', not_applicable: '不适用',
       },

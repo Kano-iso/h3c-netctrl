@@ -509,6 +509,13 @@ export default {
       history_failed: 'Failed to load the evidence trail',
       no_history: 'No historical snapshots exist for this device.',
       validation_result: 'Collection result',
+      correlation: 'Operation correlation',
+      operation_ref: 'operation #{id}',
+      related_operation: 'Related operation',
+      related_attempt: 'Related attempt',
+      open_related_operation: 'Open related operation timeline',
+      correlation_unlinked: 'Independent collection with no operation link',
+      correlation_status: { linked: 'Linked as evidence ownership only', unlinked: 'Independent collection with no operation link', missing: 'The referenced record is missing', mismatch: 'The referenced records do not match' },
       projection_status: {
         aligned: 'Aligned', drifted: 'Drift detected', unknown: 'Evidence missing', stale: 'Evidence stale', not_applicable: 'Not applicable',
       },

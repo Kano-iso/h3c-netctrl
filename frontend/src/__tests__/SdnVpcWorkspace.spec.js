@@ -64,6 +64,11 @@ describe('SdnVpcWorkspace.vue', () => {
         snapshot_id: 2, collected_at: '2026-09-13T10:00:00Z', validation_result: 'degraded', aggregate: 'drifted',
         desired: { basis: 'current_target' },
         diff: { vsi: { status: 'aligned' }, vsi_interface: { status: 'aligned' }, l3_vni: { status: 'drifted' } },
+        correlation: {
+          status: 'linked', operation_id: 41, attempt_id: 8,
+          operation: { id: 41, operation_type: 'terminal_access', status: 'awaiting_validation' },
+          attempt: { id: 8, kind: 'validate', status: 'succeeded' },
+        },
       }],
     }] } })
     sdnApi.getOperation.mockResolvedValue({ success: true, data: operationDetail })
@@ -151,6 +156,12 @@ describe('SdnVpcWorkspace.vue', () => {
     expect(wrapper.text()).toContain('#2 · degraded')
     await wrapper.find('.history-track button').trigger('click')
     expect(wrapper.text()).toContain('采集结论')
+    expect(wrapper.text()).toContain('已关联，仅表示证据归属')
+    expect(wrapper.text()).toContain('#41 · terminal_access · awaiting_validation')
+    await wrapper.find('.history-operation-link').trigger('click')
+    await flushPromises()
+    expect(sdnApi.getOperation).toHaveBeenCalledWith(41)
+    expect(wrapper.text()).toContain('一次操作的完整生命线')
   })
 
   it('reloads an open evidence trail after an explicit device refresh', async () => {
