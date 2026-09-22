@@ -45,3 +45,7 @@ VPC 创建和 Fabric 管理继续使用既有 API，放入次级工具区。旧�
 STRATA 读取 S2-001 的只读 `state-projection`，不再用 access-overview 的粗粒度校验灯推测设备状态。首层保留 VPC 业务意图，第二层按 EVPN Leaf 展开；每台 Leaf 同屏呈现目标值、最近设备快照与差异结论，VSI、运行状态、网关接口、L3VNI 和端口绑定均保持独立维度。
 
 `unknown` 表示证据不足，`stale` 表示证据过期，只有有效回读与目标不符才显示 `drifted`；三者使用不同文字和视觉语义。非 EVPN 设备仅显示排除数量，不进入聚合健康度。页面切换和刷新只读取持久化事实，不触发设备采集或配置下发。
+
+## PULSE Operation Impact（S2-009）
+
+PULSE 直接消费 S2-008 持久化操作详情中的 `explanation.impact`，按后端返回顺序呈现 VPC、EVPN Leaf、接入接口和目标终端。关系词仅在后端明确返回对应 relation 时出现；前端不依据节点相邻、名称或当前页面状态补造关系。界面同时固定声明该链路只表达操作记录中的业务影响范围，不是物理拓扑、实时转发路径或因果证明。节点的 `truth_kind` 与 `source` 继续沿用统一 explanation 体系。

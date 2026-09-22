@@ -21,8 +21,27 @@ const i18n = createI18n({ legacy: false, locale: 'zh-CN', messages: { 'zh-CN': z
 const mountPage = () => mount(SdnVpcWorkspace, { global: { plugins: [i18n], stubs: { Teleport: true } } })
 
 const operationDetail = {
-  operation_id: 41, status: 'awaiting_validation', expected_host_ip: '192.168.1.3',
+  operation_id: 41, operation_type: 'terminal_access', device_id: 5, status: 'awaiting_validation', expected_host_ip: '192.168.1.3',
   updated_at: '2026-09-14T10:00:00Z', attempts: [{ attempt_id: 8, kind: 'apply', status: 'success', units: [] }],
+  explanation: {
+    intent: 'access_bind',
+    scope_summary: 'vpc=vpc-demo device=Leaf-04 if=GigabitEthernet1/0/3(3) host=192.168.1.3',
+    safety_boundary: { target_only: true, ambiguous_claims: false },
+    impact: {
+      nodes: [
+        { kind: 'vpc', id: 2, label: 'vpc-demo', truth_kind: 'desired', source: 'operation_scope' },
+        { kind: 'device', id: 5, label: 'Leaf-04', truth_kind: 'desired', source: 'operation_scope' },
+        { kind: 'interface', id: 'device:5:if_index:3', label: 'GigabitEthernet1/0/3', truth_kind: 'desired', source: 'operation_scope' },
+        { kind: 'host', id: '192.168.1.3', label: '192.168.1.3', truth_kind: 'desired', source: 'operation_record' },
+      ],
+      relations: [
+        { from_kind: 'vpc', from_id: 2, relation: 'targets', to_kind: 'device', to_id: 5 },
+        { from_kind: 'device', from_id: 5, relation: 'exposes', to_kind: 'interface', to_id: 'device:5:if_index:3' },
+        { from_kind: 'interface', from_id: 'device:5:if_index:3', relation: 'expects', to_kind: 'host', to_id: '192.168.1.3' },
+      ],
+      changes: [], safety: { target_only: true, ambiguous_claims: false, shared_vpc_gateway_not_target: true },
+    },
+  },
 }
 
 describe('SdnVpcWorkspace.vue', () => {
@@ -93,6 +112,25 @@ describe('SdnVpcWorkspace.vue', () => {
     expect(wrapper.text()).not.toContain('Leaf-03')
     expect(sdnApi.accessOverview).toHaveBeenCalledWith(2)
     expect(sdnApi.stateProjection).toHaveBeenCalledWith(2)
+  })
+
+  it('renders the persisted operation impact chain in PULSE', async () => {
+    const wrapper = mountPage()
+    await flushPromises()
+    await wrapper.find('.operation-table button').trigger('click')
+    await flushPromises()
+
+    expect(sdnApi.getOperation).toHaveBeenCalledWith(41)
+    expect(wrapper.find('.impact-map').exists()).toBe(true)
+    expect(wrapper.text()).toContain('操作影响范围')
+    expect(wrapper.text()).toContain('vpc-demo')
+    expect(wrapper.text()).toContain('Leaf-04')
+    expect(wrapper.text()).toContain('GigabitEthernet1/0/3')
+    expect(wrapper.text()).toContain('192.168.1.3')
+    expect(wrapper.text()).toContain('作用于')
+    expect(wrapper.text()).toContain('承载接口')
+    expect(wrapper.text()).toContain('预期接入')
+    expect(wrapper.text()).toContain('不代表物理拓扑、实时转发路径或因果关系')
   })
 
   it('keeps desired, observed, and drift as separate STRATA facts', async () => {

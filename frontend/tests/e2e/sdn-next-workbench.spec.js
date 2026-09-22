@@ -58,6 +58,20 @@ const operation = {
     scope_summary: 'vpc=production-a device=Leaf-04 if=GigabitEthernet1/0/3(3) host=192.168.1.3',
     truth_state: 'pending',
     safety_boundary: { target: { device_id: 5, if_index: 3, interface_name: 'GigabitEthernet1/0/3' }, target_only: true, ambiguous_claims: false },
+    impact: {
+      nodes: [
+        { kind: 'vpc', id: 2, label: 'production-a', truth_kind: 'desired', source: 'operation_scope' },
+        { kind: 'device', id: 5, label: 'Leaf-04', truth_kind: 'desired', source: 'operation_scope' },
+        { kind: 'interface', id: 'device:5:if_index:3', label: 'GigabitEthernet1/0/3', truth_kind: 'desired', source: 'operation_scope' },
+        { kind: 'host', id: '192.168.1.3', label: '192.168.1.3', truth_kind: 'desired', source: 'operation_record' },
+      ],
+      relations: [
+        { from_kind: 'vpc', from_id: 2, relation: 'targets', to_kind: 'device', to_id: 5 },
+        { from_kind: 'device', from_id: 5, relation: 'exposes', to_kind: 'interface', to_id: 'device:5:if_index:3' },
+        { from_kind: 'interface', from_id: 'device:5:if_index:3', relation: 'expects', to_kind: 'host', to_id: '192.168.1.3' },
+      ],
+      changes: [], safety: { target_only: true, ambiguous_claims: false, shared_vpc_gateway_not_target: true },
+    },
   },
   attempts: [{
     attempt_id: 8,
@@ -117,6 +131,9 @@ test.describe('NEXT S1 network service workbench', () => {
       await expect(page.getByText('Leaf-04').first()).toBeVisible()
       await expect(page.getByText('192.168.1.3').first()).toBeVisible()
       await expect(page.getByText('Access-01')).toHaveCount(0)
+      await page.locator('.operation-table').getByRole('button', { name: /192\.168\.1\.3/ }).click()
+      await expect(page.locator('.impact-map')).toBeVisible()
+      await expect(page.locator('.impact-chain')).toContainText('GigabitEthernet1/0/3')
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
       expect(overflow).toBeLessThanOrEqual(1)
     })
@@ -140,6 +157,12 @@ test.describe('NEXT S1 network service workbench', () => {
     await expect(page.getByText('vsi-l2')).toBeVisible()
     await expect(page.getByText('配置执行已记录，但尚未由设备回读验证。')).toBeVisible()
     await expect(page.getByText('设备回读已确认目标状态。')).toBeVisible()
+    await expect(page.locator('.impact-map')).toBeVisible()
+    await expect(page.getByText('操作影响范围')).toBeVisible()
+    await expect(page.locator('.impact-chain')).toContainText('production-a')
+    await expect(page.locator('.impact-chain')).toContainText('Leaf-04')
+    await expect(page.locator('.impact-chain')).toContainText('GigabitEthernet1/0/3')
+    await expect(page.locator('.impact-chain')).toContainText('预期接入')
 
     await page.getByRole('button', { name: /STRATA/ }).click()
     await expect(page.getByText('从业务目标深入到设备承载')).toBeVisible()

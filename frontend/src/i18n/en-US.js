@@ -443,6 +443,12 @@ export default {
       safety: 'Change boundary',
       scoped_change: 'This access only',
       shared_change: 'Includes shared network resources',
+      impact_title: 'Operation impact',
+      impact_subtitle: 'Objects explicitly involved in this operation',
+      impact_boundary: 'Derived from operation records; not a physical topology, live forwarding path, or causal claim.',
+      impact_node: { vpc: 'VPC', device: 'EVPN Leaf', interface: 'Access interface', host: 'Target endpoint' },
+      impact_relation: { targets: 'targets', exposes: 'exposes', expects: 'expects', withdraws: 'withdraws' },
+      impact_source: { operation_scope: 'Operation scope', operation_record: 'Operation record' },
       intent_code: {
         access_unbind: 'Withdraw this endpoint access', legacy_apply: 'Run a compatibility operation',
       },

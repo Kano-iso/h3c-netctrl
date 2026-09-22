@@ -448,6 +448,12 @@ export default {
       safety: '变更边界',
       scoped_change: '仅本次接入口',
       shared_change: '涉及共享网络资源',
+      impact_title: '操作影响范围',
+      impact_subtitle: '这次操作明确涉及的对象',
+      impact_boundary: '依据操作记录呈现，不代表物理拓扑、实时转发路径或因果关系。',
+      impact_node: { vpc: 'VPC', device: 'EVPN Leaf', interface: '接入接口', host: '目标终端' },
+      impact_relation: { targets: '作用于', exposes: '承载接口', expects: '预期接入', withdraws: '撤回接入' },
+      impact_source: { operation_scope: '操作范围', operation_record: '操作记录' },
       intent_code: {
         access_unbind: '撤回本次终端接入', legacy_apply: '执行兼容配置操作',
       },
