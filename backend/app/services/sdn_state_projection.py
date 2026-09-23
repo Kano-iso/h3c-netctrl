@@ -730,3 +730,68 @@ def build_transition(prior: dict, current: dict) -> dict:
             "counts": counts,
         },
     }
+
+
+# ── S2-012 VPC EVPN Leaf 范围覆盖投影（只读、additive、保守分类）──
+#
+# 范围不是健康度：未覆盖/已撤回/证据不足都是范围事实，不得自动冒充故障或漂移。
+# 只枚举 sdn_role=evpn_leaf 设备（不按名称/platform 推断）；复用 resolve_base_lifecycle
+# 同一生命周期判定，不复制一套；snapshot 单独不能证明 targeted；历史成功 create 版本
+# 不匹配仍 ambiguous；failed/pending 不覆盖确定生命周期；局部 gateway_delete 不改变
+# base 范围。
+
+SCOPE_TARGETED = "targeted"
+SCOPE_WITHDRAWN = "withdrawn"
+SCOPE_NOT_TARGETED = "not_targeted"
+SCOPE_AMBIGUOUS = "ambiguous"
+SCOPE_CLASSIFICATIONS = (SCOPE_TARGETED, SCOPE_WITHDRAWN, SCOPE_NOT_TARGETED, SCOPE_AMBIGUOUS)
+
+
+def build_scope_member(device: dict, *, deployments: Any, bindings: Any, snapshot_count: Any, vpc_version: Any) -> dict:
+    """单台 EVPN Leaf 相对某 VPC 的范围分类（S2-012，只读纯函数，绝不抛异常）。
+
+    - ``targeted``：当前版本生命周期可证明 base present，或存在 planned/active/expanding
+      当前目标绑定（reason_code: base_present / current_target_binding）；
+    - ``withdrawn``：生命周期可证明 base absent 且无当前目标绑定（base_absent）；
+    - ``not_targeted``：该 VPC 对此 Leaf 无 deployment/binding/snapshot 记录（no_records）；
+    - ``ambiguous``：有历史记录，但当前生命周期不能证明 present/absent 且无当前目标
+      绑定（lifecycle_unproven）。
+
+    只返回白名单字段（device_id/name/host、classification、reason_code、record_sources、
+    desired_base_state、desired_binding_count），不回传凭据/原始配置/快照；输入畸形/
+    缺字段稳定降级不抛异常。
+    """
+    device = device if isinstance(device, dict) else {}
+    deployments = [d for d in (deployments if isinstance(deployments, list) else []) if isinstance(d, dict)]
+    bindings = [b for b in (bindings if isinstance(bindings, list) else []) if isinstance(b, dict)]
+    if isinstance(snapshot_count, bool) or not isinstance(snapshot_count, int):
+        snapshot_count = 0
+    base = resolve_base_lifecycle(deployments, vpc_version)
+    desired_bindings = [b for b in bindings if b.get("status") in BINDING_DESIRED_STATUSES]
+    records_exist = bool(deployments) or bool(bindings) or snapshot_count > 0
+    if base.get("state") == LIFECYCLE_PRESENT or desired_bindings:
+        classification = SCOPE_TARGETED
+        reason_code = "base_present" if base.get("state") == LIFECYCLE_PRESENT else "current_target_binding"
+    elif base.get("state") == LIFECYCLE_ABSENT:
+        classification = SCOPE_WITHDRAWN
+        reason_code = "base_absent"
+    elif not records_exist:
+        classification = SCOPE_NOT_TARGETED
+        reason_code = "no_records"
+    else:
+        classification = SCOPE_AMBIGUOUS
+        reason_code = "lifecycle_unproven"
+    return {
+        "device_id": device.get("id"),
+        "name": device.get("name"),
+        "host": device.get("host"),
+        "classification": classification,
+        "reason_code": reason_code,
+        "record_sources": {
+            "deployment": {"present": bool(deployments), "count": len(deployments)},
+            "binding": {"present": bool(bindings), "count": len(bindings)},
+            "snapshot": {"present": snapshot_count > 0, "count": snapshot_count},
+        },
+        "desired_base_state": base.get("state"),
+        "desired_binding_count": len(desired_bindings),
+    }

@@ -14,7 +14,15 @@ const overview = {
 }
 
 const stateProjection = {
-  aggregate: 'aligned', excluded: [{ device_id: 4, reason: 'not_evpn_leaf' }], leaves: [{
+  aggregate: 'aligned', excluded: [{ device_id: 4, reason: 'not_evpn_leaf' }],
+  scope: {
+    summary: { eligible: 2, targeted: 1, withdrawn: 0, not_targeted: 1, ambiguous: 0 },
+    members: [
+      { device_id: 5, name: 'Leaf-04', host: '192.168.100.5', classification: 'targeted', reason_code: 'base_present', desired_base_state: 'present', desired_binding_count: 1 },
+      { device_id: 6, name: 'Leaf-05', host: '192.168.100.6', classification: 'not_targeted', reason_code: 'no_records', desired_base_state: 'unknown', desired_binding_count: 0 },
+    ],
+  },
+  leaves: [{
     device_id: 5, device_name: 'Leaf-04', device_host: '192.168.100.5', aggregate: 'aligned',
     desired: {
       vsi: { present: true }, vsi_up: { expected: true }, vsi_interface: { present: true }, l3_vni: { present: true },
@@ -181,6 +189,11 @@ test.describe('NEXT S1 network service workbench', () => {
     await page.getByRole('button', { name: /STRATA/ }).click()
     await expect(page.getByText('从业务目标深入到设备承载')).toBeVisible()
     await expect(page.getByText('VNI 10 · vpna')).toBeVisible()
+    await expect(page.getByText('VPC 覆盖范围')).toBeVisible()
+    await expect(page.getByText('当前覆盖 1 / 2 台 EVPN Leaf')).toBeVisible()
+    await expect(page.locator('.scope-member-list')).toContainText('Leaf-05')
+    await expect(page.locator('.scope-member-list')).toContainText('尚未纳入')
+    await expect(page.getByText(/范围不等于健康度/)).toBeVisible()
     await expect(page.getByText('一致').first()).toBeVisible()
     await expect(page.getByText('SI 3100').first()).toBeVisible()
     await page.getByRole('button', { name: '查看证据轨迹' }).click()

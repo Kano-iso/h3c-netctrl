@@ -53,3 +53,7 @@ PULSE 直接消费 S2-008 持久化操作详情中的 `explanation.impact`，按
 ## STRATA Evidence Transitions（S2-011）
 
 STRATA 消费 S2-010 的 `transition_from_prior`，在历史轨迹标示相邻快照的变化数量，并在历史详情中展示各维度的前后状态和后端保守分类。`drifted → unknown/stale` 只显示证据丢失，不显示漂移解除；最旧窗口点明确没有比较基线。视图固定说明转变只表达相邻设备证据相对当前目标的变化，不推断根因、物理路径或关联 operation 的因果关系。
+
+## STRATA VPC Scope Coverage（S2-013）
+
+STRATA 消费 S2-012 顶层 `scope`，在状态差异卡片之前展示当前 VPC 相对全部合格 EVPN Leaf 的覆盖范围。每台 Leaf 仅翻译后端稳定分类（targeted / withdrawn / not_targeted / ambiguous）及 reason code，前端不根据名称、快照或健康状态重新推断范围。覆盖条固定声明“范围不等于健康度”：尚未纳入、已撤回或范围待确认都不是设备漂移；即使没有可投影快照，覆盖范围仍独立可见。

@@ -50,9 +50,14 @@ from app.i18n_keys import err, error_response
 from app.services.sdn_deployment_executor import SdnDeploymentError, SdnDeploymentExecutor
 from app.services.sdn_state_projection import (
     SNAPSHOT_TTL_SECONDS,
+    SCOPE_AMBIGUOUS,
+    SCOPE_NOT_TARGETED,
+    SCOPE_TARGETED,
+    SCOPE_WITHDRAWN,
     aggregate_vpc,
     baseline_unavailable_transition,
     build_leaf_projection,
+    build_scope_member,
     build_transition,
 )
 from app.services.sdn_validation_collector import SdnValidationCollector
@@ -1557,6 +1562,18 @@ def _projection_target_devices(db: Session, vpc_id: int) -> list:
     return db.query(Device).filter(Device.id.in_(target_ids)).all() if target_ids else []
 
 
+def _serialize_binding_row(b) -> dict:
+    return {
+        "id": b.id,
+        "if_index": b.if_index,
+        "interface_name": b.interface_name,
+        "access_vlan": b.access_vlan,
+        "service_instance": b.service_instance,
+        "status": b.status,
+        "version": b.version,
+    }
+
+
 def _serialize_bindings(db: Session, vpc_id: int, device_id: int) -> list:
     binding_rows = (
         db.query(SdnPortBinding)
@@ -1564,18 +1581,18 @@ def _serialize_bindings(db: Session, vpc_id: int, device_id: int) -> list:
         .order_by(SdnPortBinding.id.asc())
         .all()
     )
-    return [
-        {
-            "id": b.id,
-            "if_index": b.if_index,
-            "interface_name": b.interface_name,
-            "access_vlan": b.access_vlan,
-            "service_instance": b.service_instance,
-            "status": b.status,
-            "version": b.version,
-        }
-        for b in binding_rows
-    ]
+    return [_serialize_binding_row(b) for b in binding_rows]
+
+
+def _serialize_deployment_row(d) -> dict:
+    return {
+        "id": d.id,
+        "action": d.action,
+        "unit": d.unit,
+        "status": d.status,
+        "version": d.version,
+        "config_completed_at": d.config_completed_at,
+    }
 
 
 def _serialize_deployments(db: Session, vpc_id: int, device_id: int) -> list:
@@ -1585,17 +1602,7 @@ def _serialize_deployments(db: Session, vpc_id: int, device_id: int) -> list:
         .order_by(SdnDeployment.id.asc())
         .all()
     )
-    return [
-        {
-            "id": d.id,
-            "action": d.action,
-            "unit": d.unit,
-            "status": d.status,
-            "version": d.version,
-            "config_completed_at": d.config_completed_at,
-        }
-        for d in deployment_rows
-    ]
+    return [_serialize_deployment_row(d) for d in deployment_rows]
 
 
 def _decode_snapshot(snap):
@@ -1738,6 +1745,52 @@ def get_vpc_state_projection(vpc_id: int, db: Session = Depends(get_db)):
         )
 
     leaf_aggregates = [leaf["aggregate"] for leaf in leaves]
+
+    # S2-012: VPC EVPN Leaf 范围覆盖投影（只读、additive；顶层 scope，既有
+    # leaves/excluded/aggregate 不变）。枚举当前数据库全部 sdn_role=evpn_leaf 设备；
+    # deployment/binding/snapshot 各一次批量查询按 device_id 分组，避免逐 Leaf N+1；
+    # 分类复用 resolve_base_lifecycle（build_scope_member），snapshot 单独不能证明
+    # targeted；零 DB 写、零 SSH/NETCONF、零隐式采集。
+    scope_members: list[dict] = []
+    scope_summary = {
+        "eligible": 0,
+        SCOPE_TARGETED: 0,
+        SCOPE_WITHDRAWN: 0,
+        SCOPE_NOT_TARGETED: 0,
+        SCOPE_AMBIGUOUS: 0,
+    }
+    # 与全项目唯一成员准入 `_is_sdn_fabric_member` 保持同一 lower 语义，避免
+    # 角色值大小写不同时 scope 与实际准入分裂。
+    scope_devices = [
+        device for device in db.query(Device).order_by(Device.id.asc()).all()
+        if _is_sdn_fabric_member(device)
+    ]
+    if scope_devices:
+        vpc_version = vpc_dict.get("version")
+        deployments_by_device: dict[int, list] = {}
+        for row in db.query(SdnDeployment).filter(SdnDeployment.vpc_id == vpc_id).all():
+            deployments_by_device.setdefault(row.device_id, []).append(_serialize_deployment_row(row))
+        bindings_by_device: dict[int, list] = {}
+        for row in db.query(SdnPortBinding).filter(SdnPortBinding.vpc_id == vpc_id).all():
+            bindings_by_device.setdefault(row.device_id, []).append(_serialize_binding_row(row))
+        snapshot_counts = dict(
+            db.query(SdnValidationSnapshot.device_id, func.count(SdnValidationSnapshot.id))
+            .filter(SdnValidationSnapshot.vpc_id == vpc_id)
+            .group_by(SdnValidationSnapshot.device_id)
+            .all()
+        )
+        scope_summary["eligible"] = len(scope_devices)
+        for device in scope_devices:
+            member = build_scope_member(
+                {"id": device.id, "name": device.name, "host": device.host},
+                deployments=deployments_by_device.get(device.id, []),
+                bindings=bindings_by_device.get(device.id, []),
+                snapshot_count=snapshot_counts.get(device.id, 0),
+                vpc_version=vpc_version,
+            )
+            scope_summary[member["classification"]] = scope_summary.get(member["classification"], 0) + 1
+            scope_members.append(member)
+
     return APIResponse(
         success=True,
         data={
@@ -1746,6 +1799,7 @@ def get_vpc_state_projection(vpc_id: int, db: Session = Depends(get_db)):
             "leaves": leaves,
             "excluded": excluded,
             "aggregate": aggregate_vpc(leaf_aggregates),
+            "scope": {"members": scope_members, "summary": scope_summary},
         },
     )
 

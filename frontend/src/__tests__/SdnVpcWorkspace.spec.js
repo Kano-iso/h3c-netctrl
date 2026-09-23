@@ -64,7 +64,15 @@ describe('SdnVpcWorkspace.vue', () => {
       observations: [{ operation_id: 41, device_id: 5, expected_host_ip: '192.168.1.3', host_observed: true, items: [] }],
     } })
     sdnApi.stateProjection.mockResolvedValue({ success: true, data: {
-      aggregate: 'drifted', excluded: [{ device_id: 4, reason: 'not_evpn_leaf' }], leaves: [{
+      aggregate: 'drifted', excluded: [{ device_id: 4, reason: 'not_evpn_leaf' }],
+      scope: {
+        summary: { eligible: 2, targeted: 1, withdrawn: 0, not_targeted: 1, ambiguous: 0 },
+        members: [
+          { device_id: 5, name: 'Leaf-04', host: '192.168.100.5', classification: 'targeted', reason_code: 'base_present', desired_base_state: 'present', desired_binding_count: 1 },
+          { device_id: 6, name: 'Leaf-05', host: '192.168.100.6', classification: 'not_targeted', reason_code: 'no_records', desired_base_state: 'unknown', desired_binding_count: 0 },
+        ],
+      },
+      leaves: [{
         device_id: 5, device_name: 'Leaf-04', device_host: '192.168.100.5', aggregate: 'drifted',
         desired: {
           vsi: { present: true }, vsi_up: { expected: true }, vsi_interface: { present: true }, l3_vni: { present: true },
@@ -156,6 +164,11 @@ describe('SdnVpcWorkspace.vue', () => {
     expect(wrapper.text()).toContain('三层网关接口')
     expect(wrapper.text()).toContain('SI 3100')
     expect(wrapper.text()).toContain('1 台非 EVPN 设备已排除')
+    expect(wrapper.text()).toContain('VPC 覆盖范围')
+    expect(wrapper.text()).toContain('当前覆盖 1 / 2 台 EVPN Leaf')
+    expect(wrapper.text()).toContain('Leaf-05')
+    expect(wrapper.text()).toContain('尚未纳入')
+    expect(wrapper.text()).toContain('范围不等于健康度')
   })
 
   it('only collects device evidence after an explicit STRATA refresh', async () => {

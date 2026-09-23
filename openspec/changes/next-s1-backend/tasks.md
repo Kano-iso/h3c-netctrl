@@ -282,3 +282,11 @@
 - [x] 34.3 history endpoint 每点只读组装 `transition_from_prior`（较新点与紧邻较旧点比较；窗口最旧点明确 baseline_unavailable，不拿窗口外/当前实时状态补造基线；复用同一查询窗口与已加载数据无新查询/N+1；旧字段不删不改）；零 DB 写零 SSH/NETCONF 零隐式采集；无迁移/新 endpoint/表/采集命令
 - [x] 34.4 对抗测试 10 条（倒序相邻配对 / 最旧点无基线 / aligned→drifted / drifted→unknown 只能 evidence_lost / unknown→aligned evidence_gained / unchanged / binding 复合维度按 binding_id / limit 截断边界 / 坏快照稳定 / 脱敏 / 零 I/O 零写入 / 垃圾输入纯函数矩阵）
 - [x] 34.5 QA（本轮未触真机）：`test_s2_010_transition_projection.py` = **10 passed**；S2-001/S2-004/S2-006/S2-008 与 S1-026 及直接受影响 SDN 回归 = **163 passed**；openspec strict / manifest JSON / git diff --check 通过
+
+## 35. S2-012（VPC EVPN Leaf 范围覆盖投影，只读 additive，本轮未触真机）
+
+- [x] 35.1 `build_scope_member` 纯函数：保守分类（targeted=base present 或有 planned/active/expanding 当前目标绑定；withdrawn=base absent 且无当前目标绑定；not_targeted=无记录；ambiguous=有历史但生命周期未证明且无当前目标绑定），复用 resolve_base_lifecycle 与 BINDING_DESIRED_STATUSES 同一判定，不复制一套；畸形/缺字段稳定降级不抛异常
+- [x] 35.2 每个 member 只返回白名单（device_id/name/host、classification、reason_code、record_sources、desired_base_state、desired_binding_count），不回传凭据/protected_interfaces/原始配置或快照
+- [x] 35.3 state-projection endpoint 顶层只读组装 scope：evpn_leaf 设备一次查询枚举，deployment/binding/snapshot 各一次批量查询按 device_id 分组避免逐 Leaf N+1（复用同一行序列化器）；summary 只计 EVPN Leaf、无 EVPN Leaf 时 counts 全 0；既有 leaves/excluded/aggregate 不变；零 DB 写零 SSH/NETCONF 零隐式采集；无迁移/新 endpoint/表/采集命令
+- [x] 35.4 对抗测试 13 条（四类分类与 summary / 版本不匹配 / snapshot-only / failed、pending 不覆盖生命周期 / gateway_delete 不改变 base / planned+active binding 无 deployment 也 targeted / 非 EVPN 排除 / 成员角色大小写归一化 / 空 inventory / 脱敏白名单 / 零 I/O 零写入 / 既有字段不变 / 纯函数矩阵与垃圾输入）
+- [x] 35.5 QA（本轮未触真机）：`test_s2_012_scope_projection.py` = **13 passed**；S2-001/S2-004/S2-006/S2-008/S2-010 与 S1-026 及直接受影响 SDN 回归 = **176 passed**；openspec strict / manifest JSON / git diff --check 通过

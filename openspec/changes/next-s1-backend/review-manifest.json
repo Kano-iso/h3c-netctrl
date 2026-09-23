@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "package_id": "S2-010",
+  "package_id": "S2-012",
   "change_id": "next-s1-backend",
-  "baseline_sha": "3d2cdcdbb6a8a5a833c26b448d56bcd7c32e6c12",
+  "baseline_sha": "854e3958d9a9a6e2ff3d817c94e8629dce0a7d03",
   "worktree": "/root/workpace/h3c-netctrl/.agent-worktrees/next-s1-backend",
   "scope": [
     "backend/app/i18n_keys.py",
@@ -88,9 +88,8 @@
     "backend/tests/test_s2_004_state_projection_history.py",
     "backend/tests/test_s2_006_history_correlation.py",
     "backend/tests/test_s2_008_operation_impact.py",
-    "backend/app/services/sdn_state_projection.py",
-    "backend/app/routers/sdn.py",
-    "backend/tests/test_s2_010_transition_projection.py"
+    "backend/tests/test_s2_010_transition_projection.py",
+    "backend/tests/test_s2_012_scope_projection.py"
   ],
   "requirements": [
     {
@@ -503,6 +502,26 @@
         "test_transition_zero_io_and_zero_writes",
         "test_transition_pure_functions_never_raise_on_garbage"
       ]
+    },
+    {
+      "id": "CR55",
+      "summary": "VPC EVPN Leaf 范围覆盖投影（S2-012，只读 additive）：GET /api/sdn/vpcs/{id}/state-projection 顶层增加 scope（既有 leaves/excluded/aggregate 不变），枚举当前数据库全部 sdn_role=evpn_leaf 设备（不按名称/platform 推断）；member 只返回稳定白名单 device_id/name/host、classification、reason_code、record_sources（deployment/binding/snapshot 存在与计数）、desired_base_state、desired_binding_count；classification 保守稳定（targeted=当前版本生命周期可证明 base present 或有 planned/active/expanding 当前目标绑定；withdrawn=base absent 且无当前目标绑定；not_targeted=无任何记录；ambiguous=有历史但生命周期不能证明 present/absent 且无当前目标绑定）；snapshot 单独不能证明 targeted；历史成功 create 版本不匹配仍 ambiguous；failed/pending 不覆盖确定生命周期；局部 gateway_delete 不改变 base 范围；summary 含 eligible/targeted/withdrawn/not_targeted/ambiguous counts 且只计 EVPN Leaf（非 EVPN 继续只走 excluded；无 EVPN Leaf 时 counts 全 0）；不回传凭据/protected_interfaces/原始配置或快照",
+      "implementation": "sdn_state_projection.py 新增 build_scope_member 纯函数（复用 resolve_base_lifecycle 与 BINDING_DESIRED_STATUSES 同一生命周期/目标绑定判定，不复制一套；输入畸形/缺字段稳定降级不抛异常）；sdn.py state-projection endpoint 顶层只读组装 scope——deployment/binding/snapshot 各一次批量查询按 device_id 分组避免逐 Leaf N+1（复用同一行序列化器），evpn_leaf 设备枚举一次查询；无迁移/表/采集命令/接口字段变更，旧字段不删不改",
+      "tests": [
+        "test_scope_four_classifications_and_summary",
+        "test_scope_version_mismatch_ambiguous",
+        "test_scope_snapshot_only_ambiguous_not_targeted",
+        "test_scope_failed_pending_do_not_cover_lifecycle",
+        "test_scope_gateway_delete_keeps_base_targeted",
+        "test_scope_planned_and_active_binding_targeted_without_deployments",
+        "test_scope_non_evpn_excluded_not_in_scope",
+        "test_scope_reuses_canonical_member_role_normalization",
+        "test_scope_empty_inventory_zero_counts",
+        "test_scope_sanitized_whitelist_only",
+        "test_scope_zero_io_and_zero_writes",
+        "test_scope_existing_leaves_excluded_aggregate_unchanged",
+        "test_scope_pure_function_matrix_and_garbage"
+      ]
     }
   ],
   "invariants": [
@@ -541,7 +560,8 @@
     "历史时间线只读（S2-004）：每个点是历史设备快照 vs 当前目标态（desired.basis=current_target），不得冒充历史目标态；坏快照保留为 unknown/evidence_missing 不跳过不改写；非 evpn_leaf 仅 excluded 不进聚合；GET 零 SSH/NETCONF、零写库、零刷新时间戳，响应脱敏",
     "证据关联只表达归属（S2-006）：correlation 稳定优先级——任何被引用实体不存在 → missing（dangling 优先于归属不一致）；引用实体都存在但归属/作用域不一致（跨 operation/跨 VPC/设备）→ mismatch；全部一致 → linked 并给白名单摘要；零引用 → unlinked；绝不宣称操作导致状态变化；响应不携带 request_payload_json/scope_json/idempotency_key/fingerprint/owner/evidence_json/凭据",
     "影响投影只读复用 truth（S2-008）：impact 节点/关系只表达 scope 可证明的业务对象与业务范围（targets/exposes/expects），不称物理邻接/转发路径/因果链；变更项 truth_kind/source/statement 复用 explain_unit 同一判定，不建第二套真假系统；共享 VPC/网关不属于 terminal access/withdraw 操作目标，legacy 不可证明为 null；节点缺失 null 不编造、名称不充当唯一身份；只读零 DB 写零 SSH/NETCONF 零隐式采集，响应不含凭据/raw/owner/fingerprint/idempotency_key",
-    "状态转变只表达证据变化（S2-010）：transition_from_prior 只比较同一 Leaf、同一 current_target 基准下紧邻历史点，窗口最旧点明确 baseline_unavailable 不补造基线；drifted→unknown/stale 只能 evidence_lost、unknown/stale→drifted 只能 drift_detected、not_applicable 变化按 state_changed；绑定维度按稳定 binding_id 匹配不按显示名；只读零 DB 写零 SSH/NETCONF 零隐式采集，脱敏不含原始 CLI output/error/凭据"
+    "状态转变只表达证据变化（S2-010）：transition_from_prior 只比较同一 Leaf、同一 current_target 基准下紧邻历史点，窗口最旧点明确 baseline_unavailable 不补造基线；drifted→unknown/stale 只能 evidence_lost、unknown/stale→drifted 只能 drift_detected、not_applicable 变化按 state_changed；绑定维度按稳定 binding_id 匹配不按显示名；只读零 DB 写零 SSH/NETCONF 零隐式采集，脱敏不含原始 CLI output/error/凭据",
+    "范围只表达覆盖事实（S2-012）：scope 只枚举 sdn_role=evpn_leaf 设备并保守分类（targeted/withdrawn/not_targeted/ambiguous），范围不是健康度、未覆盖不得冒充故障或漂移；snapshot 单独不能证明 targeted、版本不匹配仍 ambiguous、failed/pending 不覆盖确定生命周期、局部 gateway_delete 不改变 base；非 EVPN 只走 excluded 不混入 scope 分母；复用 resolve_base_lifecycle 同一判定，不回传凭据/protected_interfaces/原始配置或快照；只读零 DB 写零 SSH/NETCONF 零隐式采集"
   ],
   "tests": [
     {
@@ -686,6 +706,12 @@
       "command": "docker compose -f openspec/changes/next-s1-backend/qa/docker-compose.qa.yml run --rm qa-backend python -m pytest tests/test_s2_010_transition_projection.py tests/test_s2_001_state_projection.py tests/test_s2_004_state_projection_history.py tests/test_s2_006_history_correlation.py tests/test_s2_008_operation_impact.py tests/test_sdn_explanation.py tests/test_sdn_access_api.py tests/test_sdn_operation_service.py tests/test_sdn_migration.py tests/test_s1_007_adversarial.py tests/test_s1_016_adversarial.py -q",
       "environment": "qa-backend 容器（S2-010 快照状态转变投影 + 直接受影响 SDN 回归）",
       "result": "163 passed（S2-010 10 条 + S2-001/S2-004/S2-006/S2-008 与 S1-026 及直接受影响 SDN 回归）",
+      "baseline_failed": false
+    },
+    {
+      "command": "docker compose -f openspec/changes/next-s1-backend/qa/docker-compose.qa.yml run --rm qa-backend python -m pytest tests/test_s2_012_scope_projection.py tests/test_s2_001_state_projection.py tests/test_s2_004_state_projection_history.py tests/test_s2_006_history_correlation.py tests/test_s2_008_operation_impact.py tests/test_s2_010_transition_projection.py tests/test_sdn_explanation.py tests/test_sdn_access_api.py tests/test_sdn_operation_service.py tests/test_sdn_migration.py tests/test_s1_007_adversarial.py tests/test_s1_016_adversarial.py -q",
+      "environment": "qa-backend 容器（S2-012 范围覆盖投影 + 直接受影响 SDN 回归）",
+      "result": "176 passed（S2-012 13 条 + S2-001/S2-004/S2-006/S2-008/S2-010 与 S1-026 及直接受影响 SDN 回归）",
       "baseline_failed": false
     }
   ],

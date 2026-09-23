@@ -515,3 +515,5 @@
 **S2-010（CR54：快照状态转变投影）**：只读 additive，纯函数在 sdn_state_projection.py（build_transition / baseline_unavailable_transition），history 每点加 transition_from_prior；保守 kind 语义与稳定 binding_id 匹配；脱敏零 I/O 零写入无迁移。真实 QA：聚焦 10 passed + 受影响回归 163 passed；openspec strict / manifest JSON / git diff --check 通过。未提交、未推送、未触真机。
 
 **Codex 复审（S2-010/S2-011）**：补齐 transition 的 from/to snapshot_id 与 collected_at，使历史点脱离列表后仍可解释比较区间；binding_id 只接受数据库整数身份，畸形混合类型不再触发排序异常。STRATA 已接入变化数量、逐维前后状态与保守分类，并明确不宣称根因或 operation 因果。后端受影响回归 163 passed；前端 lint/type-check/build、69 个组件测试、46 个浏览器流程通过；本轮未触真机。
+
+**S2-012（CR55：VPC EVPN Leaf 范围覆盖投影）**：只读 additive，顶层 scope（members + summary）；build_scope_member 复用既有生命周期判定，四类保守分类；批量载入无逐 Leaf N+1；脱敏白名单；零 I/O 零写入无迁移无新 endpoint。Codex 复审将范围枚举改为复用 `_is_sdn_fabric_member`，避免与业务写操作的成员准入分裂，并补角色大小写回归；S2-013 前端已将覆盖分母、逐 Leaf 分类和边界说明接入 STRATA，不把未覆盖冒充漂移。QA：聚焦 13 passed + 受影响后端回归 176 passed；前端 lint/type-check/build、69 个组件测试、46 个浏览器流程通过；OpenSpec strict / manifest JSON / git diff --check 通过。本轮未触真机。
