@@ -671,3 +671,19 @@
 
 - **WHEN** STRATA 查询 `GET /api/sdn/vpcs/{vpc_id}/state-projection`（顶层 additive 增加 `scope`，既有 `leaves/excluded/aggregate` 行为不变）
 - **THEN** scope 枚举当前数据库全部 `sdn_role=evpn_leaf` 设备（不按名称/platform 推断），每个 member 只返回稳定白名单 device_id/name/host、classification、reason_code、record_sources（deployment/binding/snapshot 存在与计数）、desired_base_state、desired_binding_count，不回传凭据/protected_interfaces/原始配置或快照；classification 保守稳定——`targeted`（当前版本生命周期可证明 base present，或存在 planned/active/expanding 当前目标绑定）、`withdrawn`（生命周期可证明 base absent 且无当前目标绑定）、`not_targeted`（无任何记录）、`ambiguous`（有历史记录但当前生命周期不能证明 present/absent 且无当前目标绑定）；snapshot 单独不能证明 targeted、历史成功 create 版本不匹配仍 ambiguous、failed/pending 不覆盖确定生命周期、局部 gateway_delete 不改变 base 范围；summary 给 eligible/targeted/withdrawn/not_targeted/ambiguous counts 且只计 EVPN Leaf（非 EVPN 继续只走既有 excluded 不混入分母；无 EVPN Leaf 时 counts 全 0）；范围不是健康度，未覆盖不得自动冒充故障或漂移；只读零 DB 写、零 SSH/NETCONF、零隐式采集、无迁移、无新 endpoint
+
+#### Scenario: VPC 范围例外管理（S2-014）
+
+- **WHEN** 用户记录某台 EVPN Leaf 对某 VPC 的范围例外（PUT `scope-exception`），或读取/清除（GET 列表 / DELETE）
+- **THEN** 例外类型仅 `intentional_exclusion`（有意不纳入）与 `maintenance_pause`（维护暂停），reason 非空且长度受限、可选 `expires_at`（必须晚于当前时间）、记录创建/更新与版本；同一 VPC+device 至多一条当前记录（数据库唯一约束）；仅当前存在且 `_is_sdn_fabric_member` 认可的 EVPN Leaf 可设置例外（VPC/设备不存在按既有 404 语义、非成员明确拒绝，不按名称/platform 推断）；清除=直接删除该行且不级联 operation/deployment/snapshot 历史；过期例外在读取时明确 `state=expired`（不自动删除、不写库），有效为 active，时间全部 ISO；写操作只改数据库——零 SSH/NETCONF、零配置下发、零状态采集、零隐式部署/撤回；API 响应不含设备凭据、原始配置、快照或内部 owner/fingerprint
+- **WHEN** STRATA 读取 `GET /api/sdn/vpcs/{id}/state-projection`
+- **THEN** 既有 `scope.members[].classification`、reason_code、desired_base_state 与 aggregate/leaves/excluded 事实语义不变；仅 additive 增加白名单 `exception`（无例外为 null）及 summary 的 `active_exception` 计数；例外不得把 not_targeted 改成 targeted、不得把 drifted 改成 aligned、不得从 scope 分母移除设备；畸形历史数据保守降级，state-projection 不 500
+
+#### Scenario: VPC 范围例外管理（S2-014-R1 复审返工增补）
+
+- **WHEN** 父 VPC/device 被删除，或范围例外子行被清除
+- **THEN** vpc_id/device_id 指向 `sdn_vpcs.id`/`devices.id`（FK ondelete=CASCADE 声明）；父删除后例外子行经项目 ORM relationship cascade 清理（不留 orphan），删除例外子行不向上级联父对象与 operation/deployment/snapshot 历史
+- **WHEN** `expires_at` 携带时区（标准 Z 或 ±HH:MM offset）或无时区 ISO
+- **THEN** 统一换算为 UTC naive 存储（与项目 DateTime 一致）且序列化稳定；过去时间仍明确拒绝
+- **WHEN** 历史数据畸形（非法 exception_type、空/超长 reason、非 datetime expires_at、非法/缺失 version）
+- **THEN** 序列化稳定返回脱敏白名单且 `state=invalid`，绝不 active、绝不计入 active_exception、绝不 500；数据库 CHECK 约束阻止新脏数据；有效（active）/过期（expired）旧语义不变

@@ -12,6 +12,7 @@ vi.mock('../api/index.js', () => ({
   sdnApi: {
     listTenants: vi.fn(), createTenant: vi.fn(), listVpcs: vi.fn(), createVpc: vi.fn(),
     deployVpc: vi.fn(), withdrawVpc: vi.fn(), accessOverview: vi.fn(), stateProjection: vi.fn(), stateProjectionHistory: vi.fn(), previewAccess: vi.fn(),
+    upsertScopeException: vi.fn(), clearScopeException: vi.fn(),
     executeAccess: vi.fn(), getOperation: vi.fn(), completeOperation: vi.fn(), syncValidation: vi.fn(),
     withdrawOperation: vi.fn(), reconcileOperation: vi.fn(),
   },
@@ -68,8 +69,8 @@ describe('SdnVpcWorkspace.vue', () => {
       scope: {
         summary: { eligible: 2, targeted: 1, withdrawn: 0, not_targeted: 1, ambiguous: 0 },
         members: [
-          { device_id: 5, name: 'Leaf-04', host: '192.168.100.5', classification: 'targeted', reason_code: 'base_present', desired_base_state: 'present', desired_binding_count: 1 },
-          { device_id: 6, name: 'Leaf-05', host: '192.168.100.6', classification: 'not_targeted', reason_code: 'no_records', desired_base_state: 'unknown', desired_binding_count: 0 },
+          { device_id: 5, name: 'Leaf-04', host: '192.168.100.5', classification: 'targeted', reason_code: 'base_present', desired_base_state: 'present', desired_binding_count: 1, exception: null },
+          { device_id: 6, name: 'Leaf-05', host: '192.168.100.6', classification: 'not_targeted', reason_code: 'no_records', desired_base_state: 'unknown', desired_binding_count: 0, exception: null },
         ],
       },
       leaves: [{
@@ -119,6 +120,8 @@ describe('SdnVpcWorkspace.vue', () => {
     sdnApi.withdrawOperation.mockResolvedValue({ success: true, data: { status: 'withdrawn' } })
     sdnApi.reconcileOperation.mockResolvedValue({ success: true, data: { status: 'validated' } })
     sdnApi.syncValidation.mockResolvedValue({ success: true, data: { cached: false } })
+    sdnApi.upsertScopeException.mockResolvedValue({ success: true, data: { state: 'active' } })
+    sdnApi.clearScopeException.mockResolvedValue({ success: true, data: { deleted: true } })
   })
 
   it('renders a VPC-centered map and excludes non-EVPN devices', async () => {
@@ -169,6 +172,26 @@ describe('SdnVpcWorkspace.vue', () => {
     expect(wrapper.text()).toContain('Leaf-05')
     expect(wrapper.text()).toContain('尚未纳入')
     expect(wrapper.text()).toContain('范围不等于健康度')
+  })
+
+  it('records a scope exception without presenting it as device configuration or health', async () => {
+    const wrapper = mountPage()
+    await flushPromises()
+    await wrapper.findAll('button').find((button) => button.text().includes('STRATA')).trigger('click')
+    await wrapper.findAll('.scope-member').find((member) => member.text().includes('Leaf-05')).trigger('click')
+
+    expect(wrapper.text()).toContain('记录范围例外')
+    expect(wrapper.text()).toContain('不会向设备下发配置，也不会隐藏漂移')
+    await wrapper.find('select[name="scope_exception_type"]').setValue('maintenance_pause')
+    await wrapper.find('textarea[name="scope_exception_reason"]').setValue('机房维护窗口')
+    await wrapper.find('.scope-exception-modal form').trigger('submit')
+    await flushPromises()
+
+    expect(sdnApi.upsertScopeException).toHaveBeenCalledWith(2, 6, {
+      exception_type: 'maintenance_pause', reason: '机房维护窗口', expires_at: null,
+    })
+    expect(sdnApi.syncValidation).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('范围例外已保存')
   })
 
   it('only collects device evidence after an explicit STRATA refresh', async () => {

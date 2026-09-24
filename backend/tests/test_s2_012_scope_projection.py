@@ -130,6 +130,7 @@ def test_scope_four_classifications_and_summary(client, db):
     # summary：只计 EVPN Leaf
     assert data["scope"]["summary"] == {
         "eligible": 4, SCOPE_TARGETED: 1, SCOPE_WITHDRAWN: 1, SCOPE_NOT_TARGETED: 1, SCOPE_AMBIGUOUS: 1,
+        "active_exception": 0,  # S2-014 additive
     }
     # 顺序稳定（按 device id 升序）
     assert [m["device_id"] for m in data["scope"]["members"]] == sorted(m["device_id"] for m in data["scope"]["members"])
@@ -240,6 +241,7 @@ def test_scope_empty_inventory_zero_counts(client, db):
     assert data["scope"]["members"] == []
     assert data["scope"]["summary"] == {
         "eligible": 0, SCOPE_TARGETED: 0, SCOPE_WITHDRAWN: 0, SCOPE_NOT_TARGETED: 0, SCOPE_AMBIGUOUS: 0,
+        "active_exception": 0,  # S2-014 additive
     }
 
 
@@ -254,7 +256,9 @@ def test_scope_sanitized_whitelist_only(client, db):
     data = _projection(client, vpc["id"])
     m = _member(data, leaf.id)
     assert set(m.keys()) == {"device_id", "name", "host", "classification", "reason_code",
-                             "record_sources", "desired_base_state", "desired_binding_count"}
+                             "record_sources", "desired_base_state", "desired_binding_count",
+                             "exception"}  # S2-014 additive（无例外为 null）
+    assert m["exception"] is None
     raw = json.dumps(data["scope"], default=str)
     for forbidden in ("password_encrypted", "protected_interfaces", "planned_config",
                       "RAW-SCOPE-OUT-1", "snapshot_data", "username"):

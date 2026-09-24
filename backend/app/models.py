@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, Index, Integer, String, Text, ForeignKey, func, UniqueConstraint, text
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Index, Integer, String, Text, ForeignKey, func, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -63,6 +63,10 @@ class Device(Base):
     asset: Mapped["Asset"] = relationship("Asset", back_populates="device", uselist=False, cascade="all, delete-orphan")
     # 一对多关联备份（设备删除时 CASCADE 清理）
     backups: Mapped[list["Backup"]] = relationship("Backup", back_populates="device", cascade="all, delete-orphan")
+    # S2-014：范围例外子行（设备删除时经 ORM cascade 清理，不留 orphan）
+    scope_exceptions: Mapped[list["SdnScopeException"]] = relationship(
+        "SdnScopeException", back_populates="device", cascade="all, delete-orphan"
+    )
 
 
 class Log(Base):
@@ -206,6 +210,9 @@ class SdnVpc(Base):
     deployments: Mapped[list["SdnDeployment"]] = relationship(
         "SdnDeployment", back_populates="vpc", cascade="all, delete-orphan"
     )
+    scope_exceptions: Mapped[list["SdnScopeException"]] = relationship(
+        "SdnScopeException", back_populates="vpc", cascade="all, delete-orphan"
+    )
 
 
 class SdnPortBinding(Base):
@@ -347,6 +354,50 @@ class SdnValidationSnapshot(Base):
 # ── v3.4 S1 终端接入：操作/尝试/单元/计划/资源声明/身份快照 ──
 # 证据表对父资源（tenant/vpc/binding/device）一律存普通整数，不建外键，不随父表级联删除。
 # attempts/units 仅从 operation/attempt 级联（operation 永不删，级联安全）。
+
+
+class SdnScopeException(Base):
+    """VPC + EVPN Leaf 粒度的范围例外（S2-014，业务上下文）。
+
+    例外不是设备事实、健康状态或配置动作：只记录「该 Leaf 当前有意不纳入」或「因维护
+    暂时暂停」的业务原因。同一 VPC + device 最多一条当前记录（数据库唯一约束保证）；
+    清除 = 直接删除该行，不级联删除 operation/deployment/snapshot 历史（删除子行不会
+    向上级联父对象）；父 VPC/device 删除时经 ORM relationship cascade（项目既有 SQLite
+    级联方式，FK ondelete=CASCADE 声明一致）清理例外子行，不留下 orphan。过期例外在
+    读取时返回 state=expired（畸形历史稳定降级 state=invalid），不自动删除、不写库。
+    写操作只改数据库，零设备 I/O。CHECK 约束阻止新脏数据（非法 type / 空 reason /
+    version<1）。
+    """
+    __tablename__ = "sdn_scope_exceptions"
+    __table_args__ = (
+        UniqueConstraint("vpc_id", "device_id", name="uq_sdn_scope_exceptions_live"),
+        CheckConstraint(
+            "exception_type IN ('intentional_exclusion', 'maintenance_pause')",
+            name="ck_sdn_scope_exceptions_type",
+        ),
+        CheckConstraint("LENGTH(reason) > 0", name="ck_sdn_scope_exceptions_reason_nonempty"),
+        CheckConstraint("version >= 1", name="ck_sdn_scope_exceptions_version"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    vpc_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("sdn_vpcs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    device_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("devices.id", ondelete="CASCADE"), nullable=False
+    )
+    exception_type: Mapped[str] = mapped_column(String(30), nullable=False)  # intentional_exclusion / maintenance_pause
+    reason: Mapped[str] = mapped_column(String(200), nullable=False)
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    # 项目既有级联方式：ORM relationship cascade（SQLite FK pragma 未开，声明 FK 仅描述性）
+    vpc: Mapped["SdnVpc"] = relationship("SdnVpc", back_populates="scope_exceptions")
+    device: Mapped["Device"] = relationship("Device", back_populates="scope_exceptions")
 
 
 class SdnPlan(Base):

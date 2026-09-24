@@ -26,6 +26,11 @@ The UI SHALL render persisted operation status and attempts and provide only act
 ### Requirement: Controlled withdrawal
 The UI SHALL describe and invoke operation-scoped withdrawal without implying that the VPC, gateway or unrelated ports are removed.
 
+#### Scenario: Scope exception is explicit business context
+
+- **WHEN** a user opens an eligible EVPN Leaf from VPC coverage and creates, edits, or clears an intentional exclusion or maintenance pause
+- **THEN** reason is required, expiry is optional, active/expired/invalid context is visible, and the UI explicitly states that the action neither configures devices nor hides drift nor changes coverage facts
+
 #### Scenario: Withdraw completed access
 - **WHEN** the user confirms withdrawal
 - **THEN** the UI displays the returned withdrawn binding and retained shared resources
@@ -51,4 +56,3 @@ The change SHALL provide a repeatable, isolated integration channel that exercis
 #### Scenario: Cleanup and port isolation
 - **WHEN** the channel succeeds, fails, or is interrupted
 - **THEN** processes, ports, the database, and temporary files can be cleaned; port conflicts fail explicitly or use an isolated port, and the channel never connects to the demo environment
-

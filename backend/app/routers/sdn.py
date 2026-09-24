@@ -19,7 +19,7 @@
 """
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -28,7 +28,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Device, SdnAttempt, SdnDeployment, SdnOperation, SdnPortBinding, SdnTenant, SdnValidationSnapshot, SdnVpc
+from app.models import Device, SdnAttempt, SdnDeployment, SdnOperation, SdnPortBinding, SdnScopeException, SdnTenant, SdnValidationSnapshot, SdnVpc
 from app.schemas import (
     APIResponse,
     SdnDeploymentCreate,
@@ -1758,6 +1758,7 @@ def get_vpc_state_projection(vpc_id: int, db: Session = Depends(get_db)):
         SCOPE_WITHDRAWN: 0,
         SCOPE_NOT_TARGETED: 0,
         SCOPE_AMBIGUOUS: 0,
+        "active_exception": 0,
     }
     # 与全项目唯一成员准入 `_is_sdn_fabric_member` 保持同一 lower 语义，避免
     # 角色值大小写不同时 scope 与实际准入分裂。
@@ -1790,6 +1791,18 @@ def get_vpc_state_projection(vpc_id: int, db: Session = Depends(get_db)):
             )
             scope_summary[member["classification"]] = scope_summary.get(member["classification"], 0) + 1
             scope_members.append(member)
+        # S2-014: additive 附加范围例外白名单（无例外为 null；过期例外 state=expired）。
+        # 例外是业务上下文，绝不改变 classification/reason_code/desired_base_state 的
+        # 事实语义，也不从 scope 分母移除设备；active_exception 只统计有效例外。
+        exceptions_by_device = {
+            r.device_id: _serialize_scope_exception(r)
+            for r in db.query(SdnScopeException).filter(SdnScopeException.vpc_id == vpc_id).all()
+        }
+        for member in scope_members:
+            exc = exceptions_by_device.get(member["device_id"])
+            member["exception"] = exc
+            if exc is not None and exc["state"] == "active":
+                scope_summary["active_exception"] += 1
 
     return APIResponse(
         success=True,
@@ -1917,3 +1930,190 @@ def get_vpc_state_projection_history(
             "aggregate": aggregate_vpc(latest_aggregates),
         },
     )
+
+
+# ─────────── S2-014 VPC 范围例外（业务上下文，零设备 I/O）───────────
+
+SCOPE_EXCEPTION_TYPES = frozenset({"intentional_exclusion", "maintenance_pause"})
+SCOPE_EXCEPTION_REASON_MAX = 200
+
+
+def _parse_expires_at(value) -> Optional[datetime]:
+    """把过期时间解析为 UTC naive datetime（与项目既有 DateTime 一致）。
+
+    接受标准 Z、±HH:MM offset 与无时区 ISO：aware 统一换算为 UTC 后去掉 tzinfo 存库；
+    无时区输入按 UTC naive。格式非法抛 ValueError（由调用方映射 EXPIRES_INVALID）。
+    """
+    if value is None or value == "":
+        return None
+    s = str(value).strip()
+    if s.endswith(("Z", "z")):
+        s = s[:-1] + "+00:00"
+    dt = datetime.fromisoformat(s)
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
+
+
+def _serialize_scope_exception(row, now: Optional[datetime] = None) -> dict:
+    """范围例外白名单序列化（ISO 时间；只返回业务字段，绝不携带凭据/原始配置/快照/owner/fingerprint）。
+
+    合法记录（type 白名单、reason 非空且 ≤200、expires_at 为 None 或 datetime、
+    version 为正整数）：未过期 state=active，过期 state=expired（读取时判定，
+    不自动删除、不写库）。任何畸形字段（非法 type、空/超长 reason、非 datetime
+    expires_at、非法/缺失 version 等）→ 稳定返回脱敏白名单且 state=invalid，
+    绝不 active、绝不计入 active_exception、绝不 500；有效/过期旧语义不变。
+    """
+    now = now or datetime.utcnow()
+    if now.tzinfo is not None:
+        now = now.astimezone(timezone.utc).replace(tzinfo=None)
+    vpc_id = getattr(row, "vpc_id", None)
+    device_id = getattr(row, "device_id", None)
+    exception_type = getattr(row, "exception_type", None)
+    reason = getattr(row, "reason", None)
+    expires_at = getattr(row, "expires_at", None)
+    version = getattr(row, "version", None)
+    created_at = getattr(row, "created_at", None)
+    updated_at = getattr(row, "updated_at", None)
+
+    if isinstance(expires_at, datetime) and expires_at.tzinfo is not None:
+        expires_at = expires_at.astimezone(timezone.utc).replace(tzinfo=None)
+
+    valid = (
+        exception_type in SCOPE_EXCEPTION_TYPES
+        and isinstance(reason, str)
+        and 0 < len(reason) <= SCOPE_EXCEPTION_REASON_MAX
+        and (expires_at is None or isinstance(expires_at, datetime))
+        and isinstance(version, int)
+        and not isinstance(version, bool)
+        and version >= 1
+    )
+    if not valid:
+        state = "invalid"
+    elif expires_at is None:
+        state = "active"
+    else:
+        state = "expired" if expires_at <= now else "active"
+
+    return {
+        "vpc_id": vpc_id,
+        "device_id": device_id,
+        "exception_type": exception_type,
+        "reason": reason if isinstance(reason, str) else None,
+        "expires_at": expires_at.isoformat() if isinstance(expires_at, datetime) else None,
+        "state": state,
+        "version": version,
+        "created_at": created_at.isoformat() if isinstance(created_at, datetime) else None,
+        "updated_at": updated_at.isoformat() if isinstance(updated_at, datetime) else None,
+    }
+
+
+@router.get("/vpcs/{vpc_id}/scope-exceptions", response_model=APIResponse)
+def list_vpc_scope_exceptions(vpc_id: int, db: Session = Depends(get_db)):
+    """读取某 VPC 全部范围例外（S2-014，只读；过期项以 state=expired 返回，不删除）。"""
+    vpc = db.query(SdnVpc).filter(SdnVpc.id == vpc_id).first()
+    if not vpc:
+        return error_response(err.SDN_VPC_NOT_FOUND, params={"id": vpc_id})
+    rows = (
+        db.query(SdnScopeException)
+        .filter(SdnScopeException.vpc_id == vpc_id)
+        .order_by(SdnScopeException.device_id.asc(), SdnScopeException.id.asc())
+        .all()
+    )
+    return APIResponse(
+        success=True,
+        data={"vpc_id": vpc_id, "exceptions": [_serialize_scope_exception(r) for r in rows]},
+    )
+
+
+@router.put("/vpcs/{vpc_id}/devices/{device_id}/scope-exception", response_model=APIResponse)
+def upsert_vpc_scope_exception(vpc_id: int, device_id: int, body: dict, db: Session = Depends(get_db)):
+    """新建或替换某 VPC/Leaf 的范围例外（S2-014；唯一约束 + 短事务，写库零设备 I/O）。"""
+    vpc = db.query(SdnVpc).filter(SdnVpc.id == vpc_id).first()
+    if not vpc:
+        return error_response(err.SDN_VPC_NOT_FOUND, params={"id": vpc_id})
+    device = db.query(Device).filter(Device.id == device_id).first()
+    if not device:
+        return error_response(err.SDN_DEVICE_NOT_FOUND, params={"id": device_id})
+    if not _is_sdn_fabric_member(device):
+        return error_response(err.SDN_DEVICE_NOT_FABRIC_MEMBER, params={"device_id": device_id})
+
+    exception_type = body.get("exception_type")
+    if exception_type not in SCOPE_EXCEPTION_TYPES:
+        return error_response(err.SDN_SCOPE_EXCEPTION_INVALID_TYPE, params={"exception_type": exception_type})
+    reason = body.get("reason")
+    if not isinstance(reason, str) or not reason.strip():
+        return error_response(err.SDN_SCOPE_EXCEPTION_REASON_REQUIRED)
+    reason = reason.strip()
+    if len(reason) > SCOPE_EXCEPTION_REASON_MAX:
+        return error_response(err.SDN_SCOPE_EXCEPTION_REASON_TOO_LONG, params={"max_length": SCOPE_EXCEPTION_REASON_MAX})
+
+    expires_at = None
+    if body.get("expires_at") not in (None, ""):
+        try:
+            expires_at = _parse_expires_at(body.get("expires_at"))
+        except (TypeError, ValueError):
+            return error_response(err.SDN_SCOPE_EXCEPTION_EXPIRES_INVALID, params={"expires_at": body.get("expires_at")})
+        if expires_at is None:
+            return error_response(err.SDN_SCOPE_EXCEPTION_EXPIRES_INVALID, params={"expires_at": body.get("expires_at")})
+        if expires_at <= datetime.utcnow():
+            return error_response(err.SDN_SCOPE_EXCEPTION_EXPIRES_IN_PAST)
+
+    def _apply(row):
+        row.exception_type = exception_type
+        row.reason = reason
+        row.expires_at = expires_at
+        row.version = (row.version or 0) + 1
+
+    existing = (
+        db.query(SdnScopeException)
+        .filter(SdnScopeException.vpc_id == vpc_id, SdnScopeException.device_id == device_id)
+        .first()
+    )
+    try:
+        if existing is not None:
+            _apply(existing)
+        else:
+            db.add(SdnScopeException(
+                vpc_id=vpc_id, device_id=device_id, exception_type=exception_type,
+                reason=reason, expires_at=expires_at, version=1,
+            ))
+        db.commit()
+    except IntegrityError:
+        # 并发替换：唯一约束拦截后回滚，重新读取既有行并原地更新（短事务，不产生第二条当前记录）。
+        db.rollback()
+        existing = (
+            db.query(SdnScopeException)
+            .filter(SdnScopeException.vpc_id == vpc_id, SdnScopeException.device_id == device_id)
+            .first()
+        )
+        if existing is None:
+            raise
+        _apply(existing)
+        db.commit()
+
+    row = (db.query(SdnScopeException)
+           .filter(SdnScopeException.vpc_id == vpc_id, SdnScopeException.device_id == device_id).first())
+    return APIResponse(success=True, data=_serialize_scope_exception(row))
+
+
+@router.delete("/vpcs/{vpc_id}/devices/{device_id}/scope-exception", response_model=APIResponse)
+def clear_vpc_scope_exception(vpc_id: int, device_id: int, db: Session = Depends(get_db)):
+    """清除某 VPC/Leaf 的范围例外（直接删除该行；幂等：无当前例外时 deleted=false，不 500）。"""
+    vpc = db.query(SdnVpc).filter(SdnVpc.id == vpc_id).first()
+    if not vpc:
+        return error_response(err.SDN_VPC_NOT_FOUND, params={"id": vpc_id})
+    device = db.query(Device).filter(Device.id == device_id).first()
+    if not device:
+        return error_response(err.SDN_DEVICE_NOT_FOUND, params={"id": device_id})
+    row = (
+        db.query(SdnScopeException)
+        .filter(SdnScopeException.vpc_id == vpc_id, SdnScopeException.device_id == device_id)
+        .first()
+    )
+    deleted = False
+    if row is not None:
+        db.delete(row)
+        db.commit()
+        deleted = True
+    return APIResponse(success=True, data={"vpc_id": vpc_id, "device_id": device_id, "deleted": deleted})

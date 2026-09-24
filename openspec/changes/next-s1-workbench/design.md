@@ -57,3 +57,5 @@ STRATA 消费 S2-010 的 `transition_from_prior`，在历史轨迹标示相邻�
 ## STRATA VPC Scope Coverage（S2-013）
 
 STRATA 消费 S2-012 顶层 `scope`，在状态差异卡片之前展示当前 VPC 相对全部合格 EVPN Leaf 的覆盖范围。每台 Leaf 仅翻译后端稳定分类（targeted / withdrawn / not_targeted / ambiguous）及 reason code，前端不根据名称、快照或健康状态重新推断范围。覆盖条固定声明“范围不等于健康度”：尚未纳入、已撤回或范围待确认都不是设备漂移；即使没有可投影快照，覆盖范围仍独立可见。
+
+S2-015 将 S2-014 的范围例外接入 STRATA：用户从覆盖成员直接记录“有意不纳入”或“维护暂停”、必填原因与可选到期时间，并可编辑或清除。例外徽标和有效计数只表达业务上下文；页面始终保留后端 classification、reason 与漂移结论，并明确提示该动作不下发设备配置、不隐藏漂移、不改变覆盖事实。

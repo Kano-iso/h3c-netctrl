@@ -290,3 +290,14 @@
 - [x] 35.3 state-projection endpoint 顶层只读组装 scope：evpn_leaf 设备一次查询枚举，deployment/binding/snapshot 各一次批量查询按 device_id 分组避免逐 Leaf N+1（复用同一行序列化器）；summary 只计 EVPN Leaf、无 EVPN Leaf 时 counts 全 0；既有 leaves/excluded/aggregate 不变；零 DB 写零 SSH/NETCONF 零隐式采集；无迁移/新 endpoint/表/采集命令
 - [x] 35.4 对抗测试 13 条（四类分类与 summary / 版本不匹配 / snapshot-only / failed、pending 不覆盖生命周期 / gateway_delete 不改变 base / planned+active binding 无 deployment 也 targeted / 非 EVPN 排除 / 成员角色大小写归一化 / 空 inventory / 脱敏白名单 / 零 I/O 零写入 / 既有字段不变 / 纯函数矩阵与垃圾输入）
 - [x] 35.5 QA（本轮未触真机）：`test_s2_012_scope_projection.py` = **13 passed**；S2-001/S2-004/S2-006/S2-008/S2-010 与 S1-026 及直接受影响 SDN 回归 = **176 passed**；openspec strict / manifest JSON / git diff --check 通过
+
+## 36. S2-014（VPC 范围例外管理，业务上下文，本轮未触真机）
+
+- [x] 36.0 复审返工（S2-014-R1）：vpc_id/device_id 加 FK+父侧 ORM cascade（父删除不留 orphan、子删除不向上级联）；expires_at 接受 Z/offset 统一 UTC naive 存库；畸形历史稳定 state=invalid（CHECK 拒新脏数据）；聚焦 20 passed + 回归 196 passed
+
+- [x] 36.1 模型 SdnScopeException（vpc_id+device_id 唯一约束 uq_sdn_scope_exceptions_live；exception_type 仅 intentional_exclusion|maintenance_pause；reason 非空≤200；expires_at 可选；version/created/updated）+ 迁移 013（幂等建表/唯一索引/查询索引，空库与旧库均可升级，不重写旧迁移）
+- [x] 36.2 REST：GET /vpcs/{id}/scope-exceptions（过期标 state=expired 不自动删除）、PUT /vpcs/{id}/devices/{device_id}/scope-exception（新建或替换，短事务 + IntegrityError 回滚重读防并发双写）、DELETE 同路径（幂等清除 deleted=true/false）；成员准入：VPC/设备不存在既有 404 语义、非 EVPN Leaf 明确拒绝、过期时间必须晚于当前、reason/类型/时间格式校验；i18n 新增 7 键
+- [x] 36.3 state-projection additive：批量读例外按 device_id 附加 `exception`（无例外 null）与 summary.active_exception 计数；不触碰 build_scope_member 分类事实、不改 aggregate/leaves/excluded、不从分母移除设备
+- [x] 36.4 写操作只改数据库：零 SSH/NETCONF/配置下发/状态采集/隐式部署撤回；响应脱敏不含凭据/protected_interfaces/原始配置/快照/owner/fingerprint
+- [x] 36.5 对抗测试 20 条（CRUD / 清除不向上级联父对象与历史 / 替换版本与单行 / 唯一约束直插拒绝 / 重复提交稳定 / 成员准入 / 过期边界不自动删除 / 过期拒绝 / Z 与 offset 时区换算 / 校验错误 / 脱敏 / 零设备 I/O / scope 事实与 aggregate 不受影响 / 无例外 null 与幂等清除 / 畸形字段纯函数矩阵 state=invalid / CHECK 拒新脏数据 / 父 VPC 删除不留 orphan / 父 device 删除不留 orphan / 迁移建表索引 FK CHECK / 迁移幂等）
+- [x] 36.6 QA（本轮未触真机）：`test_s2_014_scope_exception.py` = **20 passed**；S2-012 13 条 + S2-001/S2-004/S2-006/S2-008/S2-010 与 S1-026 及直接受影响 SDN 回归 = **196 passed**；openspec strict / manifest JSON / git diff --check 通过

@@ -116,6 +116,13 @@ export const sdnApi = {
     const qs = new URLSearchParams({ device_id: deviceId, limit }).toString()
     return apiCall(`/sdn/vpcs/${vpcId}/state-projection/history?${qs}`)
   },
+  upsertScopeException: (vpcId, deviceId, payload) =>
+    apiCall(`/sdn/vpcs/${vpcId}/devices/${deviceId}/scope-exception`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+  clearScopeException: (vpcId, deviceId) =>
+    apiCall(`/sdn/vpcs/${vpcId}/devices/${deviceId}/scope-exception`, { method: 'DELETE' }),
   previewAccess: (vpcId, payload) =>
     apiCall(`/sdn/vpcs/${vpcId}/access-preview`, {
       method: 'POST',

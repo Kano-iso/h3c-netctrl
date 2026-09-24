@@ -18,8 +18,8 @@ const stateProjection = {
   scope: {
     summary: { eligible: 2, targeted: 1, withdrawn: 0, not_targeted: 1, ambiguous: 0 },
     members: [
-      { device_id: 5, name: 'Leaf-04', host: '192.168.100.5', classification: 'targeted', reason_code: 'base_present', desired_base_state: 'present', desired_binding_count: 1 },
-      { device_id: 6, name: 'Leaf-05', host: '192.168.100.6', classification: 'not_targeted', reason_code: 'no_records', desired_base_state: 'unknown', desired_binding_count: 0 },
+      { device_id: 5, name: 'Leaf-04', host: '192.168.100.5', classification: 'targeted', reason_code: 'base_present', desired_base_state: 'present', desired_binding_count: 1, exception: null },
+      { device_id: 6, name: 'Leaf-05', host: '192.168.100.6', classification: 'not_targeted', reason_code: 'no_records', desired_base_state: 'unknown', desired_binding_count: 0, exception: null },
     ],
   },
   leaves: [{
@@ -125,6 +125,7 @@ async function installMocks(page) {
     if (url.pathname === '/api/sdn/vpcs/2/access-preview') data = { plan_id: 'visual-plan', predeploy_status: 'ready', blocking: [] }
     if (url.pathname === '/api/sdn/vpcs/2/access') data = { operation_id: 42, status: 'awaiting_validation', expected_host_ip: '192.168.1.4' }
     if (url.pathname === '/api/sdn/operations/41') data = operation
+    if (url.pathname === '/api/sdn/vpcs/2/devices/6/scope-exception') data = { device_id: 6, state: 'active' }
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data }) })
   })
 }
@@ -211,5 +212,20 @@ test.describe('NEXT S1 network service workbench', () => {
 
     await page.getByRole('button', { name: /ATLAS/ }).click()
     await expect(page.locator('.stage-label')).toContainText('接入关系')
+  })
+
+  test('scope exception remains explicit business context', async ({ page }) => {
+    await page.goto('/#/sdn-vpc', { waitUntil: 'networkidle' })
+    await page.getByRole('button', { name: /STRATA/ }).click()
+    await page.locator('.scope-member').filter({ hasText: 'Leaf-05' }).click()
+    await expect(page.getByRole('heading', { name: '记录范围例外' })).toBeVisible()
+    await expect(page.getByText(/不会向设备下发配置，也不会隐藏漂移/)).toBeVisible()
+    await page.locator('select[name="scope_exception_type"]').selectOption('maintenance_pause')
+    await page.locator('textarea[name="scope_exception_reason"]').fill('计划维护')
+    const requestPromise = page.waitForRequest((request) => request.url().endsWith('/api/sdn/vpcs/2/devices/6/scope-exception') && request.method() === 'PUT')
+    await page.getByRole('button', { name: '保存' }).click()
+    const request = await requestPromise
+    expect(request.postDataJSON()).toEqual({ exception_type: 'maintenance_pause', reason: '计划维护', expires_at: null })
+    await expect(page.getByText('范围例外已保存')).toBeVisible()
   })
 })

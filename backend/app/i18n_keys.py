@@ -191,6 +191,14 @@ class SDN:
     # v3.3 VPC/EVPN 配置闭环
     PORT_BINDING_NOT_FOUND = I18nKey("sdn.port_binding_not_found")    # 端口绑定不存在: id={id}
     PORT_BINDING_CONFLICT = I18nKey("sdn.port_binding_conflict")      # 端口已绑定到其他 VPC: device_id={device_id}, interface={interface_name}
+    # S2-014 VPC 范围例外（业务上下文，非设备事实/配置动作）
+    SCOPE_EXCEPTION_NOT_FOUND = I18nKey("sdn.scope_exception_not_found")  # 范围例外不存在: vpc_id={vpc_id}, device_id={device_id}
+    SCOPE_EXCEPTION_INVALID_TYPE = I18nKey("sdn.scope_exception_invalid_type")  # 范围例外类型不合法: {exception_type}
+    SCOPE_EXCEPTION_REASON_REQUIRED = I18nKey("sdn.scope_exception_reason_required")  # 范围例外必须给出原因
+    SCOPE_EXCEPTION_REASON_TOO_LONG = I18nKey("sdn.scope_exception_reason_too_long")  # 范围例外原因过长: {max_length}
+    SCOPE_EXCEPTION_EXPIRES_INVALID = I18nKey("sdn.scope_exception_expires_invalid")  # 过期时间格式不合法: {expires_at}
+    SCOPE_EXCEPTION_EXPIRES_IN_PAST = I18nKey("sdn.scope_exception_expires_in_past")  # 过期时间必须晚于当前时间
+    DEVICE_NOT_FABRIC_MEMBER = I18nKey("sdn.device_not_fabric_member")  # 设备不是合格 EVPN Leaf: device_id={device_id}
     # S1 终端接入（next-s1-backend）
     OPERATION_NOT_FOUND = I18nKey("sdn.operation_not_found")          # 操作不存在: id={id}
     PLAN_NOT_FOUND = I18nKey("sdn.plan_not_found")                    # 预览计划不存在: plan_id={plan_id}
@@ -326,6 +334,14 @@ err = SimpleNamespace(
     SDN_DEPLOYMENT_NETCONF_FAILED=I18nKey("sdn.deployment_netconf_failed"),
     SDN_PORT_BINDING_NOT_FOUND=SDN.PORT_BINDING_NOT_FOUND,
     SDN_PORT_BINDING_CONFLICT=SDN.PORT_BINDING_CONFLICT,
+    # S2-014 VPC 范围例外
+    SDN_SCOPE_EXCEPTION_NOT_FOUND=SDN.SCOPE_EXCEPTION_NOT_FOUND,
+    SDN_SCOPE_EXCEPTION_INVALID_TYPE=SDN.SCOPE_EXCEPTION_INVALID_TYPE,
+    SDN_SCOPE_EXCEPTION_REASON_REQUIRED=SDN.SCOPE_EXCEPTION_REASON_REQUIRED,
+    SDN_SCOPE_EXCEPTION_REASON_TOO_LONG=SDN.SCOPE_EXCEPTION_REASON_TOO_LONG,
+    SDN_SCOPE_EXCEPTION_EXPIRES_INVALID=SDN.SCOPE_EXCEPTION_EXPIRES_INVALID,
+    SDN_SCOPE_EXCEPTION_EXPIRES_IN_PAST=SDN.SCOPE_EXCEPTION_EXPIRES_IN_PAST,
+    SDN_DEVICE_NOT_FABRIC_MEMBER=SDN.DEVICE_NOT_FABRIC_MEMBER,
     # S1 终端接入
     SDN_OPERATION_NOT_FOUND=SDN.OPERATION_NOT_FOUND,
     SDN_PLAN_NOT_FOUND=SDN.PLAN_NOT_FOUND,
@@ -472,6 +488,14 @@ FALLBACK_MESSAGES = {
     I18nKey("sdn.deployment_netconf_failed"): "NETCONF schema XML 业务下发失败: unit={unit}, payload_idx={payload_idx}, error={error}",
     SDN.PORT_BINDING_NOT_FOUND: "端口绑定不存在: id={id}",
     SDN.PORT_BINDING_CONFLICT: "端口已绑定到其他 VPC: device_id={device_id}, interface={interface_name}",
+    # S2-014 VPC 范围例外
+    SDN.SCOPE_EXCEPTION_NOT_FOUND: "范围例外不存在: vpc_id={vpc_id}, device_id={device_id}",
+    SDN.SCOPE_EXCEPTION_INVALID_TYPE: "范围例外类型不合法: {exception_type}",
+    SDN.SCOPE_EXCEPTION_REASON_REQUIRED: "范围例外必须给出原因",
+    SDN.SCOPE_EXCEPTION_REASON_TOO_LONG: "范围例外原因过长: {max_length}",
+    SDN.SCOPE_EXCEPTION_EXPIRES_INVALID: "过期时间格式不合法: {expires_at}",
+    SDN.SCOPE_EXCEPTION_EXPIRES_IN_PAST: "过期时间必须晚于当前时间",
+    SDN.DEVICE_NOT_FABRIC_MEMBER: "设备不是合格 EVPN Leaf: device_id={device_id}",
     # S1 终端接入
     SDN.OPERATION_NOT_FOUND: "操作不存在: id={id}",
     SDN.PLAN_NOT_FOUND: "预览计划不存在: plan_id={plan_id}",
