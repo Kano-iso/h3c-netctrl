@@ -22,6 +22,9 @@ const stateProjection = {
       { device_id: 6, name: 'Leaf-05', host: '192.168.100.6', classification: 'not_targeted', reason_code: 'no_records', desired_base_state: 'unknown', desired_binding_count: 0, exception: null },
     ],
   },
+  attention: { summary: { total: 1, blocking: 0, review: 1, deferred: 0 }, items: [
+    { key: '2:6:coverage_gap', device_id: 6, name: 'Leaf-05', host: '192.168.100.6', severity: 'review', category: 'coverage_gap', recommended_action: 'review_coverage', exception: null },
+  ] },
   leaves: [{
     device_id: 5, device_name: 'Leaf-04', device_host: '192.168.100.5', aggregate: 'aligned',
     desired: {
@@ -195,6 +198,9 @@ test.describe('NEXT S1 network service workbench', () => {
     await expect(page.locator('.scope-member-list')).toContainText('Leaf-05')
     await expect(page.locator('.scope-member-list')).toContainText('尚未纳入')
     await expect(page.getByText(/范围不等于健康度/)).toBeVisible()
+    await expect(page.getByText('需要关注')).toBeVisible()
+    await expect(page.getByText('存在覆盖缺口')).toBeVisible()
+    await expect(page.getByText(/不代表根因，也不会自动修复/)).toBeVisible()
     await expect(page.getByText('一致').first()).toBeVisible()
     await expect(page.getByText('SI 3100').first()).toBeVisible()
     await page.getByRole('button', { name: '查看证据轨迹' }).click()

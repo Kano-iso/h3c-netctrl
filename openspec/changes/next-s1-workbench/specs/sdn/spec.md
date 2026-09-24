@@ -31,6 +31,11 @@ The UI SHALL describe and invoke operation-scoped withdrawal without implying th
 - **WHEN** a user opens an eligible EVPN Leaf from VPC coverage and creates, edits, or clears an intentional exclusion or maintenance pause
 - **THEN** reason is required, expiry is optional, active/expired/invalid context is visible, and the UI explicitly states that the action neither configures devices nor hides drift nor changes coverage facts
 
+#### Scenario: Attention items lead to evidence, not automatic remediation
+
+- **WHEN** STRATA receives additive VPC attention items
+- **THEN** it presents backend severity, category, target Leaf and recommended navigation in stable order; actions only inspect differences, explicitly refresh evidence, or open scope context, while the UI states that the queue is neither root-cause proof nor automatic remediation
+
 #### Scenario: Withdraw completed access
 - **WHEN** the user confirms withdrawal
 - **THEN** the UI displays the returned withdrawn binding and retained shared resources

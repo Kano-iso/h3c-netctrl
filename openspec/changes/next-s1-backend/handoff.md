@@ -251,3 +251,7 @@ S1_019_REAL=1 S1_019_REAL_HOST=192.168.100.5 \
 **S2-014-R1 复审返工（未触真机）**：修复 3 项阻断——① vpc_id/device_id 加 FK（sdn_vpcs.id/devices.id，ondelete=CASCADE）+ 父侧 ORM relationship cascade="all, delete-orphan"（项目实际 SQLite 级联方式），父删除不留 orphan，子删除不向上级联；② expires_at 接受 Z/offset/naive ISO，统一换算 UTC naive 存库，过去拒绝；③ 畸形历史（非法 type/空或超长 reason/非 datetime expires_at/非法或缺失 version）稳定 state=invalid 脱敏白名单，DB CHECK 阻止新脏数据。QA：聚焦 20 passed + 受影响回归 196 passed；OpenSpec strict / manifest JSON / git diff --check 通过。前端由 Codex 接手，未改 next-s1-workbench。
 
 **S2-015 前端集成（Codex 完成）**：STRATA 覆盖成员支持创建、编辑、清除范围例外，呈现有效/过期/异常徽标及有效计数；中英文边界文案明确“只记录业务背景，不下发配置、不隐藏漂移、不改变覆盖事实”。API 客户端接入 PUT/DELETE，组件与浏览器测试覆盖真实用户动作。QA：frontend lint/build、70 unit、47 Playwright 全通过；后端受影响回归 196 passed；未触真机。
+
+**S2-016 VPC 可行动关注队列（只读 additive，未触真机）**：新增 `sdn_attention.py` 纯函数矩阵（8 条）+ state-projection 顶层 additive `attention`（summary.total/blocking/review/deferred + items[]）；复用同一次已加载的 scope members 与 leaves，零额外查询/N+1、零 DB 写、零 SSH/NETCONF、零隐式采集、无新表/迁移/写接口/命令；item 白名单（key/device_id/name/host/severity/category/reason_code/recommended_action/source_refs/exception），排序固定，source_refs 脱敏，坏字段稳定降级不 500；active exception 不消灭 drift、expired/invalid exception 独立成项与 blocking 共存。QA：聚焦 14 passed + S2-001/004/006/008/010/012/014 直接受影响回归 210 passed；OpenSpec strict / manifest JSON / git diff --check 通过。前端由 Codex 接手，未改 next-s1-workbench。
+
+**S2-017 前端集成（Codex 完成）**：STRATA 新增关注队列，消费后端稳定 severity/category/action，不在浏览器重算事实；动作只下钻差异、显式刷新证据或打开范围例外上下文，固定声明“不代表根因、不自动修复”。确认漂移与维护例外可同时可见。QA：frontend lint/build、14 focused unit、5 focused Playwright 通过；未触真机。

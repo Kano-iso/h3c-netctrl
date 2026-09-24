@@ -301,3 +301,11 @@
 - [x] 36.4 写操作只改数据库：零 SSH/NETCONF/配置下发/状态采集/隐式部署撤回；响应脱敏不含凭据/protected_interfaces/原始配置/快照/owner/fingerprint
 - [x] 36.5 对抗测试 20 条（CRUD / 清除不向上级联父对象与历史 / 替换版本与单行 / 唯一约束直插拒绝 / 重复提交稳定 / 成员准入 / 过期边界不自动删除 / 过期拒绝 / Z 与 offset 时区换算 / 校验错误 / 脱敏 / 零设备 I/O / scope 事实与 aggregate 不受影响 / 无例外 null 与幂等清除 / 畸形字段纯函数矩阵 state=invalid / CHECK 拒新脏数据 / 父 VPC 删除不留 orphan / 父 device 删除不留 orphan / 迁移建表索引 FK CHECK / 迁移幂等）
 - [x] 36.6 QA（本轮未触真机）：`test_s2_014_scope_exception.py` = **20 passed**；S2-012 13 条 + S2-001/S2-004/S2-006/S2-008/S2-010 与 S1-026 及直接受影响 SDN 回归 = **196 passed**；openspec strict / manifest JSON / git diff --check 通过
+
+## 37. S2-016（VPC 可行动关注队列，只读 additive，未触真机）
+
+- [x] 37.1 纯函数矩阵 `backend/app/services/sdn_attention.py`（8 条：scope_uncertain/confirmed_drift/evidence_missing_or_stale/coverage_gap/coverage_deferred/exception_expired/exception_invalid/无 item）+ 稳定 key（vpc:device:category）+ 固定排序（blocking→review→deferred 再 device_id/category）+ 脱敏 source_refs + exception 复用 S2-014 白名单
+- [x] 37.2 state-projection 顶层 additive `attention`：复用同一次已加载 scope members 与 leaves，零额外查询/无逐 Leaf N+1；summary.total/blocking/review/deferred；既有 scope/leaves/excluded/aggregate 完全不变
+- [x] 37.3 矩阵语义：active exception 不消灭 drift（confirmed_drift 仍 blocking 携带 exception）；not_targeted/withdrawn+active exception → deferred 保留原分类；expired/invalid exception 独立成项且与 blocking 共存 key 不冲突；targeted+aligned 无 item；非 EVPN 不进入；坏字段稳定降级绝不 500
+- [x] 37.4 对抗测试 14 条（全矩阵 / targeted unknown / drift+active exception 仍 blocking / expired+blocking 共存 / aligned+expired / not_targeted+expired 双项 / 空态 / 非 EVPN / 稳定 key 排序 / 脱敏白名单 / 既有投影不变 / 零写入零 I/O / 纯函数畸形降级 / aligned 无 item）
+- [x] 37.5 QA（未触真机）：`test_s2_016_attention.py` = **14 passed**；S2-014 20 条 + S2-012 13 条 + S2-001/S2-004/S2-006/S2-008/S2-010 与 S1-026 及直接受影响 SDN 回归 = **210 passed**；openspec strict / manifest JSON / git diff --check 通过

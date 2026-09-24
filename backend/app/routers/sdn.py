@@ -61,6 +61,7 @@ from app.services.sdn_state_projection import (
     build_transition,
 )
 from app.services.sdn_validation_collector import SdnValidationCollector
+from app.services.sdn_attention import attention_projection
 from app.services.sdn_operation_service import (
     SdnOperationError,
     acquire_claims,
@@ -1804,6 +1805,15 @@ def get_vpc_state_projection(vpc_id: int, db: Session = Depends(get_db)):
             if exc is not None and exc["state"] == "active":
                 scope_summary["active_exception"] += 1
 
+    # S2-016: 可行动关注队列（只读、additive、顶层 attention）。复用本请求已加载的
+    # scope members（含 S2-014 exception 白名单）与 leaves（device_id → aggregate/
+    # observed 引用）批量组装，零额外查询、零 DB 写、零 SSH/NETCONF、零隐式采集。
+    attention = attention_projection(
+        vpc_id=vpc_id,
+        members=scope_members,
+        leaves_by_device={leaf.get("device_id"): leaf for leaf in leaves},
+    )
+
     return APIResponse(
         success=True,
         data={
@@ -1813,6 +1823,7 @@ def get_vpc_state_projection(vpc_id: int, db: Session = Depends(get_db)):
             "excluded": excluded,
             "aggregate": aggregate_vpc(leaf_aggregates),
             "scope": {"members": scope_members, "summary": scope_summary},
+            "attention": attention,
         },
     )
 

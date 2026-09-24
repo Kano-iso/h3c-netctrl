@@ -18,6 +18,7 @@
 - [x] 9.5 S1-028 QA 通道可复现性整改：镜像改 FROM node:20-alpine 公开基座独立构建（前端锁文件 npm ci、失败即构建失败、删除 || true 吞错），compose 运行容器 network_mode: none（构建期联网、运行期无网络、loopback 内联调），文档口径同步
 - [x] 10.1 S2-002 STRATA 接入 VPC state-projection，只读呈现逐 Leaf 目标态、设备观测与逐维差异
 - [x] 10.6 S2-015 STRATA 范围例外闭环：成员级创建/编辑/清除，有意不纳入/维护暂停、必填原因、可选到期；有效/过期/异常状态可见，且不改变覆盖、健康或漂移事实。QA：lint/build、70 unit、47 Playwright 全通过
+- [x] 10.16 S2-017 STRATA 可行动关注队列：消费后端 blocking/review/deferred 与稳定 category/action，支持差异下钻、显式刷新证据、范围上下文处理；固定声明不代表根因且不自动修复。QA：lint/build、14 个聚焦组件测试、5 个聚焦 Playwright 通过
 - [x] 10.2 对 aligned / drifted / unknown / stale / not_applicable 建立独立文案与视觉语义，非 EVPN 设备明确排除
 - [x] 10.3 QA 容器通过 lint、type-check、build、63 个组件测试与 46 个浏览器流程；新增 STRATA 组件和浏览器契约覆盖
 - [x] 10.4 STRATA 按 Leaf 提供显式证据刷新；普通查询与视图切换不触发设备采集，用户点击后才强制同步并重新读取投影

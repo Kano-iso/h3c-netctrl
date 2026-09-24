@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "package_id": "S2-014",
+  "package_id": "S2-016",
   "change_id": "next-s1-backend",
-  "baseline_sha": "76ee78577af2ad13ae99b2e3b840a4fb0338a29b",
+  "baseline_sha": "787273c1294f17a5f56789b07f1a6b233ed5ad0c",
   "worktree": "/root/workpace/h3c-netctrl/.agent-worktrees/next-s1-backend",
   "scope": [
     "backend/app/i18n_keys.py",
@@ -93,7 +93,10 @@
     "backend/migrations/versions/013_add_sdn_scope_exceptions.py",
     "backend/app/models.py",
     "backend/app/routers/sdn.py",
-    "backend/tests/test_s2_014_scope_exception.py"
+    "backend/tests/test_s2_014_scope_exception.py",
+    "backend/app/services/sdn_attention.py",
+    "backend/app/routers/sdn.py",
+    "backend/tests/test_s2_016_attention.py"
   ],
   "requirements": [
     {
@@ -553,6 +556,27 @@
         "test_migration_013_upgrade_creates_table_and_indexes",
         "test_migration_013_idempotent_upgrade"
       ]
+    },
+    {
+      "id": "CR57",
+      "summary": "VPC 可行动关注队列（S2-016，只读 additive 顶层 attention）：把 scope 分类、scope exception、Leaf aggregate、快照新鲜度汇成保守可解释的 attention，不是根因/健康评分/修复计划/自动修复。保守矩阵：ambiguous→blocking scope_uncertain/review_records；targeted+drifted→blocking confirmed_drift/inspect_differences（active exception 不消灭事实，仍 blocking 并携带 exception，不得降成无问题）；targeted+stale/unknown/无 Leaf projection→review evidence_missing_or_stale/refresh_evidence；not_targeted/withdrawn 无 active exception→review coverage_gap/review_coverage（不称故障）；not_targeted/withdrawn+active exception→deferred coverage_deferred/review_exception（保留 scope 原分类）；任何 expired exception→review exception_expired/refresh_evidence（与 blocking drift/scope_uncertain 可共存、key 不冲突，不默认回填）；任何 invalid exception→blocking exception_invalid/repair_context_record；targeted+aligned 且无 expired/invalid exception→无 item；非 EVPN 不进入。item 白名单：key（vpc/device/category 稳定构成）、device_id/name/host、severity、category、reason_code、recommended_action、source_refs（只含脱敏 ID/时间/状态引用，不含 raw/error/config/凭据）、exception（复用 S2-014 白名单或 null）；排序固定 blocking→review→deferred 再 device_id/category。矩阵由纯函数/服务模块实现，endpoint 只批量组装复用同一次 state-projection 已加载数据（零额外查询、无逐 Leaf N+1）；坏字段稳定降级绝不 500；不新增表/迁移/写接口/设备命令；读取零 DB 写、零 SSH/NETCONF、零隐式采集",
+      "implementation": "新增纯函数模块 backend/app/services/sdn_attention.py（severity/category/action 常量 + build_attention_items + attention_projection，逐规则生成可共存 item、稳定 key、固定排序、脱敏 source_refs）；sdn.py state-projection endpoint 在 scope 块后复用已加载的 scope_members（含 S2-014 exception 白名单）与 leaves（device_id→aggregate/observed）批量组装顶层 additive `attention`（summary.total/blocking/review/deferred + items）；无新表/迁移/写接口/采集命令，读取零 DB 写零设备 I/O",
+      "tests": [
+        "test_attention_full_matrix",
+        "test_attention_targeted_unknown_no_snapshot_review",
+        "test_attention_drift_with_active_exception_still_blocking",
+        "test_attention_expired_exception_coexists_with_blocking_drift",
+        "test_attention_expired_exception_on_aligned_leaf",
+        "test_attention_not_targeted_with_expired_exception",
+        "test_attention_empty_no_devices",
+        "test_attention_non_evpn_only",
+        "test_attention_stable_keys_and_sorting",
+        "test_attention_sanitized",
+        "test_attention_existing_projection_unchanged",
+        "test_attention_zero_io_zero_writes",
+        "test_attention_pure_function_malformed_degrade",
+        "test_attention_pure_function_aligned_no_item"
+      ]
     }
   ],
   "invariants": [
@@ -593,7 +617,8 @@
     "影响投影只读复用 truth（S2-008）：impact 节点/关系只表达 scope 可证明的业务对象与业务范围（targets/exposes/expects），不称物理邻接/转发路径/因果链；变更项 truth_kind/source/statement 复用 explain_unit 同一判定，不建第二套真假系统；共享 VPC/网关不属于 terminal access/withdraw 操作目标，legacy 不可证明为 null；节点缺失 null 不编造、名称不充当唯一身份；只读零 DB 写零 SSH/NETCONF 零隐式采集，响应不含凭据/raw/owner/fingerprint/idempotency_key",
     "状态转变只表达证据变化（S2-010）：transition_from_prior 只比较同一 Leaf、同一 current_target 基准下紧邻历史点，窗口最旧点明确 baseline_unavailable 不补造基线；drifted→unknown/stale 只能 evidence_lost、unknown/stale→drifted 只能 drift_detected、not_applicable 变化按 state_changed；绑定维度按稳定 binding_id 匹配不按显示名；只读零 DB 写零 SSH/NETCONF 零隐式采集，脱敏不含原始 CLI output/error/凭据",
     "范围只表达覆盖事实（S2-012）：scope 只枚举 sdn_role=evpn_leaf 设备并保守分类（targeted/withdrawn/not_targeted/ambiguous），范围不是健康度、未覆盖不得冒充故障或漂移；snapshot 单独不能证明 targeted、版本不匹配仍 ambiguous、failed/pending 不覆盖确定生命周期、局部 gateway_delete 不改变 base；非 EVPN 只走 excluded 不混入 scope 分母；复用 resolve_base_lifecycle 同一判定，不回传凭据/protected_interfaces/原始配置或快照；只读零 DB 写零 SSH/NETCONF 零隐式采集",
-    "范围例外是业务上下文（S2-014）：例外只记录有意排除/维护暂停的业务原因，不改变 classification/reason_code/desired_base_state 与 aggregate/leaves/excluded 事实语义、不从 scope 分母移除设备；类型仅 intentional_exclusion|maintenance_pause，reason 非空≤200，过期时间统一换算为 UTC naive 且必须晚于当前；同一 VPC+device 至多一条当前记录（唯一约束），清除=直接删除不级联历史，删除子行不向上级联父对象；vpc_id/device_id 有 FK（ondelete=CASCADE 声明），父删除经 ORM relationship cascade 清理例外子行不留 orphan（项目 SQLite FK pragma 未开的实际方式）；畸形历史（非法 type/空或超长 reason/非 datetime expires_at/非法或缺失 version）稳定返回脱敏白名单 + state=invalid，绝不 active、不计入 active_exception、不 500，数据库 CHECK 阻止新脏数据；过期读取标 state=expired 不自动删除不写库；写操作零 SSH/NETCONF/配置下发/状态采集/隐式部署撤回；响应脱敏不含凭据/原始配置/快照/owner/fingerprint"
+    "范围例外是业务上下文（S2-014）：例外只记录有意排除/维护暂停的业务原因，不改变 classification/reason_code/desired_base_state 与 aggregate/leaves/excluded 事实语义、不从 scope 分母移除设备；类型仅 intentional_exclusion|maintenance_pause，reason 非空≤200，过期时间统一换算为 UTC naive 且必须晚于当前；同一 VPC+device 至多一条当前记录（唯一约束），清除=直接删除不级联历史，删除子行不向上级联父对象；vpc_id/device_id 有 FK（ondelete=CASCADE 声明），父删除经 ORM relationship cascade 清理例外子行不留 orphan（项目 SQLite FK pragma 未开的实际方式）；畸形历史（非法 type/空或超长 reason/非 datetime expires_at/非法或缺失 version）稳定返回脱敏白名单 + state=invalid，绝不 active、不计入 active_exception、不 500，数据库 CHECK 阻止新脏数据；过期读取标 state=expired 不自动删除不写库；写操作零 SSH/NETCONF/配置下发/状态采集/隐式部署撤回；响应脱敏不含凭据/原始配置/快照/owner/fingerprint",
+    "attention 只表达行动关注（S2-016）：矩阵保守逐规则生成 item——ambiguous/drift/invalid exception 为 blocking，stale/unknown/覆盖缺口/expired exception 为 review，active exception 覆盖缺口为 deferred；active exception 不消灭 drift 事实（仍 blocking 携带 exception）、不把 not_targeted 改 targeted、不把 drifted 改 aligned、不从分母移除设备；expired/invalid exception 独立成项且与 blocking 项可共存、key 不冲突；targeted+aligned 且无 expired/invalid exception 无 item；非 EVPN 不进入；item 白名单固定（key/device_id/name/host/severity/category/reason_code/recommended_action/source_refs/exception），source_refs 只含脱敏 ID/时间/状态引用；排序 blocking→review→deferred 再 device_id/category；纯函数实现、endpoint 复用同一次已加载数据零额外查询零 N+1；坏字段稳定降级绝不 500；读取零 DB 写零 SSH/NETCONF 零隐式采集；不新增表/迁移/写接口/设备命令；既有 scope/leaves/excluded/aggregate 完全不变"
   ],
   "tests": [
     {
@@ -750,6 +775,12 @@
       "command": "docker compose -f openspec/changes/next-s1-backend/qa/docker-compose.qa.yml run --rm qa-backend python -m pytest tests/test_s2_014_scope_exception.py tests/test_s2_012_scope_projection.py tests/test_s2_001_state_projection.py tests/test_s2_004_state_projection_history.py tests/test_s2_006_history_correlation.py tests/test_s2_008_operation_impact.py tests/test_s2_010_transition_projection.py tests/test_sdn_explanation.py tests/test_sdn_access_api.py tests/test_sdn_operation_service.py tests/test_sdn_migration.py tests/test_s1_007_adversarial.py tests/test_s1_016_adversarial.py -q",
       "environment": "qa-backend 容器（S2-014-R1 范围例外纵向切片复审返工 + 直接受影响 SDN 回归）",
       "result": "196 passed（S2-014 20 条 + S2-012 13 条 + S2-001/S2-004/S2-006/S2-008/S2-010 与 S1-026 及直接受影响 SDN 回归）",
+      "baseline_failed": false
+    },
+    {
+      "command": "docker compose -f openspec/changes/next-s1-backend/qa/docker-compose.qa.yml run --rm qa-backend python -m pytest tests/test_s2_016_attention.py tests/test_s2_014_scope_exception.py tests/test_s2_012_scope_projection.py tests/test_s2_001_state_projection.py tests/test_s2_004_state_projection_history.py tests/test_s2_006_history_correlation.py tests/test_s2_008_operation_impact.py tests/test_s2_010_transition_projection.py tests/test_sdn_explanation.py tests/test_sdn_access_api.py tests/test_sdn_operation_service.py tests/test_sdn_migration.py tests/test_s1_007_adversarial.py tests/test_s1_016_adversarial.py -q",
+      "environment": "qa-backend 容器（S2-016 attention 纵向切片 + S2-001/004/006/008/010/012/014 直接受影响回归）",
+      "result": "210 passed（S2-016 14 条 + S2-014 20 条 + S2-012 13 条 + S2-001/S2-004/S2-006/S2-008/S2-010 与 S1-026 及直接受影响 SDN 回归）",
       "baseline_failed": false
     }
   ],

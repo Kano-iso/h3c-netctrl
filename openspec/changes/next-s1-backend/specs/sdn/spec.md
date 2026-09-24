@@ -687,3 +687,12 @@
 - **THEN** 统一换算为 UTC naive 存储（与项目 DateTime 一致）且序列化稳定；过去时间仍明确拒绝
 - **WHEN** 历史数据畸形（非法 exception_type、空/超长 reason、非 datetime expires_at、非法/缺失 version）
 - **THEN** 序列化稳定返回脱敏白名单且 `state=invalid`，绝不 active、绝不计入 active_exception、绝不 500；数据库 CHECK 约束阻止新脏数据；有效（active）/过期（expired）旧语义不变
+
+#### Scenario: VPC 可行动关注队列（S2-016）
+
+- **WHEN** STRATA 读取 `GET /api/sdn/vpcs/{id}/state-projection`，且该 VPC 存在 scope 成员/例外/漂移/过期证据
+- **THEN** 顶层 additive 返回 `attention`（`summary.total/blocking/review/deferred` + `items[]`），每项白名单含稳定 `key`、`device_id/name/host`、`severity`（blocking|review|deferred）、`category`、`reason_code`、`recommended_action`、`source_refs`（只含脱敏 ID/时间/状态引用，不含 raw/error/config/凭据）、`exception`（复用 S2-014 白名单或 null）；排序固定 blocking→review→deferred 再 device_id/category
+- **WHEN** 各叶处于不同状态
+- **THEN** 矩阵保守：ambiguous→blocking scope_uncertain/review_records；targeted+drifted→blocking confirmed_drift/inspect_differences（active exception 不消灭事实，仍 blocking 并携带 exception）；targeted+stale/unknown/无 Leaf projection→review evidence_missing_or_stale/refresh_evidence；not_targeted/withdrawn 无 active exception→review coverage_gap/review_coverage（不称故障）；not_targeted/withdrawn+active exception→deferred coverage_deferred/review_exception（保留 scope 原分类）；任何 expired exception→review exception_expired/refresh_evidence（与 blocking 项可共存、key 不冲突，不默认回填）；任何 invalid exception→blocking exception_invalid/repair_context_record；targeted+aligned 且无 expired/invalid exception→无 item；非 EVPN 不进入
+- **WHEN** 输入畸形或设备无快照
+- **THEN** 矩阵纯函数稳定降级、绝不 500；attention 复用同一次 state-projection 已加载数据（零额外查询、无逐 Leaf N+1），读取零 DB 写、零 SSH/NETCONF、零隐式采集；不新增表/迁移/写接口/设备命令；既有 scope/leaves/excluded/aggregate 完全不变

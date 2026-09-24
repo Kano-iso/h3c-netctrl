@@ -295,7 +295,8 @@ def test_scope_existing_leaves_excluded_aggregate_unchanged(client, db):
 
     data = _projection(client, vpc["id"])
     # 既有字段完整且与 scope 并存；leaves 只含「有记录的目标设备」
-    assert set(data.keys()) == {"vpc", "snapshot_ttl_seconds", "leaves", "excluded", "aggregate", "scope"}
+    assert set(data.keys()) == {"vpc", "snapshot_ttl_seconds", "leaves", "excluded", "aggregate", "scope",
+                                "attention"}  # S2-016 additive
     assert len(data["leaves"]) == 1
     assert data["leaves"][0]["device_id"] == leaf.id
     assert data["leaves"][0]["aggregate"] == data["aggregate"]

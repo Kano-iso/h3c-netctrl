@@ -73,6 +73,10 @@ describe('SdnVpcWorkspace.vue', () => {
           { device_id: 6, name: 'Leaf-05', host: '192.168.100.6', classification: 'not_targeted', reason_code: 'no_records', desired_base_state: 'unknown', desired_binding_count: 0, exception: null },
         ],
       },
+      attention: { summary: { total: 2, blocking: 1, review: 1, deferred: 0 }, items: [
+        { key: '2:5:confirmed_drift', device_id: 5, name: 'Leaf-04', host: '192.168.100.5', severity: 'blocking', category: 'confirmed_drift', recommended_action: 'inspect_differences', exception: null },
+        { key: '2:6:coverage_gap', device_id: 6, name: 'Leaf-05', host: '192.168.100.6', severity: 'review', category: 'coverage_gap', recommended_action: 'review_coverage', exception: null },
+      ] },
       leaves: [{
         device_id: 5, device_name: 'Leaf-04', device_host: '192.168.100.5', aggregate: 'drifted',
         desired: {
@@ -192,6 +196,19 @@ describe('SdnVpcWorkspace.vue', () => {
     })
     expect(sdnApi.syncValidation).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('范围例外已保存')
+  })
+
+  it('shows a conservative attention queue and routes actions without auto-remediation', async () => {
+    const wrapper = mountPage()
+    await flushPromises()
+    await wrapper.findAll('button').find((button) => button.text().includes('STRATA')).trigger('click')
+
+    expect(wrapper.find('.attention-panel').text()).toContain('需要关注')
+    expect(wrapper.find('.attention-panel').text()).toContain('已确认配置差异')
+    expect(wrapper.find('.attention-panel').text()).toContain('不代表根因，也不会自动修复')
+    await wrapper.findAll('.attention-list button').find((button) => button.text() === '处理范围').trigger('click')
+    expect(wrapper.text()).toContain('记录范围例外')
+    expect(sdnApi.syncValidation).not.toHaveBeenCalled()
   })
 
   it('only collects device evidence after an explicit STRATA refresh', async () => {
