@@ -22,10 +22,16 @@ from stack_fakes import FakeExecutor, FakeNetconfClient, FakeValidationCollector
 
 import app.routers.interface as interface_mod  # noqa: E402
 import app.routers.sdn_access as sdn_access_mod  # noqa: E402
+import app.routers.sdn as sdn_mod  # noqa: E402
 
+# S2 系列把执行器/收集器从 sdn_access 抽到 services，且 validation/sync 路由位于
+# sdn.py——每个 import 该名字的模块都要按「调用点模块全局名」替换，否则该路径会走
+# 真实收集器（network_mode:none 下产生 Network unreachable 脏快照）。
 interface_mod.NetconfClient = FakeNetconfClient
 sdn_access_mod.SdnDeploymentExecutor = FakeExecutor
 sdn_access_mod.SdnValidationCollector = FakeValidationCollector
+sdn_mod.SdnDeploymentExecutor = FakeExecutor
+sdn_mod.SdnValidationCollector = FakeValidationCollector
 
 from app.main import app  # noqa: E402
 import uvicorn  # noqa: E402

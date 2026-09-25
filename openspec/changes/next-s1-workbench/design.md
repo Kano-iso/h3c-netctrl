@@ -31,9 +31,10 @@ PULSE 优先消费后端 S1-026 的三级 `explanation` 投影：operation 用 i
 联调通道与默认 e2e（mock 基线）分离，回答“真实前后端契约是否一致”：
 
 - **单容器栈（S1-028：独立构建 + 运行期硬隔离）**：`qa/Dockerfile.stack-qa` 从**公开固定基础镜像 node:20-alpine** 独立构建（apk 装 python3/venv/系统 chromium，前端依赖走仓库锁文件 `npm ci`，失败即构建失败、无吞错、不依赖本项目预构建镜像）；`qa/docker-compose.stack-qa.yml` 无 env_file、无 docker.sock、`/tmp` 为 tmpfs、仓库与 qa 脚本只读挂载，运行容器 **`network_mode: none`**（构建期联网下载公开依赖，运行期无外部网络，FastAPI/Vite/Chromium 全部经 loopback 通信）。合成 `DB_PATH` / `ENCRYPTION_KEY` / `INTERNAL_API_TOKEN`，绝不读生产 `.env`。
-- **真实后端 + 隔离 DB**：`run_stack_qa.sh` 先 seed 合成 EVPN Leaf / tenant / 已部署 VPC / 新鲜验证快照（业务端口可用、predeploy ready），再起 uvicorn（`stack/stack_backend_wrapper.py` 只在进程内替换 `interface.NetconfClient` / `sdn_access.SdnDeploymentExecutor` / `sdn_access.SdnValidationCollector` 为 `stack/stack_fakes.py` 边界 fake，生产入口不加载）。
+- **真实后端 + 隔离 DB**：`run_stack_qa.sh` 先 seed 合成 EVPN Leaf（Leaf-Stack 192.0.2.10 targeted / Leaf-Spare 192.0.2.11 未覆盖）+ 非 EVPN 设备（Access-QA 192.0.2.20）/ tenant / 已部署 VPC / 新鲜验证快照（业务端口可用、predeploy ready），再起 uvicorn（`stack/stack_backend_wrapper.py` 只在进程内替换 `interface.NetconfClient` / `sdn_access.SdnDeploymentExecutor` / `sdn_access.SdnValidationCollector` 为 `stack/stack_fakes.py` 边界 fake，生产入口不加载）。
 - **真实前端**：vite dev 以 `VITE_API_MODE=core` + `VITE_API_BACKEND_TARGET=http://127.0.0.1:<port>`（vite.config.js 新增 additive 环境变量，默认不变）代理到真实后端；`playwright.stack.config.js` 只跑 `tests/stack-qa/`，不影响默认 e2e。
-- **诚实边界断言**：fake 每次调用写入 `device-io.log`，launcher 事后校验必需事件齐全、netconf 目标必须是 TEST-NET 合成地址；收集器行为由 `collector-mode` 控制文件驱动（fresh / insufficient），支撑“证据不足 → unknown + ambiguous_claims”的诚实状态用例。
+- **诚实边界断言**：fake 每次调用写入 `device-io.log`，launcher 事后校验必需事件齐全、netconf 目标必须是 TEST-NET 合成地址；收集器行为由 `collector-mode` 控制文件驱动（fresh / insufficient / drifted），支撑“证据不足 → unknown + ambiguous_claims”的诚实状态用例与 S2-018 的“真实持久化漂移快照 → confirmed_drift blocking”验收。
+- **S2-018 注入点修复**：S2 系列把 `SdnDeploymentExecutor`/`SdnValidationCollector` 从 `sdn_access` 抽到 `services`，且 `validation/sync` 路由位于 `sdn.py`；wrapper 按「调用点模块全局名」补全 `sdn_mod` 的替换（与 `interface_mod`/`sdn_access_mod` 并列），避免真实收集器在 `network_mode:none` 下写“Network unreachable”脏快照。仅改 qa 通道文件，零生产语义改动。
 - **可清理**：trap EXIT/INT/TERM 统一 kill uvicorn + vite 并删除 `/tmp/stack-qa`；端口被占用时明确失败（退出码 9），绝不触碰 5174 演示环境。
 
 ## Compatibility
@@ -61,3 +62,28 @@ STRATA 消费 S2-012 顶层 `scope`，在状态差异卡片之前展示当前 VP
 S2-015 将 S2-014 的范围例外接入 STRATA：用户从覆盖成员直接记录“有意不纳入”或“维护暂停”、必填原因与可选到期时间，并可编辑或清除。例外徽标和有效计数只表达业务上下文；页面始终保留后端 classification、reason 与漂移结论，并明确提示该动作不下发设备配置、不隐藏漂移、不改变覆盖事实。
 
 S2-017 消费 S2-016 的 `attention` 投影，在 STRATA 中形成保守的关注队列。前端只翻译后端给出的 severity/category/action，不自行推断根因或修复方案；动作仅下钻差异、显式刷新证据或打开范围例外上下文。确认漂移即使处于维护例外中也保持优先项，例外不会吞掉事实。
+
+## Real-Stack S2 Acceptance（S2-018）
+
+把既有 `qa/` 隔离真实应用栈扩展为 S2 用户故事的验收通道（仍走单容器栈 +
+`network_mode: none` + 空库 alembic upgrade head + 真实 API + 真实 vite dev +
+Playwright，无 page.route mock）：
+
+- **seed 基线**：Leaf-Stack（192.0.2.10，targeted + aligned 快照）、Leaf-Spare
+  （192.0.2.11，无任何记录 → not_targeted）、Access-QA（192.0.2.20，非 EVPN）→
+  同一 VPC 覆盖 1/2，非 EVPN 不进 scope 分母。
+- **边界 fake 扩展**：`stack_fakes.py` 的 `FakeValidationCollector.sync` 新增
+  `collector-mode=drifted`（vsi 缺失输出），经真实 `validation/sync` API 落库为
+  **真实持久化快照**，state-projection 判 drifted → attention confirmed_drift blocking；
+  运行末尾恢复 fresh，不影响同容器内按文件顺序运行的 S1 spec。
+- **验收故事（stack-qa-s2.spec.js，3 条）**：① STRATA 覆盖 1/2、逐 Leaf 分类、
+  attention coverage_gap 且不当漂移、非 EVPN 排除计数；② 范围例外真实
+  PUT（maintenance_pause + reason + 未来到期）→ 仍 not_targeted、exception active、
+  active_exception+1、attention coverage_gap → coverage_deferred，并证明无
+  deployment/binding/snapshot 新增、device-io.log 无新增调用；真实 DELETE → 恢复
+  coverage_gap、例外行删除、父对象与历史不受影响；③ targeted Leaf 漂移后即便设
+  active maintenance 例外，attention 仍保留 confirmed_drift blocking 并携带 exception，
+  不被 deferred 吞掉。浏览器层固定文案「不下发配置、不隐藏漂移」与
+  「不代表根因、不会自动修复」。
+- **验收标准**：完整 stack QA 连续两次全绿（S1 2 条 + S2 3 条 = 5 passed 每次），
+  证明空库升级与状态无污染；BOUNDARY_OK（device-io.log 全 fake）+ STACK_QA_OK。

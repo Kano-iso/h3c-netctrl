@@ -61,3 +61,15 @@ The change SHALL provide a repeatable, isolated integration channel that exercis
 #### Scenario: Cleanup and port isolation
 - **WHEN** the channel succeeds, fails, or is interrupted
 - **THEN** processes, ports, the database, and temporary files can be cleaned; port conflicts fail explicitly or use an isolated port, and the channel never connects to the demo environment
+
+#### Scenario: S2 user stories over the real stack (S2-018)
+- **WHEN** the isolated channel seeds two EVPN leaves (one targeted, one not targeted) and one non-EVPN device for the same VPC, and the browser opens STRATA against the real backend
+- **THEN** the coverage is shown as 1/2 with per-leaf classification (targeted / not targeted), the non-EVPN device is excluded from the scope denominator, and the attention panel shows coverage_gap without labeling it as drift
+- **WHEN** the user opens the scope exception for the uncovered leaf, sets maintenance_pause with a reason and a future expiry, and saves
+- **THEN** the real PUT persists the exception: the leaf stays not_targeted, the exception is active, active_exception increases by one, attention changes from coverage_gap to coverage_deferred, and no deployment/binding/snapshot row and no fake device-I/O call are added
+- **WHEN** the user clears the exception
+- **THEN** the real DELETE removes the row, attention returns to coverage_gap, and parent objects and history are unaffected
+- **WHEN** a targeted leaf has a real persisted snapshot that makes it drifted and then receives an active maintenance exception
+- **THEN** attention keeps confirmed_drift as blocking with the exception attached, and the deferred coverage does not swallow the drift
+- **WHEN** the browser shows the scope-exception modal and the attention panel
+- **THEN** the fixed copy states the action does not push config to the device, does not hide drift, and that the attention queue is not root cause and does not auto-fix

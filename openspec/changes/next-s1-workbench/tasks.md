@@ -34,3 +34,12 @@
 - [x] 10.14 S2-013 将 S2-012 VPC EVPN Leaf 范围接入 STRATA：独立展示覆盖分母、逐 Leaf 分类与保守原因；不以名称或健康状态二次推断，并明确范围不等于健康度
 - [x] 10.15 S2-013 QA：组件与 NEXT 浏览器流程覆盖 targeted/not_targeted、覆盖汇总与语义边界；lint、type-check、build及全量前端回归通过
 - [ ] 9.4 等待用户确认是否进入 OpenSpec 收尾与版本集成
+
+## 11. S2-018（真实应用栈 S2 用户故事验收，未触真机）
+
+- [x] 11.1 seed 扩展：第二台 evpn_leaf（Leaf-Spare，未覆盖）+ 非 EVPN（Access-QA），同一 VPC 覆盖 1/2、非 EVPN 不进 scope 分母
+- [x] 11.2 fake 收集器新增 collector-mode=drifted：真实 validation/sync API 落库漂移快照 → confirmed_drift blocking；运行末尾恢复 fresh
+- [x] 11.3 stack-qa-s2.spec.js 3 条：STRATA 覆盖/分类/coverage_gap 不当漂移；范围例外 PUT/DELETE 闭环（无记录新增、无设备 I/O、attention 变 deferred/恢复）；漂移 + active 例外不吞掉 blocking 事实；浏览器层固定文案
+- [x] 11.4 wrapper 注入点修复：S2 系列把 executor/collector 抽到 services 且 validation/sync 路由在 sdn.py → 按调用点模块全局名补全 sdn_mod 替换（仅 qa 通道文件）
+- [x] 11.5 QA README / workbench design/spec/tasks + backend handoff/review-response/manifest 同步
+- [x] 11.6 完整 stack QA 连续两次全绿（每次 S1 2 + S2 3 = 5 passed）+ BOUNDARY_OK（device-io.log 25 events 全 fake）+ STACK_QA_OK；qa-backend S2-012/014/016 + 迁移 53 passed；frontend lint/build + 受影响 unit 14 passed；OpenSpec strict（backend/workbench）/ manifest JSON / compose config / git diff --check

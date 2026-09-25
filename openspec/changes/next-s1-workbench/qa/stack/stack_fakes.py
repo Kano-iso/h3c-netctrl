@@ -122,10 +122,14 @@ class FakeValidationCollector(SdnValidationCollector):
 
     继承真实类以保留静态解析辅助（如 _has_display_error 被 _l2_ready_status
     直接以类名调用），只覆写 sync() 设备采集入口。
+
+    S2-018 追加 drifted 模式：vsi 缺失 → targeted Leaf 落库【真实持久化快照】后
+    state-projection 判为 drifted（attention confirmed_drift blocking），用于
+    「active 例外不吞掉漂移事实」的真实栈验收。
     """
 
     def sync(self, db, vpc_id, device_id, *, force=False, min_interval_seconds=600, scope_bindings=None):
-        from app.models import SdnValidationSnapshot, SdnVpc
+        from app.models import SdnTenant, SdnValidationSnapshot, SdnVpc
 
         mode = _collector_mode()
         _log("collector_sync", vpc_id=vpc_id, device_id=device_id, force=force, mode=mode)
@@ -134,24 +138,51 @@ class FakeValidationCollector(SdnValidationCollector):
 
         vpc = db.query(SdnVpc).filter(SdnVpc.id == vpc_id).first()
         now = datetime.utcnow()
+        vsi_cmd = ("display l2vpn vsi name %s verbose" % vpc.vsi_name) if vpc else "x"
+        if mode == "drifted":
+            commands = {
+                "display bgp peer l2vpn evpn": {"success": True, "output": "Peer: State: Established", "error": None},
+                vsi_cmd: {"success": True, "output": "The VSI does not exist.", "error": None},
+                "display bgp l2vpn evpn": {"success": True, "output": "Route Type: [3]", "error": None},
+            }
+        else:
+            # fresh：与 seed 同构的完整对齐证据（含 Vsi-interface + l3-vni），
+            # 保证重新采集后 targeted Leaf 回到 aggregate=aligned。
+            l3_vni = None
+            vsi_if_cmd = None
+            if vpc is not None:
+                tenant = db.query(SdnTenant).filter(SdnTenant.id == vpc.tenant_id).first()
+                l3_vni = tenant.l3_vni if tenant else None
+                vsi_if_cmd = "display current-configuration interface Vsi-interface%d" % vpc.vsi_interface
+            vsi_if_output = (
+                ("interface Vsi-interface%d\n l3-vni %s" % (vpc.vsi_interface, l3_vni))
+                if vpc is not None and vsi_if_cmd is not None and l3_vni is not None
+                else "interface Vsi-interface%d" % vpc.vsi_interface
+            )
+            commands = {
+                "display bgp peer l2vpn evpn": {"success": True, "output": "Peer: State: Established", "error": None},
+                vsi_cmd: {"success": True, "output": ("VSI Name: %s\nVSI State               : Up" % vpc.vsi_name) if vpc else "VSI State: Up", "error": None},
+                "display bgp l2vpn evpn": {"success": True, "output": "Route Type: [3]", "error": None},
+            }
+            if vsi_if_cmd is not None:
+                commands[vsi_if_cmd] = {"success": True, "output": vsi_if_output, "error": None}
+        validation_details = {
+            "vsi_exists": {"ok": mode != "drifted"},
+            "vsi_up": {"ok": mode != "drifted"},
+            "type3_present": {"ok": True},
+            "raw_has_error": {"ok": True},
+            "bgp_peer_established": {"ok": True},
+            "vsi_interface_exists": {"ok": True},
+            "l3_vni_present": {"ok": True},
+        }
         snap = SdnValidationSnapshot(
             vpc_id=vpc_id,
             device_id=device_id,
             validation_result="active",
             collection_started_at=now - timedelta(seconds=1),
             collection_completed_at=now,
-            snapshot_data=json.dumps({
-                "commands": {
-                    "display bgp peer l2vpn evpn": {"success": True, "output": "Peer: State: Established", "error": None},
-                    ("display l2vpn vsi name %s verbose" % vpc.vsi_name) if vpc else "x": {"success": True, "output": "VSI State: Up", "error": None},
-                    "display bgp l2vpn evpn": {"success": True, "output": "Route Type: [3]", "error": None},
-                }
-            }, ensure_ascii=False),
-            validation_details=json.dumps({
-                "vsi_exists": {"ok": True}, "vsi_up": {"ok": True}, "type3_present": {"ok": True},
-                "raw_has_error": {"ok": True}, "bgp_peer_established": {"ok": True},
-                "vsi_interface_exists": {"ok": True}, "l3_vni_present": {"ok": True},
-            }, ensure_ascii=False),
+            snapshot_data=json.dumps({"commands": commands}, ensure_ascii=False),
+            validation_details=json.dumps(validation_details, ensure_ascii=False),
         )
         db.add(snap)
         db.commit()
