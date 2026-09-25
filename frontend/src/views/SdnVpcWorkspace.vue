@@ -26,7 +26,10 @@ const scopeExceptionOpen = ref(false)
 const scopeExceptionMember = ref(null)
 const scopeExceptionForm = ref({ exception_type: 'intentional_exclusion', reason: '', expires_at: '' })
 const assuranceLoading = ref(false)
-const assurancePolicy = ref({ enabled: false, cadence: 'manual', response_mode: 'observe_only', version: 0 })
+const assurancePolicy = ref({
+  enabled: false, cadence: 'manual', response_mode: 'observe_only', version: 0,
+  schedule_status: 'disabled', next_due: null, last_scheduled_at: null,
+})
 const assuranceRuns = ref([])
 const assuranceRun = ref(null)
 
@@ -173,6 +176,17 @@ function attentionAction(item) {
 function assuranceMeta(overall) {
   const tone = overall === 'healthy' ? 'good' : overall === 'blocked' ? 'bad' : overall === 'attention' ? 'warn' : 'mute'
   return { tone, label: translatedCode('assurance_overall', overall, overall || t('sdn.next.assurance_not_run')) }
+}
+function assuranceScheduleMeta(status) {
+  const tone = status === 'running' ? 'good' : status === 'due' ? 'warn' : ['disabled', 'manual_only'].includes(status) ? 'mute' : 'good'
+  return { tone, label: translatedCode('assurance_schedule_status', status, status || t('sdn.next.unknown')) }
+}
+function assuranceRunMeta(run) {
+  if (run?.status === 'failed') return { tone: 'bad', label: t('sdn.next.assurance_run_status_failed') }
+  return assuranceMeta(run?.overall)
+}
+function assuranceTriggerLabel(trigger) {
+  return translatedCode('assurance_trigger', trigger, trigger || t('sdn.next.unknown'))
 }
 function assuranceRecommendation(item) {
   return translatedCode('assurance_recommendation', item?.recommendation, item?.recommendation)
@@ -798,7 +812,11 @@ onMounted(loadBase)
                 <header><small>{{ t('sdn.next.assurance_policy') }}</small><strong>{{ t('sdn.next.assurance_policy_title') }}</strong></header>
                 <label class="toggle-row"><span><strong>{{ t('sdn.next.assurance_enabled') }}</strong><small>{{ t('sdn.next.assurance_enabled_hint') }}</small></span><input v-model="assurancePolicy.enabled" type="checkbox"><i></i></label>
                 <label><span>{{ t('sdn.next.assurance_cadence') }}</span><select v-model="assurancePolicy.cadence"><option value="manual">{{ t('sdn.next.assurance_cadence_manual') }}</option><option value="10m">10 min</option><option value="30m">30 min</option><option value="1h">1 h</option></select></label>
-                <p class="guard-policy-note">{{ t('sdn.next.assurance_cadence_boundary') }}</p>
+                <div class="guard-schedule-state">
+                  <span><small>{{ t('sdn.next.assurance_schedule_state') }}</small><b :class="assuranceScheduleMeta(assurancePolicy.schedule_status).tone">{{ assuranceScheduleMeta(assurancePolicy.schedule_status).label }}</b></span>
+                  <dl><dt>{{ t('sdn.next.assurance_next_due') }}</dt><dd>{{ formatTime(assurancePolicy.next_due) }}</dd><dt>{{ t('sdn.next.assurance_last_scheduled') }}</dt><dd>{{ formatTime(assurancePolicy.last_scheduled_at) }}</dd></dl>
+                </div>
+                <p class="guard-policy-note">{{ t('sdn.next.assurance_schedule_boundary') }}</p>
                 <button class="secondary" :disabled="busy === 'assurance-policy'" @click="saveAssurancePolicy">{{ t('sdn.next.assurance_save_policy') }}</button>
               </aside>
             </div>
@@ -807,7 +825,7 @@ onMounted(loadBase)
               <header><span><small>{{ t('sdn.next.assurance_history') }}</small><strong>{{ t('sdn.next.assurance_history_title') }}</strong></span><b>{{ assuranceRuns.length }}</b></header>
               <div v-if="assuranceRuns.length" class="guard-history-list">
                 <button v-for="run in assuranceRuns" :key="run.id" :class="{ active: latestAssuranceRun?.id === run.id }" @click="openAssuranceRun(run)">
-                  <span class="status-dot" :class="assuranceMeta(run.overall).tone"></span><span><strong>{{ assuranceMeta(run.overall).label }}</strong><small>{{ formatTime(run.completed_at) }}</small></span><b>#{{ run.id }}</b>
+                  <span class="status-dot" :class="assuranceRunMeta(run).tone"></span><span><strong>{{ assuranceRunMeta(run).label }}</strong><small>{{ assuranceTriggerLabel(run.trigger) }} · {{ formatTime(run.completed_at) }}</small></span><b>#{{ run.id }}</b>
                 </button>
               </div>
               <p v-else class="quiet-copy">{{ t('sdn.next.assurance_no_history') }}</p>
@@ -894,5 +912,6 @@ onMounted(loadBase)
 .history-toggle{display:flex;align-items:center;justify-content:space-between;width:100%;height:34px;margin-top:9px;padding:0 2px;border:0;border-top:1px solid #dfe6e7;background:transparent;color:#315a60;font-size:10px;font-weight:800;cursor:pointer}.history-toggle b{font-size:17px;font-weight:500}.history-toggle.active{color:#16796b}.history-panel{margin:0 -3px -3px;padding:10px;background:#f4f7f7;border:1px solid #dce4e5;border-radius:4px}.history-panel>header{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px}.history-panel>header span{display:flex;flex-direction:column}.history-panel>header small{font-size:9px;font-weight:850;color:#64787d;text-transform:uppercase}.history-panel>header strong{margin-top:2px;color:#4f6268;font-size:10px;font-weight:600}.history-panel>header>b{min-width:22px;text-align:right;color:#708287;font-size:10px}.history-track{position:relative}.history-track:before{position:absolute;top:10px;bottom:10px;left:5px;width:1px;background:#c5d3d4;content:''}.history-track>button{position:relative;display:grid;grid-template-columns:12px minmax(0,1fr) auto;align-items:center;gap:7px;width:100%;min-height:38px;padding:4px 0;border:0;background:transparent;text-align:left;cursor:pointer}.history-track>button>i{z-index:1;width:11px;height:11px;border:3px solid #f4f7f7;border-radius:50%;background:#7c8d91;box-shadow:0 0 0 1px #aebdbf}.history-track>button.is-aligned>i{background:#198568}.history-track>button.is-drifted>i{background:#c94d4d}.history-track>button.is-stale>i{background:#c28b25}.history-track>button>span{display:flex;flex-direction:column;min-width:0}.history-track>button strong{color:#314a50;font-size:10px}.history-track>button small{margin-top:1px;color:#7b8a8e;font-size:9px}.history-track>button em{margin-top:3px;color:#6e7f84;font-size:8px;font-style:normal;font-weight:800}.history-track>button em.good{color:#167154}.history-track>button em.warn{color:#95680d}.history-track>button em.bad{color:#a63a3a}.history-track>button>b{padding:3px 5px;border-radius:3px;background:#e8edef;color:#5d6d72;font-size:9px}.history-track>button>b.good{background:#dff3eb;color:#12674f}.history-track>button>b.warn{background:#fff1d6;color:#8a5d08}.history-track>button>b.bad{background:#fde5e3;color:#a02e2e}.history-track>button:hover span strong{color:#0d6f61}.history-operation-link{width:100%;margin-top:12px}.transition-detail{margin-top:15px;padding:11px;border:1px solid #d9e2e3;border-left:3px solid #16796b;background:#f7f9f9}.transition-detail>header{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}.transition-detail>header span{display:flex;flex-direction:column}.transition-detail>header small{color:#16796b;font-size:9px;font-weight:900;text-transform:uppercase}.transition-detail>header strong{margin-top:2px;font-size:11px}.transition-detail>header>b{padding:3px 5px;border-radius:3px;background:#e8edef;color:#5d6d72;font-size:8px}.transition-detail>header>b.good{background:#dff3eb;color:#12674f}.transition-detail>header>b.warn{background:#fff1d6;color:#8a5d08}.transition-detail>header>b.bad{background:#fde5e3;color:#a02e2e}.transition-detail>p{margin:8px 0;color:#748489;font-size:9px}.transition-list{display:flex;flex-direction:column;border-top:1px solid #e0e6e7}.transition-list article{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 8px;padding:7px 0;border-bottom:1px solid #e6ebec}.transition-list strong{font-size:10px}.transition-list span{grid-column:1;color:#68797e;font-size:9px}.transition-list b{grid-column:2;grid-row:1/3;align-self:center;font-size:8px}.transition-list b.good{color:#167154}.transition-list b.warn{color:#95680d}.transition-list b.bad{color:#a63a3a}
 @media(max-width:720px){.projection-filters{grid-template-columns:1fr 1fr}.projection-filters button:nth-child(2){border-right:0}.projection-filters button:nth-child(-n+2){border-bottom:1px solid #e0e6e7}}
 @media(max-width:720px){.impact-map>header{flex-direction:column}.impact-map>header p{text-align:left}.impact-chain{align-items:stretch;flex-direction:column}.impact-link{flex:0 0 25px;min-height:25px}.impact-link i{width:1px;flex:1;min-height:13px}.impact-link i:after{right:-3px;top:auto;bottom:0;border-width:5px 3px 0;border-color:#7c9195 transparent transparent}}
+.guard-layout{grid-template-columns:minmax(0,1fr) 270px}.guard-schedule-state{margin-top:13px;padding:10px;border:1px solid #d8e2e2;background:#fff}.guard-schedule-state>span{display:flex;align-items:center;justify-content:space-between;gap:8px}.guard-schedule-state>span b{font-size:10px}.guard-schedule-state>span b.good{color:#087462}.guard-schedule-state>span b.warn{color:#a46d09}.guard-schedule-state>span b.mute{color:#718086}.guard-schedule-state dl{display:grid;grid-template-columns:auto minmax(0,1fr);gap:5px 9px;margin:9px 0 0;padding-top:8px;border-top:1px solid #e4eaea;font-size:9px}.guard-schedule-state dt{color:#7b898d}.guard-schedule-state dd{margin:0;overflow-wrap:anywhere;color:#33494f;text-align:right}.guard-policy-note{border-left-color:#16806f;background:#eef8f5;color:#456861}
 @media(max-width:720px){.guard-command-bar,.guard-layout{grid-template-columns:1fr}.guard-command-bar .primary{width:100%}.guard-policy{padding:16px 0 0;border-top:1px solid #d9e2e3;border-left:0}.guard-score{grid-template-columns:1fr 1fr}.guard-score>span:nth-child(2){border-right:0}.guard-score>span:nth-child(-n+2){border-bottom:1px solid #e2e8e9}.guard-recommendations article{grid-template-columns:auto minmax(0,1fr)}.guard-recommendations .text-button{grid-column:2;justify-self:start;padding-left:0}.guard-history-list{flex-direction:column}.guard-history-list button{width:100%}}
 </style>

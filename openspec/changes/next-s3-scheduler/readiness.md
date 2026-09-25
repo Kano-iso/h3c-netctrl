@@ -15,6 +15,8 @@
 - **CR62**：认领 token 贯穿执行入口，执行前与异常 rollback 后都不会误用
   接管者 token；旧 worker 无权开始、无权替新 owner 收尾。
 - GET 策略附加只读 schedule_status/next_due/last_scheduled_at；S3-001 API 向后兼容。
+- GUARD 展示真实调度状态/下次检查/最近周期检查，历史区分手动、周期与失败运行；
+  真实隔离应用栈 6 条全绿且设备 I/O 边界通过。
 - 调度对抗 21 条 + 迁移 13 条（含 CR61/CR62 竞态顺序）= **34 passed**；
   受影响回归 78 条全绿。
 
@@ -23,7 +25,7 @@
 - scheduled/event 写接口仍未开放（trigger 写接口仅 manual；scheduled 仅由 scheduler 产生）。
 - 自动修复 / 根因结论 / 设备采集或下发：未实现，scheduler 路径零设备 I/O。
 - 评估基于合成/历史事实；真实多 Leaf 多 VPC 数值取决于真实记录（本包只验通道与契约语义）。
-- 前端视觉扩展：本轮未做（仅服务端附加只读字段）。
+- 更深的调度时间线/事件触发视觉化未做；本轮已完成 GUARD 基础运行状态接入。
 - 并发竞态在处理器层/多 session 验证；未做跨多进程真机压测。
 - scheduler 线程实测为单实例线程（config/core 单进程）；多进程部署下唯一性靠 DB CAS 保证，
   未经多进程真机验证。

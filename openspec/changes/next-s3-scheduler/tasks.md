@@ -39,10 +39,14 @@
         generation/status/token；异常 rollback 前脱离 slot owner 快照，防止 SQLAlchemy
         过期刷新后误取接管者 token。覆盖“执行前已接管”与“执行中接管后旧
         owner 异常”两种顺序。
+- [x] 11. GUARD 可视化接入：展示 disabled/manual_only/scheduled/due/running 真实调度状态、
+        下次检查和最近周期检查；历史区分手动/周期/失败，移除“只保存偏好”旧文案。
+        真实 Vue→FastAPI→SQLite 栈验证保存周期后状态可见且 device-I/O 无增长。
 
 ## QA（qa-backend 容器，真实 SQLite）
 
 - `pytest tests/test_s3_002_scheduler.py tests/test_sdn_migration.py -q`：**34 passed**
 - `pytest tests/test_s3_001_assurance.py tests/test_i18n.py tests/test_sdn_api.py tests/test_s2_016_attention.py -q`：
   **78 passed**（S3-001 全部 + i18n + 受影响回归，行为保持）
-- 前端：本轮无前端源码变更（GET 策略字段为服务端附加，API client 不变）
+- 前端：lint + type-check + GUARD 组件 **15 passed** + build 通过；真实隔离应用栈
+  **6 passed + BOUNDARY_OK + STACK_QA_OK**。

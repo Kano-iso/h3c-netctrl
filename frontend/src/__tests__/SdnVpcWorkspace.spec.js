@@ -127,9 +127,9 @@ describe('SdnVpcWorkspace.vue', () => {
     sdnApi.syncValidation.mockResolvedValue({ success: true, data: { cached: false } })
     sdnApi.upsertScopeException.mockResolvedValue({ success: true, data: { state: 'active' } })
     sdnApi.clearScopeException.mockResolvedValue({ success: true, data: { deleted: true } })
-    sdnApi.getAssurancePolicy.mockResolvedValue({ success: true, data: { vpc_id: 2, enabled: false, cadence: 'manual', response_mode: 'observe_only', version: 0 } })
+    sdnApi.getAssurancePolicy.mockResolvedValue({ success: true, data: { vpc_id: 2, enabled: false, cadence: 'manual', response_mode: 'observe_only', version: 0, schedule_status: 'disabled', next_due: null, last_scheduled_at: null } })
     sdnApi.listAssuranceRuns.mockResolvedValue({ success: true, data: { runs: [] } })
-    sdnApi.putAssurancePolicy.mockResolvedValue({ success: true, data: { vpc_id: 2, enabled: true, cadence: '30m', response_mode: 'observe_only', version: 1 } })
+    sdnApi.putAssurancePolicy.mockResolvedValue({ success: true, data: { vpc_id: 2, enabled: true, cadence: '30m', response_mode: 'observe_only', version: 1, schedule_status: 'scheduled', next_due: '2026-09-25T02:30:00Z', last_scheduled_at: null } })
     sdnApi.createAssuranceRun.mockResolvedValue({ success: true, data: {
       id: 12, overall: 'blocked', completed_at: '2026-09-25T02:00:00Z', policy_enabled: true,
       summary: { total: 1, blocking: 1, review: 0, deferred: 0 },
@@ -197,8 +197,16 @@ describe('SdnVpcWorkspace.vue', () => {
 
     expect(sdnApi.getAssurancePolicy).toHaveBeenCalledWith(2)
     expect(sdnApi.listAssuranceRuns).toHaveBeenCalledWith(2, { limit: 20 })
-    expect(wrapper.text()).toContain('当前版本只保存周期偏好')
+    expect(wrapper.text()).toContain('保障未启用')
+    expect(wrapper.text()).toContain('周期检查只读取平台已有证据')
     expect(wrapper.text()).toContain('尚未评估')
+
+    await wrapper.find('.toggle-row input').setValue(true)
+    await wrapper.find('.guard-policy select').setValue('30m')
+    await wrapper.find('.guard-policy .secondary').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('等待调度')
+    expect(wrapper.text()).toContain('下次检查')
 
     await wrapper.find('.guard-command-bar .primary').trigger('click')
     await flushPromises()

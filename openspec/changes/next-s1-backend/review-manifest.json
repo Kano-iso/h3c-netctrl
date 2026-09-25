@@ -982,7 +982,7 @@
     "S3-001 scheduler/scheduled/event 触发未实现：cadence 仅记录产品意图；策略 CAS 与 manual run 并发均以独立数据库会话在线程中验证",
     "S3-002 评估基于合成/历史事实；真实多 Leaf 多 VPC 数值取决于真实记录（本包只验通道与契约语义）",
     "S3-002 并发竞态在处理器层/多 session 验证；未做跨多进程真机压测（SQLite CAS 语义保证唯一性，但多进程部署未实测）",
-    "S3-002 scheduled/event 写接口仍未开放；前端视觉扩展未做（本轮仅服务端附加只读字段）"
+    "S3-002 scheduled/event 写接口仍未开放；GUARD 已接入基础调度状态，更深的调度时间线/事件触发视觉化未做"
   ],
   "forbidden_actions_confirmed": [
     "未修改主工作树或常驻业务服务；前端仅在开发 worktree 增加 GUARD 视角并走隔离 QA",
@@ -1006,7 +1006,7 @@
     "S3-002 未触真机、未执行任何设备 I/O（调度/评估全部隔离 qa-backend 容器验证）",
     "S3-002 未新增外部依赖（无 Redis/etcd/Celery/APScheduler）；未依赖进程锁（只靠 DB CAS）",
     "S3-002 未做自动修复/根因结论/设备采集或下发；scheduled 写接口未开放",
-    "S3-002 未改前端源码（GET 策略字段为服务端附加）；未 tag/archive"
+    "S3-002 GUARD 仅消费只读调度字段，不新增隐式采集/下发；未 tag/archive"
   ],
   "ready_for_code_review": true
 }

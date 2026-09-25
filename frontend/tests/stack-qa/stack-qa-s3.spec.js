@@ -36,7 +36,8 @@ test('S3 real stack: GUARD evaluates, records history, saves preference, and per
   const vpcId = await vpcIdOf(request)
   const ioBefore = ioLines()
 
-  await expect(guard).toContainText('当前版本只保存周期偏好，不会自动定时执行')
+  await expect(guard).toContainText('保障未启用')
+  await expect(guard).toContainText('周期检查只读取平台已有证据')
   await expect(guard).toContainText('还没有评估记录')
 
   await guard.getByRole('button', { name: '立即评估' }).click()
@@ -56,6 +57,7 @@ test('S3 real stack: GUARD evaluates, records history, saves preference, and per
   await guard.locator('.guard-policy select').selectOption('30m')
   await guard.getByRole('button', { name: '保存偏好' }).click()
   await expect(page.locator('.notice.success')).toContainText('保障偏好已保存')
+  await expect(guard).toContainText('等待调度')
 
   const policyResponse = await request.get(`/api/sdn/vpcs/${vpcId}/assurance-policy`)
   expect(policyResponse.ok()).toBeTruthy()
