@@ -13,8 +13,8 @@
        策略 GET/PUT（版本乐观并发）、manual run POST、run list（limit/before 分页）/ detail
 - [x] 6. 测试 test_s3_001_assurance.py（含原子并发 CAS、脏历史递归白名单与证据不足语义，见 §QA）+ test_sdn_migration.py 增 014 三条
        （建表/约束/索引、幂等、降级）+ test_i18n 一致性
-- [x] 7. 前端 API client：getAssurancePolicy / putAssurancePolicy / createAssuranceRun /
-       listAssuranceRuns / getAssuranceRun（typed 调用入口，不做页面）
+- [x] 7. 前端 API client + GUARD 工作台视角：策略偏好、立即评估、结论/人工建议、
+       追加式历史；明确 cadence 尚无 scheduler，不自动修复
 - [x] 8. OpenSpec change next-s3-assurance（proposal/design/spec/tasks/readiness）+
        review-manifest 更新（S3-001 / baseline 3be43b4）+ collaboration.md 索引更新
 - [x] 9. 门禁：openspec validate --strict next-s3-assurance、manifest JSON、git diff --check
@@ -27,9 +27,10 @@
   预存在环境缺口（`ops-toolkit/scripts/_paramiko_batch_exec` 未挂载进 qa 镜像，
   ModuleNotFoundError；该文件上次改动 62df6d0，与本包无关）。
 - 前端 API client 变更：lint / build 通过（stack QA 容器内）。
+- GUARD 组件回归 15 passed；真实 Vue/FastAPI/SQLite 应用栈 6 passed，新增用例证明
+  评估落历史、策略保存成功且 device-I/O 日志不增长；`BOUNDARY_OK` / `STACK_QA_OK`。
 
 ## 明确未实现（如实声明）
 
 - scheduler / scheduled / event 触发；cadence 仅记录产品意图。
 - 自动修复 / 根因结论；设备采集/下发。
-- S3 前端页面（Codex 后续工作单负责）。

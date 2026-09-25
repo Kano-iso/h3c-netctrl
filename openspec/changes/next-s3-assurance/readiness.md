@@ -1,10 +1,10 @@
 # Readiness
 
-## 状态：READY_FOR_CODE_REVIEW（后端纵向切片，非成品收尾）
+## 状态：READY_FOR_CODE_REVIEW（首个前后端纵向切片，非成品收尾）
 
 S3-001 是 S3「受限保障」的第一个后端纵向切片：策略保存 + 只读手动评估 + 可审计历史 +
-确定性人工建议。本 change 不宣称 S3 或 NEXT 成品完成——scheduler、自动修复、S3 前端
-页面均未实现（见 tasks.md「明确未实现」）。
+确定性人工建议，并已接入既有 VPC 工作台的 GUARD 视角。本 change 不宣称 S3 或 NEXT
+成品完成——scheduler 与自动修复仍未实现（见 tasks.md「明确未实现」）。
 
 ## 完成证据（QA 仅走隔离 qa-backend 容器 + 前端 lint/build）
 
@@ -17,7 +17,9 @@ S3-001 是 S3「受限保障」的第一个后端纵向切片：策略保存 + �
   （S2-001/004/012/014/016 + sdn_api）全绿——`build_projection_payload` 重构行为保持。
 - 全量后端套件：792 passed / 59 skipped；13 failed 均为 `test_ops_toolkit_paramiko`
   预存在环境缺口（`ops-toolkit/scripts/_paramiko_batch_exec` 未挂载进 qa 镜像），与本包无关。
-- 前端 API client 变更：lint / build 通过（stack QA 容器内，仅新增 5 个 typed 调用入口）。
+- 前端 GUARD：组件回归 15 passed，lint/type-check/build 通过；隔离真实应用栈 6 passed，
+  其中新增用例通过真实 Vue/FastAPI/SQLite 完成评估、历史和策略保存，并断言前后
+  device-I/O 日志不增长；最终 `BOUNDARY_OK` / `STACK_QA_OK`。
 - 门禁：`openspec validate --strict next-s3-assurance` valid、manifest JSON valid、
   `git diff --check` clean。
 

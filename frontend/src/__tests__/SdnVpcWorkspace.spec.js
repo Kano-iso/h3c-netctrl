@@ -13,6 +13,7 @@ vi.mock('../api/index.js', () => ({
     listTenants: vi.fn(), createTenant: vi.fn(), listVpcs: vi.fn(), createVpc: vi.fn(),
     deployVpc: vi.fn(), withdrawVpc: vi.fn(), accessOverview: vi.fn(), stateProjection: vi.fn(), stateProjectionHistory: vi.fn(), previewAccess: vi.fn(),
     upsertScopeException: vi.fn(), clearScopeException: vi.fn(),
+    getAssurancePolicy: vi.fn(), putAssurancePolicy: vi.fn(), createAssuranceRun: vi.fn(), listAssuranceRuns: vi.fn(), getAssuranceRun: vi.fn(),
     executeAccess: vi.fn(), getOperation: vi.fn(), completeOperation: vi.fn(), syncValidation: vi.fn(),
     withdrawOperation: vi.fn(), reconcileOperation: vi.fn(),
   },
@@ -126,6 +127,16 @@ describe('SdnVpcWorkspace.vue', () => {
     sdnApi.syncValidation.mockResolvedValue({ success: true, data: { cached: false } })
     sdnApi.upsertScopeException.mockResolvedValue({ success: true, data: { state: 'active' } })
     sdnApi.clearScopeException.mockResolvedValue({ success: true, data: { deleted: true } })
+    sdnApi.getAssurancePolicy.mockResolvedValue({ success: true, data: { vpc_id: 2, enabled: false, cadence: 'manual', response_mode: 'observe_only', version: 0 } })
+    sdnApi.listAssuranceRuns.mockResolvedValue({ success: true, data: { runs: [] } })
+    sdnApi.putAssurancePolicy.mockResolvedValue({ success: true, data: { vpc_id: 2, enabled: true, cadence: '30m', response_mode: 'observe_only', version: 1 } })
+    sdnApi.createAssuranceRun.mockResolvedValue({ success: true, data: {
+      id: 12, overall: 'blocked', completed_at: '2026-09-25T02:00:00Z', policy_enabled: true,
+      summary: { total: 1, blocking: 1, review: 0, deferred: 0 },
+      facts: { leaves: [{ device_id: 5, aggregate: 'drifted' }] },
+      items: [{ key: '2:5:confirmed_drift', device_id: 5, name: 'Leaf-04', host: '192.168.100.5', severity: 'blocking', category: 'confirmed_drift', recommendation: 'inspect_drift' }],
+    } })
+    sdnApi.getAssuranceRun.mockImplementation(async (_vpcId, runId) => ({ success: true, data: { id: runId, overall: 'healthy', completed_at: '2026-09-24T02:00:00Z', summary: { total: 0, blocking: 0, review: 0, deferred: 0 }, facts: { leaves: [] }, items: [] } }))
   })
 
   it('renders a VPC-centered map and excludes non-EVPN devices', async () => {
@@ -176,6 +187,27 @@ describe('SdnVpcWorkspace.vue', () => {
     expect(wrapper.text()).toContain('Leaf-05')
     expect(wrapper.text()).toContain('尚未纳入')
     expect(wrapper.text()).toContain('范围不等于健康度')
+  })
+
+  it('runs a read-only GUARD evaluation and exposes human recommendations', async () => {
+    const wrapper = mountPage()
+    await flushPromises()
+    await wrapper.findAll('button').find((button) => button.text().includes('GUARD')).trigger('click')
+    await flushPromises()
+
+    expect(sdnApi.getAssurancePolicy).toHaveBeenCalledWith(2)
+    expect(sdnApi.listAssuranceRuns).toHaveBeenCalledWith(2, { limit: 20 })
+    expect(wrapper.text()).toContain('当前版本只保存周期偏好')
+    expect(wrapper.text()).toContain('尚未评估')
+
+    await wrapper.find('.guard-command-bar .primary').trigger('click')
+    await flushPromises()
+
+    expect(sdnApi.createAssuranceRun).toHaveBeenCalledWith(2, { trigger: 'manual' })
+    expect(wrapper.text()).toContain('存在阻断')
+    expect(wrapper.text()).toContain('已确认配置差异')
+    expect(wrapper.text()).toContain('查看差异')
+    expect(wrapper.text()).toContain('评估只读取平台现有记录和设备证据')
   })
 
   it('records a scope exception without presenting it as device configuration or health', async () => {

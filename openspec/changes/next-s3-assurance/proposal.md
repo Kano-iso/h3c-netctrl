@@ -23,7 +23,8 @@ repair 预留契约，但明确不做。
   {healthy, attention, blocked, insufficient_evidence}；建议只允许确定性码
   （review_scope / refresh_evidence / inspect_drift / resolve_ambiguity /
   repair_context / review_exception），不含设备命令/自动修复/根因暗示。
-- 前端 API client 只补 typed 调用入口，不做页面（Codex 后续负责 S3 页面）。
+- 前端在既有 VPC 工作台增加 `GUARD` 保障视角：保存保障偏好、发起只读评估、
+  查看结论/人工建议/历史；不另起孤立页面，也不暗示已存在 scheduler。
 
 ## 3. 非目标（明确不做）
 

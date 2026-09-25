@@ -76,3 +76,13 @@ assurance_invalid_trigger / assurance_run_not_found。
 - 新路由不 import collector/executor/Netconf/SSH；不写 deployment/binding/operation/
   snapshot/claim；不 bump vpc.version；不做后台调度。
 - 测试用模块命名空间断言（无 I/O 绑定）+ 表计数不变 + version 不变三重复核。
+
+## 6. GUARD 工作台视角
+
+- 与 ATLAS / PULSE / STRATA 共用当前 VPC 上下文，不复制资源选择器。
+- 首屏展示 overall、阻断/复核/暂缓计数、已评估 Leaf 和确定性人工建议；建议只导航
+  到现有证据或范围上下文，不自动执行修复。
+- 策略区明确说明 cadence 当前仅保存偏好，评估仍由「立即评估」触发。
+- 历史区读取追加式 run，可重新打开任意一次结论。
+- 真实栈浏览器验收使用真实 Vue/FastAPI/SQLite，并比较动作前后 fake device-I/O 日志行数，
+  证明评估和策略保存均未触发设备调用。

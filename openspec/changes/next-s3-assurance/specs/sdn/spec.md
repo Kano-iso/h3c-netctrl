@@ -130,11 +130,20 @@ keeps the parent VPC table.
 - **WHEN** migration 014 is downgraded to 013
 - **THEN** sdn_assurance_policies and sdn_assurance_runs are dropped and sdn_vpcs remains
 
-### Requirement: Frontend API client entry points only
+### Requirement: GUARD assurance perspective in the VPC workbench
 The frontend API client SHALL expose typed, stable entry points getAssurancePolicy,
-putAssurancePolicy, createAssuranceRun, listAssuranceRuns, and getAssuranceRun without adding
-any page or UI. (Pages are deferred to a later work item.)
+putAssurancePolicy, createAssuranceRun, listAssuranceRuns, and getAssuranceRun. The existing
+VPC workbench SHALL expose a GUARD perspective in the selected VPC context, showing the latest
+overall/summary, deterministic human recommendations, policy preference, and auditable run
+history. It SHALL state that cadence is stored only and does not schedule execution, and SHALL
+NOT present recommendations as automatic remediation.
 
-#### Scenario: Client entry points exist
-- **WHEN** the frontend API client is loaded
-- **THEN** the five assurance entry points are available and pass lint/type-check/build
+#### Scenario: Manual evaluation is visible and remains device-read-only
+- **WHEN** the user opens GUARD and selects Evaluate now
+- **THEN** the real assurance API persists a completed run and the conclusion appears in history
+- **AND** the device-I/O boundary records no additional call
+
+#### Scenario: Stored cadence is not represented as a scheduler
+- **WHEN** the user enables assurance and saves a cadence
+- **THEN** the preference and its optimistic version are persisted
+- **AND** the page explicitly says that no automatic schedule is active in this version

@@ -12,6 +12,11 @@
     "backend/migrations/versions/014_add_sdn_assurance.py",
     "backend/tests/test_s3_001_assurance.py",
     "frontend/src/api/index.js",
+    "frontend/src/views/SdnVpcWorkspace.vue",
+    "frontend/src/i18n/en-US.js",
+    "frontend/src/i18n/zh-CN.js",
+    "frontend/src/__tests__/SdnVpcWorkspace.spec.js",
+    "frontend/tests/stack-qa/stack-qa-s3.spec.js",
     "openspec/changes/next-s3-assurance/"
   ],
   "changed_files": [
@@ -112,6 +117,9 @@
     "backend/migrations/versions/014_add_sdn_assurance.py",
     "backend/tests/test_s3_001_assurance.py",
     "frontend/src/api/index.js",
+    "frontend/src/views/SdnVpcWorkspace.vue",
+    "frontend/src/__tests__/SdnVpcWorkspace.spec.js",
+    "frontend/tests/stack-qa/stack-qa-s3.spec.js",
     "openspec/changes/next-s3-assurance/proposal.md",
     "openspec/changes/next-s3-assurance/design.md",
     "openspec/changes/next-s3-assurance/specs/sdn/spec.md",
@@ -612,7 +620,7 @@
     },
     {
       "id": "CR59",
-      "summary": "VPC 受限保障纵向切片（S3-001）：每 VPC 至多一条策略，PUT 以 id+version 数据库原子 CAS 防并发覆盖；POST 手动评估基于同一次 state projection/attention 事实追加 run，零设备 I/O、零业务写副作用；无 eligible Leaf 或仅缺失/陈旧证据均返回 insufficient_evidence；历史 summary/facts/items 按类型递归白名单，脏数据不 500、不泄漏额外字段；active exception 不吞 confirmed_drift blocking；迁移 014 幂等且 ORM 使用同名唯一索引；前端仅补 typed API client。scheduler/自动修复/S3 页面明确未实现。"
+      "summary": "VPC 受限保障纵向切片（S3-001）：每 VPC 至多一条策略，PUT 以 id+version 数据库原子 CAS 防并发覆盖；POST 手动评估基于同一次 state projection/attention 事实追加 run，零设备 I/O、零业务写副作用；无 eligible Leaf 或仅缺失/陈旧证据均返回 insufficient_evidence；历史 summary/facts/items 按类型递归白名单，脏数据不 500、不泄漏额外字段；active exception 不吞 confirmed_drift blocking；迁移 014 幂等且 ORM 使用同名唯一索引；既有 VPC 工作台新增 GUARD 保障视角并通过真实应用栈验收。scheduler/自动修复明确未实现。"
     }
   ],
   "invariants": [
@@ -659,7 +667,8 @@
     "S3-001 手动评估零设备 I/O：新路由不 import collector/executor/Netconf/SSH；不写 deployment/binding/operation/snapshot/claim；不 bump vpc.version；policy 写库零设备 I/O",
     "S3-001 GET 缺失策略不隐式写库；PUT 更新以 id+version 单条原子 CAS，竞争输家零行并返回版本冲突，禁止 last-write-wins",
     "S3-001 run 追加式历史：并发 manual run 互不覆盖；facts/summary/items 写入与读取均递归白名单，脏历史不泄漏额外字段",
-    "S3-001 评估语义复用 S2 事实：blocking→blocked；无 eligible Leaf 或仅 evidence_missing_or_stale→insufficient_evidence；其他项→attention；无项→healthy"
+    "S3-001 评估语义复用 S2 事实：blocking→blocked；无 eligible Leaf 或仅 evidence_missing_or_stale→insufficient_evidence；其他项→attention；无项→healthy",
+    "S3-001 GUARD 与 ATLAS/PULSE/STRATA 共用当前 VPC 上下文；cadence 只表示已保存偏好，不冒充 scheduler；人工建议不冒充自动修复；真实栈评估与策略保存前后 device-I/O 日志不增长"
   ],
   "tests": [
     {
@@ -859,6 +868,12 @@
       "environment": "qa-backend 容器（S3-001 直接受影响 state/scope/attention + i18n 回归）",
       "result": "130 passed（本轮直接受影响回归）",
       "baseline_failed": false
+    },
+    {
+      "command": "HOME=<worktree>/.stackqa/home docker compose -f openspec/changes/next-s1-workbench/qa/docker-compose.stack-qa.yml run --rm qa-stack bash /opt/stack/qa/run_stack_qa.sh",
+      "environment": "next-s1-stack-qa 单容器真实应用栈（network_mode:none，真实 Vue/FastAPI/SQLite，设备边界 fake）",
+      "result": "6 passed（S1 2 + S2 3 + S3 GUARD 1）+ BOUNDARY_OK + STACK_QA_OK",
+      "baseline_failed": false
     }
   ],
   "migrations": [
@@ -899,7 +914,7 @@
       "rollback": "access withdraw 恢复 GE1/0/10 → VPC withdraw 移除 VSI/Vsi-interface/RD → 兜底清理 sdn_l3vpn+vxlan global → 最终 readback 残留为空（VSI 空/routes 0/无 sdn_l3vpn/无 vxlan/无 service-instance/GE1/0/10 回基线）"
     },
     {
-      "round": "S3-001（2026-09-25）：未触真机、无任何设备 I/O（手动评估/策略读写全部在隔离 qa-backend 容器以真实 SQLite + 纯函数验证；新路由不 import collector/executor/Netconf/SSH）",
+      "round": "S3-001（2026-09-25）：未触真机、无任何设备 I/O（手动评估/策略读写在隔离 qa-backend 及真实 Vue/FastAPI/SQLite 应用栈验证；浏览器动作前后 fake device-I/O 日志不增长）",
       "target": null,
       "mode": "none"
     }
@@ -911,7 +926,7 @@
     "S3-001 scheduler/scheduled/event 触发未实现：cadence 仅记录产品意图；策略 CAS 与 manual run 并发均以独立数据库会话在线程中验证"
   ],
   "forbidden_actions_confirmed": [
-    "未修改前端、主工作树、常驻业务服务",
+    "未修改主工作树或常驻业务服务；前端仅在开发 worktree 增加 GUARD 视角并走隔离 QA",
     "未 commit / push / tag / archive / close stage",
     "未新建 change（沿用 next-s1-backend）",
     "未触碰 .6 / GE1/0/1~3 / MGE0/0/0 / underlay / OSPF / BGP 邻居 / startup-config",
@@ -929,7 +944,7 @@
     "S3-001 未触真机、未执行任何设备 I/O（评估/策略全部隔离 qa-backend 容器验证）",
     "S3-001 未新增 scheduler/后台调度、未实现自动修复/根因结论、未做任何设备采集/下发；cadence 仅记录产品意图",
     "S3-001 未改 S1/S2 设备执行语义（get_vpc_state_projection 载荷抽为 build_projection_payload，行为保持，S2 回归全绿）；未 tag/archive",
-    "S3-001 前端仅补 typed API client（getAssurancePolicy/putAssurancePolicy/createAssuranceRun/listAssuranceRuns/getAssuranceRun），未改任何页面"
+    "S3-001 前端新增 GUARD 工作台视角；未新增 scheduler、自动修复或隐式设备采集"
   ],
   "ready_for_code_review": true
 }
