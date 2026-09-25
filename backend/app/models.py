@@ -213,6 +213,13 @@ class SdnVpc(Base):
     scope_exceptions: Mapped[list["SdnScopeException"]] = relationship(
         "SdnScopeException", back_populates="vpc", cascade="all, delete-orphan"
     )
+    # S3-001：每 VPC 至多一条保障策略 + 只读评估历史（写评估只追加行，父删除级联清理）
+    assurance_policy: Mapped[Optional["SdnAssurancePolicy"]] = relationship(
+        "SdnAssurancePolicy", back_populates="vpc", cascade="all, delete-orphan", uselist=False
+    )
+    assurance_runs: Mapped[list["SdnAssuranceRun"]] = relationship(
+        "SdnAssuranceRun", back_populates="vpc", cascade="all, delete-orphan"
+    )
 
 
 class SdnPortBinding(Base):
@@ -398,6 +405,84 @@ class SdnScopeException(Base):
     # 项目既有级联方式：ORM relationship cascade（SQLite FK pragma 未开，声明 FK 仅描述性）
     vpc: Mapped["SdnVpc"] = relationship("SdnVpc", back_populates="scope_exceptions")
     device: Mapped["Device"] = relationship("Device", back_populates="scope_exceptions")
+
+
+class SdnAssurancePolicy(Base):
+    """VPC 保障策略（S3-001，业务意图，非设备事实/配置动作）。
+
+    每 VPC 至多一条（vpc_id 唯一约束）；enabled 决定自动保障是否开启，cadence 只记录
+    产品意图（本包不实现 scheduler）；response_mode 固定 observe_only（本包不做任何
+    下发/修复）。version 用于乐观并发（PUT 需携带当前版本，冲突即拒绝；GET 缺失时返回
+    明确默认值但不写库）。
+    """
+    __tablename__ = "sdn_assurance_policies"
+    __table_args__ = (
+        Index("uq_sdn_assurance_policies_vpc", "vpc_id", unique=True),
+        CheckConstraint(
+            "cadence IN ('manual', '10m', '30m', '1h')",
+            name="ck_sdn_assurance_policies_cadence",
+        ),
+        CheckConstraint(
+            "response_mode = 'observe_only'",
+            name="ck_sdn_assurance_policies_response_mode",
+        ),
+        CheckConstraint("version >= 1", name="ck_sdn_assurance_policies_version"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    vpc_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("sdn_vpcs.id", ondelete="CASCADE"), nullable=False
+    )
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    cadence: Mapped[str] = mapped_column(String(10), default="manual", nullable=False)
+    response_mode: Mapped[str] = mapped_column(String(20), default="observe_only", nullable=False)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    vpc: Mapped["SdnVpc"] = relationship("SdnVpc", back_populates="assurance_policy")
+
+
+class SdnAssuranceRun(Base):
+    """VPC 保障评估运行（S3-001，只读评估历史）。
+
+    一次手动评估 = 同一次 state projection/attention 事实的白名单快照 + 确定性建议。
+    写接口只允许 trigger=manual（scheduled/event 为未来 scheduler 保留枚举）；status
+    本包恒为 completed。facts_json/summary_json/items_json 是脱敏快照（不含原始配置/
+    CLI/凭据/error）。写评估只追加行：并发多次 manual run 各自完整、互不覆盖；不写
+    deployment/binding/operation/snapshot/claim，零设备 I/O。
+    """
+    __tablename__ = "sdn_assurance_runs"
+    __table_args__ = (
+        CheckConstraint(
+            "trigger IN ('manual', 'scheduled', 'event')",
+            name="ck_sdn_assurance_runs_trigger",
+        ),
+        CheckConstraint(
+            "status IN ('started', 'completed')",
+            name="ck_sdn_assurance_runs_status",
+        ),
+        CheckConstraint("policy_version >= 0", name="ck_sdn_assurance_runs_policy_version"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    vpc_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("sdn_vpcs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    trigger: Mapped[str] = mapped_column(String(10), default="manual", nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="completed", nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    policy_version: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    policy_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    facts_json: Mapped[str] = mapped_column(Text, nullable=False)
+    summary_json: Mapped[str] = mapped_column(Text, nullable=False)
+    items_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    vpc: Mapped["SdnVpc"] = relationship("SdnVpc", back_populates="assurance_runs")
 
 
 class SdnPlan(Base):

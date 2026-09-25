@@ -1705,21 +1705,21 @@ def _latest_snapshot(db: Session, vpc_id: int, device_id: int):
     )
 
 
-@router.get("/vpcs/{vpc_id}/state-projection", response_model=APIResponse)
-def get_vpc_state_projection(vpc_id: int, db: Session = Depends(get_db)):
-    """单个 VPC 的目标态/观测态/差异投影（S2-001，只读）。
+def build_projection_payload(db: Session, vpc_id: int, now: Optional[datetime] = None) -> Optional[dict]:
+    """S2 状态投影载荷（只读、零设备 I/O、零 DB 写）。
 
-    只读语义：不触发 SSH/NETCONF、不写库、不刷新时间戳；仅投影已持久化的期望记录
-    （VPC/binding/deployment）与最近验证快照。非 evpn_leaf 设备不进健康分母，仅作
-    excluded 呈现。
+    state-projection 端点与 S3 assurance 手动评估共用同一份事实（同一次
+    projection/attention）。VPC 不存在 → None。本函数不触发 SSH/NETCONF、不写库、
+    不刷新时间戳；仅投影已持久化的期望记录（VPC/binding/deployment）与最近验证快照。
+    非 evpn_leaf 设备不进健康分母，仅作 excluded 呈现。
     """
     ctx = _load_projection_context(db, vpc_id)
     if ctx is None:
-        return error_response(err.SDN_VPC_NOT_FOUND, params={"id": vpc_id})
+        return None
     vpc, tenant, vpc_dict, tenant_dict = ctx
+    now = now or datetime.utcnow()
 
     devices = _projection_target_devices(db, vpc_id)
-    now = datetime.utcnow()
     leaves: list[dict] = []
     excluded: list[dict] = []
     for device in devices:
@@ -1814,18 +1814,29 @@ def get_vpc_state_projection(vpc_id: int, db: Session = Depends(get_db)):
         leaves_by_device={leaf.get("device_id"): leaf for leaf in leaves},
     )
 
-    return APIResponse(
-        success=True,
-        data={
-            "vpc": vpc_dict,
-            "snapshot_ttl_seconds": SNAPSHOT_TTL_SECONDS,
-            "leaves": leaves,
-            "excluded": excluded,
-            "aggregate": aggregate_vpc(leaf_aggregates),
-            "scope": {"members": scope_members, "summary": scope_summary},
-            "attention": attention,
-        },
-    )
+    return {
+        "vpc": vpc_dict,
+        "snapshot_ttl_seconds": SNAPSHOT_TTL_SECONDS,
+        "leaves": leaves,
+        "excluded": excluded,
+        "aggregate": aggregate_vpc(leaf_aggregates),
+        "scope": {"members": scope_members, "summary": scope_summary},
+        "attention": attention,
+    }
+
+
+@router.get("/vpcs/{vpc_id}/state-projection", response_model=APIResponse)
+def get_vpc_state_projection(vpc_id: int, db: Session = Depends(get_db)):
+    """单个 VPC 的目标态/观测态/差异投影（S2-001，只读）。
+
+    只读语义：不触发 SSH/NETCONF、不写库、不刷新时间戳；仅投影已持久化的期望记录
+    （VPC/binding/deployment）与最近验证快照。非 evpn_leaf 设备不进健康分母，仅作
+    excluded 呈现。载荷由 build_projection_payload 统一构建（S3 手动评估复用同份事实）。
+    """
+    data = build_projection_payload(db, vpc_id)
+    if data is None:
+        return error_response(err.SDN_VPC_NOT_FOUND, params={"id": vpc_id})
+    return APIResponse(success=True, data=data)
 
 
 @router.get("/vpcs/{vpc_id}/state-projection/history", response_model=APIResponse)

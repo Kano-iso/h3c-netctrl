@@ -123,6 +123,27 @@ export const sdnApi = {
     }),
   clearScopeException: (vpcId, deviceId) =>
     apiCall(`/sdn/vpcs/${vpcId}/devices/${deviceId}/scope-exception`, { method: 'DELETE' }),
+
+  // NEXT S3：VPC 受限保障（后端切片；页面由后续工作单负责）
+  getAssurancePolicy: (vpcId) => apiCall(`/sdn/vpcs/${vpcId}/assurance-policy`),
+  putAssurancePolicy: (vpcId, payload) =>
+    apiCall(`/sdn/vpcs/${vpcId}/assurance-policy`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+  createAssuranceRun: (vpcId, payload = {}) =>
+    apiCall(`/sdn/vpcs/${vpcId}/assurance-runs`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  listAssuranceRuns: (vpcId, params = {}) => {
+    const qs = new URLSearchParams(
+      Object.entries(params).filter(([, value]) => value !== undefined && value !== null && value !== '')
+    ).toString()
+    return apiCall(`/sdn/vpcs/${vpcId}/assurance-runs${qs ? '?' + qs : ''}`)
+  },
+  getAssuranceRun: (vpcId, runId) => apiCall(`/sdn/vpcs/${vpcId}/assurance-runs/${runId}`),
+
   previewAccess: (vpcId, payload) =>
     apiCall(`/sdn/vpcs/${vpcId}/access-preview`, {
       method: 'POST',

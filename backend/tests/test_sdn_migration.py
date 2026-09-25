@@ -245,3 +245,107 @@ def test_fresh_empty_db_upgrade_head_bootstraps_base_tables(monkeypatch, tmp_pat
     insp2 = inspect(create_engine(f"sqlite:///{db_file}"))
     assert set(insp2.get_table_names()) == tables
     engine.dispose()
+
+
+# ── S3-001 迁移 014：VPC 保障策略 + 只读评估运行 ──
+
+
+def _stamp_013(cfg, db_file, monkeypatch):
+    from alembic import command
+    from app.config import settings
+    monkeypatch.setattr(settings, "DB_PATH", str(db_file))
+    cfg.set_main_option("sqlalchemy.url", f"sqlite:///{db_file}")
+    command.stamp(cfg, "013")
+
+
+def test_upgrade_014_creates_tables_columns_index(monkeypatch, tmp_path):
+    """013 旧库（仅含旧 SDN 表骨架）→ upgrade 014 建两表 + 唯一约束 + 索引 + 约束列。"""
+    db_file = tmp_path / "up014.db"
+    engine = create_engine(f"sqlite:///{db_file}")
+    _make_legacy_schema(engine)
+    engine.dispose()
+
+    cfg = _alembic_config()
+    _stamp_013(cfg, db_file, monkeypatch)
+
+    from alembic import command
+    command.upgrade(cfg, "014")
+
+    engine = create_engine(f"sqlite:///{db_file}")
+    insp = inspect(engine)
+    tables = set(insp.get_table_names())
+    assert "sdn_assurance_policies" in tables
+    assert "sdn_assurance_runs" in tables
+
+    pol_cols = {c["name"] for c in insp.get_columns("sdn_assurance_policies")}
+    assert {"id", "vpc_id", "enabled", "cadence", "response_mode", "version",
+            "created_at", "updated_at"} <= pol_cols
+    run_cols = {c["name"] for c in insp.get_columns("sdn_assurance_runs")}
+    assert {"id", "vpc_id", "trigger", "status", "started_at", "completed_at",
+            "policy_version", "policy_enabled", "facts_json", "summary_json",
+            "items_json", "created_at"} <= run_cols
+
+    # 唯一约束（策略每 VPC 至多一条）+ run 列表索引
+    assert _index_exists(engine, "uq_sdn_assurance_policies_vpc")
+    assert _index_exists(engine, "ix_sdn_assurance_runs_vpc_id")
+
+    # 约束列类型
+    pol_vpc_type = _column_type(engine, "sdn_assurance_policies", "vpc_id")
+    assert pol_vpc_type and "INT" in pol_vpc_type
+    run_facts_type = _column_type(engine, "sdn_assurance_runs", "facts_json")
+    assert run_facts_type and "TEXT" in run_facts_type
+
+    # 唯一约束实际拒绝同一 VPC 两条策略（骨架旧表仅含 id 列）
+    from sqlalchemy import text as _t
+    from sqlalchemy.exc import IntegrityError
+    with engine.begin() as conn:
+        conn.execute(_t("INSERT INTO sdn_vpcs (id) VALUES (1)"))
+        conn.execute(_t("INSERT INTO sdn_assurance_policies (vpc_id, enabled, cadence, response_mode, version) "
+                        "VALUES (1, 1, 'manual', 'observe_only', 1)"))
+        try:
+            conn.execute(_t("INSERT INTO sdn_assurance_policies (vpc_id, enabled, cadence, response_mode, version) "
+                            "VALUES (1, 0, '10m', 'observe_only', 1)"))
+            raise AssertionError("duplicate vpc_id policy should be rejected")
+        except IntegrityError:
+            pass
+    engine.dispose()
+
+
+def test_upgrade_014_idempotent(monkeypatch, tmp_path):
+    db_file = tmp_path / "up014b.db"
+    engine = create_engine(f"sqlite:///{db_file}")
+    _make_legacy_schema(engine)
+    engine.dispose()
+
+    cfg = _alembic_config()
+    _stamp_013(cfg, db_file, monkeypatch)
+
+    from alembic import command
+    command.upgrade(cfg, "014")
+    command.upgrade(cfg, "014")
+    command.upgrade(cfg, "014")
+
+    engine = create_engine(f"sqlite:///{db_file}")
+    assert "sdn_assurance_policies" in set(inspect(engine).get_table_names())
+    engine.dispose()
+
+
+def test_downgrade_014_drops_tables(monkeypatch, tmp_path):
+    db_file = tmp_path / "down014.db"
+    engine = create_engine(f"sqlite:///{db_file}")
+    _make_legacy_schema(engine)
+    engine.dispose()
+
+    cfg = _alembic_config()
+    _stamp_013(cfg, db_file, monkeypatch)
+
+    from alembic import command
+    command.upgrade(cfg, "014")
+    command.downgrade(cfg, "013")
+
+    engine = create_engine(f"sqlite:///{db_file}")
+    tables = set(inspect(engine).get_table_names())
+    assert "sdn_assurance_policies" not in tables
+    assert "sdn_assurance_runs" not in tables
+    assert "sdn_vpcs" in tables  # 旧表保留
+    engine.dispose()

@@ -1,16 +1,18 @@
 {
   "schema_version": 1,
-  "package_id": "S2-018",
+  "package_id": "S3-001",
   "change_id": "next-s1-backend",
-  "baseline_sha": "cab3b77f0b8679a5c1010fec5978f9f841daecb3",
+  "baseline_sha": "3be43b433277b2a478d5de3c3acdd3be85c75b5c",
   "worktree": "/root/workpace/h3c-netctrl/.agent-worktrees/next-s1-backend",
   "scope": [
-    "backend/app/i18n_keys.py",
-    "backend/app/routers/sdn_access.py",
-    "backend/app/services/sdn_operation_service.py",
-    "backend/app/services/sdn_validation_collector.py",
-    "backend/migrations/versions/012_add_sdn_operations.py",
-    "backend/tests/test_s1_00*_adversarial.py"
+    "backend/app/models.py",
+    "backend/app/routers/sdn.py",
+    "backend/app/routers/sdn_assurance.py",
+    "backend/app/services/sdn_assurance.py",
+    "backend/migrations/versions/014_add_sdn_assurance.py",
+    "backend/tests/test_s3_001_assurance.py",
+    "frontend/src/api/index.js",
+    "openspec/changes/next-s3-assurance/"
   ],
   "changed_files": [
     "backend/app/i18n_keys.py",
@@ -104,7 +106,19 @@
     "openspec/changes/next-s1-workbench/qa/README.md",
     "openspec/changes/next-s1-workbench/design.md",
     "openspec/changes/next-s1-workbench/specs/sdn/spec.md",
-    "openspec/changes/next-s1-workbench/tasks.md"
+    "openspec/changes/next-s1-workbench/tasks.md",
+    "backend/app/routers/sdn_assurance.py",
+    "backend/app/services/sdn_assurance.py",
+    "backend/migrations/versions/014_add_sdn_assurance.py",
+    "backend/tests/test_s3_001_assurance.py",
+    "frontend/src/api/index.js",
+    "openspec/changes/next-s3-assurance/proposal.md",
+    "openspec/changes/next-s3-assurance/design.md",
+    "openspec/changes/next-s3-assurance/specs/sdn/spec.md",
+    "openspec/changes/next-s3-assurance/tasks.md",
+    "openspec/changes/next-s3-assurance/readiness.md",
+    "openspec/changes/next-product-blueprint/collaboration.md",
+    "openspec/changes/next-s1-backend/review-manifest.json"
   ],
   "requirements": [
     {
@@ -595,6 +609,10 @@
         "test('S2 真实栈：范围例外 PUT/DELETE 闭环（不新增记录、无设备 I/O、attention 变 deferred）')",
         "test('S2 真实栈：targeted Leaf 漂移 + active 例外 → attention 仍 confirmed_drift blocking 且携带例外')"
       ]
+    },
+    {
+      "id": "CR59",
+      "summary": "VPC 受限保障纵向切片（S3-001）：每 VPC 至多一条策略，PUT 以 id+version 数据库原子 CAS 防并发覆盖；POST 手动评估基于同一次 state projection/attention 事实追加 run，零设备 I/O、零业务写副作用；无 eligible Leaf 或仅缺失/陈旧证据均返回 insufficient_evidence；历史 summary/facts/items 按类型递归白名单，脏数据不 500、不泄漏额外字段；active exception 不吞 confirmed_drift blocking；迁移 014 幂等且 ORM 使用同名唯一索引；前端仅补 typed API client。scheduler/自动修复/S3 页面明确未实现。"
     }
   ],
   "invariants": [
@@ -637,7 +655,11 @@
     "范围只表达覆盖事实（S2-012）：scope 只枚举 sdn_role=evpn_leaf 设备并保守分类（targeted/withdrawn/not_targeted/ambiguous），范围不是健康度、未覆盖不得冒充故障或漂移；snapshot 单独不能证明 targeted、版本不匹配仍 ambiguous、failed/pending 不覆盖确定生命周期、局部 gateway_delete 不改变 base；非 EVPN 只走 excluded 不混入 scope 分母；复用 resolve_base_lifecycle 同一判定，不回传凭据/protected_interfaces/原始配置或快照；只读零 DB 写零 SSH/NETCONF 零隐式采集",
     "范围例外是业务上下文（S2-014）：例外只记录有意排除/维护暂停的业务原因，不改变 classification/reason_code/desired_base_state 与 aggregate/leaves/excluded 事实语义、不从 scope 分母移除设备；类型仅 intentional_exclusion|maintenance_pause，reason 非空≤200，过期时间统一换算为 UTC naive 且必须晚于当前；同一 VPC+device 至多一条当前记录（唯一约束），清除=直接删除不级联历史，删除子行不向上级联父对象；vpc_id/device_id 有 FK（ondelete=CASCADE 声明），父删除经 ORM relationship cascade 清理例外子行不留 orphan（项目 SQLite FK pragma 未开的实际方式）；畸形历史（非法 type/空或超长 reason/非 datetime expires_at/非法或缺失 version）稳定返回脱敏白名单 + state=invalid，绝不 active、不计入 active_exception、不 500，数据库 CHECK 阻止新脏数据；过期读取标 state=expired 不自动删除不写库；写操作零 SSH/NETCONF/配置下发/状态采集/隐式部署撤回；响应脱敏不含凭据/原始配置/快照/owner/fingerprint",
     "attention 只表达行动关注（S2-016）：矩阵保守逐规则生成 item——ambiguous/drift/invalid exception 为 blocking，stale/unknown/覆盖缺口/expired exception 为 review，active exception 覆盖缺口为 deferred；active exception 不消灭 drift 事实（仍 blocking 携带 exception）、不把 not_targeted 改 targeted、不把 drifted 改 aligned、不从分母移除设备；expired/invalid exception 独立成项且与 blocking 项可共存、key 不冲突；targeted+aligned 且无 expired/invalid exception 无 item；非 EVPN 不进入；item 白名单固定（key/device_id/name/host/severity/category/reason_code/recommended_action/source_refs/exception），source_refs 只含脱敏 ID/时间/状态引用；排序 blocking→review→deferred 再 device_id/category；纯函数实现、endpoint 复用同一次已加载数据零额外查询零 N+1；坏字段稳定降级绝不 500；读取零 DB 写零 SSH/NETCONF 零隐式采集；不新增表/迁移/写接口/设备命令；既有 scope/leaves/excluded/aggregate 完全不变",
-    "真实栈验收只读事实、零生产语义改动（S2-018）：seed/fake/spec 均为 qa 通道文件，不触碰生产业务代码；fake 设备 I/O 目标必须是 TEST-NET 合成地址并全量记录 device-io.log；范围例外 PUT/DELETE 不新增 deployment/binding/snapshot/operation 且不产生任何设备 I/O；漂移快照经真实 API 落库后 aggregate 由既有投影判定为 drifted、attention confirmed_drift 保持 blocking 且携带 exception；完整 stack QA 连续两次全绿证明空库 alembic 升级与状态无污染"
+    "真实栈验收只读事实、零生产语义改动（S2-018）：seed/fake/spec 均为 qa 通道文件，不触碰生产业务代码；fake 设备 I/O 目标必须是 TEST-NET 合成地址并全量记录 device-io.log；范围例外 PUT/DELETE 不新增 deployment/binding/snapshot/operation 且不产生任何设备 I/O；漂移快照经真实 API 落库后 aggregate 由既有投影判定为 drifted、attention confirmed_drift 保持 blocking 且携带 exception；完整 stack QA 连续两次全绿证明空库 alembic 升级与状态无污染",
+    "S3-001 手动评估零设备 I/O：新路由不 import collector/executor/Netconf/SSH；不写 deployment/binding/operation/snapshot/claim；不 bump vpc.version；policy 写库零设备 I/O",
+    "S3-001 GET 缺失策略不隐式写库；PUT 更新以 id+version 单条原子 CAS，竞争输家零行并返回版本冲突，禁止 last-write-wins",
+    "S3-001 run 追加式历史：并发 manual run 互不覆盖；facts/summary/items 写入与读取均递归白名单，脏历史不泄漏额外字段",
+    "S3-001 评估语义复用 S2 事实：blocking→blocked；无 eligible Leaf 或仅 evidence_missing_or_stale→insufficient_evidence；其他项→attention；无项→healthy"
   ],
   "tests": [
     {
@@ -819,6 +841,24 @@
       "environment": "next-s1-stack-qa 单容器栈（同第 1 次，全新 /tmp/stack-qa 空库）",
       "result": "5 passed（S1 2 条 + S2 3 条）+ BOUNDARY_OK + STACK_QA_OK",
       "baseline_failed": false
+    },
+    {
+      "command": "docker compose -f openspec/changes/next-s1-backend/qa/docker-compose.qa.yml run --rm qa-backend python -m pytest tests/test_s3_001_assurance.py -q",
+      "environment": "qa-backend 容器（image next-s1-qa-backend:local）",
+      "result": "19 passed",
+      "baseline_failed": false
+    },
+    {
+      "command": "docker compose -f openspec/changes/next-s1-backend/qa/docker-compose.qa.yml run --rm qa-backend python -m pytest tests/test_sdn_migration.py -q",
+      "environment": "qa-backend 容器（迁移 014：013 旧库升级/幂等/降级 + 空库 upgrade head）",
+      "result": "9 passed",
+      "baseline_failed": false
+    },
+    {
+      "command": "docker compose -f openspec/changes/next-s1-backend/qa/docker-compose.qa.yml run --rm qa-backend python -m pytest tests/test_i18n.py tests/test_s2_001_state_projection.py tests/test_s2_004_state_projection_history.py tests/test_s2_012_scope_projection.py tests/test_s2_014_scope_exception.py tests/test_s2_016_attention.py tests/test_sdn_api.py -q",
+      "environment": "qa-backend 容器（S3-001 直接受影响 state/scope/attention + i18n 回归）",
+      "result": "130 passed（本轮直接受影响回归）",
+      "baseline_failed": false
     }
   ],
   "migrations": [
@@ -833,6 +873,12 @@
       "summary": "0c1928618be4 upgrade() 幂等补建 devices/logs 基表（inspector 守卫），修复全新库 upgrade head 在 003 失败；downgrade 仍只 drop assets（基表不属本迁移，保守保留）",
       "repeatable": true,
       "test": "tests/test_sdn_migration.py::test_fresh_empty_db_upgrade_head_bootstraps_base_tables"
+    },
+    {
+      "id": "014_add_sdn_assurance",
+      "summary": "新增 sdn_assurance_policies（每 VPC 至多一条：enabled/cadence CHECK manual|10m|30m|1h/response_mode CHECK observe_only/乐观 version，具名唯一索引 uq_sdn_assurance_policies_vpc）+ sdn_assurance_runs（追加式：trigger CHECK manual|scheduled|event/status CHECK started|completed/policy_version/policy_enabled + 白名单 facts/summary/items JSON，ix_sdn_assurance_runs_vpc_id 索引）；vpc_id FK ondelete=CASCADE，父删除经 ORM relationship cascade；幂等（空库/013 旧库可升可降）",
+      "repeatable": true,
+      "test": "tests/test_sdn_migration.py::test_upgrade_014_creates_tables_columns_index"
     }
   ],
   "device_io": [
@@ -851,11 +897,18 @@
       ],
       "save_or_startup_config": false,
       "rollback": "access withdraw 恢复 GE1/0/10 → VPC withdraw 移除 VSI/Vsi-interface/RD → 兜底清理 sdn_l3vpn+vxlan global → 最终 readback 残留为空（VSI 空/routes 0/无 sdn_l3vpn/无 vxlan/无 service-instance/GE1/0/10 回基线）"
+    },
+    {
+      "round": "S3-001（2026-09-25）：未触真机、无任何设备 I/O（手动评估/策略读写全部在隔离 qa-backend 容器以真实 SQLite + 纯函数验证；新路由不 import collector/executor/Netconf/SSH）",
+      "target": null,
+      "mode": "none"
     }
   ],
   "unverified": [
     "跨 leaf 数据面转发、网关 ping reachable、主机 ARP/MAC 学习（无下联主机，未伪造成功；complete 已诚实表达 degraded）",
-    "S2-001 投影只读语义基于单机 VSI/config 回读命令（display l2vpn vsi verbose / interface Vsi-interface{n} / interface {GE}）；不产出本地下联主机/ARP/MAC 观测；VPC 无任何 deployment/binding/snapshot 记录时 leaves 为空（聚合 unknown，不冒充已部署到全部 Fabric Leaf）"
+    "S2-001 投影只读语义基于单机 VSI/config 回读命令（display l2vpn vsi verbose / interface Vsi-interface{n} / interface {GE}）；不产出本地下联主机/ARP/MAC 观测；VPC 无任何 deployment/binding/snapshot 记录时 leaves 为空（聚合 unknown，不冒充已部署到全部 Fabric Leaf）",
+    "S3-001 评估基于合成/历史事实；真实多 Leaf 多 VPC 下数值取决于真实记录（本包只验通道与契约语义）",
+    "S3-001 scheduler/scheduled/event 触发未实现：cadence 仅记录产品意图；策略 CAS 与 manual run 并发均以独立数据库会话在线程中验证"
   ],
   "forbidden_actions_confirmed": [
     "未修改前端、主工作树、常驻业务服务",
@@ -872,7 +925,11 @@
     "S1-026 本轮未运行真机测试、未执行任何设备 I/O（解释投影与对抗测试全部在隔离 QA 容器验证）",
     "S1-026 未新增表/未迁移数据库/未修改 apply/validate/withdraw/reconcile 执行语义/未修改 ops-toolkit",
     "S2-001 本轮未运行真机测试、未执行任何设备 I/O（投影与契约测试全部在隔离 qa-backend 容器验证）",
-    "S2-001 未新增执行器/采集命令/图数据库/迁移；未修改前端、主工作树、常驻业务服务、设备配置模板/ZTP/生产凭据；未 commit/push/tag/archive/release；未改真机 runner"
+    "S2-001 未新增执行器/采集命令/图数据库/迁移；未修改前端、主工作树、常驻业务服务、设备配置模板/ZTP/生产凭据；未 commit/push/tag/archive/release；未改真机 runner",
+    "S3-001 未触真机、未执行任何设备 I/O（评估/策略全部隔离 qa-backend 容器验证）",
+    "S3-001 未新增 scheduler/后台调度、未实现自动修复/根因结论、未做任何设备采集/下发；cadence 仅记录产品意图",
+    "S3-001 未改 S1/S2 设备执行语义（get_vpc_state_projection 载荷抽为 build_projection_payload，行为保持，S2 回归全绿）；未 tag/archive",
+    "S3-001 前端仅补 typed API client（getAssurancePolicy/putAssurancePolicy/createAssuranceRun/listAssuranceRuns/getAssuranceRun），未改任何页面"
   ],
   "ready_for_code_review": true
 }

@@ -218,6 +218,13 @@ class SDN:
     INVALID_HOST_IP = I18nKey("sdn.invalid_host_ip")                  # 期望主机 IP 非法：{detail}
     INVALID_INTERFACE = I18nKey("sdn.invalid_interface")              # 接口身份非法：{detail}
     OPERATION_IN_PROGRESS = I18nKey("sdn.operation_in_progress")      # 同一 operation 已有动作进行中: id={id}
+    # S3-001 VPC 受限保障（业务意图 + 只读评估）
+    ASSURANCE_POLICY_VERSION_CONFLICT = I18nKey("sdn.assurance_policy_version_conflict")  # 策略版本冲突: expected={expected}, given={given}
+    ASSURANCE_INVALID_POLICY = I18nKey("sdn.assurance_invalid_policy")  # 策略载荷不合法（enabled/version 类型错误）
+    ASSURANCE_INVALID_CADENCE = I18nKey("sdn.assurance_invalid_cadence")  # 保障节奏不合法: cadence={cadence}
+    ASSURANCE_INVALID_RESPONSE_MODE = I18nKey("sdn.assurance_invalid_response_mode")  # 响应模式不合法: response_mode={response_mode}
+    ASSURANCE_INVALID_TRIGGER = I18nKey("sdn.assurance_invalid_trigger")  # 评估触发方式不合法: trigger={trigger}
+    ASSURANCE_RUN_NOT_FOUND = I18nKey("sdn.assurance_run_not_found")  # 保障评估运行不存在: vpc_id={vpc_id}, run_id={run_id}
 
 
 # ===== 集中导出（便于 import，支持 err.X 点访问） =====
@@ -361,6 +368,13 @@ err = SimpleNamespace(
     SDN_INVALID_HOST_IP=SDN.INVALID_HOST_IP,
     SDN_INVALID_INTERFACE=SDN.INVALID_INTERFACE,
     SDN_OPERATION_IN_PROGRESS=SDN.OPERATION_IN_PROGRESS,
+    # S3-001 VPC 受限保障
+    SDN_ASSURANCE_POLICY_VERSION_CONFLICT=SDN.ASSURANCE_POLICY_VERSION_CONFLICT,
+    SDN_ASSURANCE_INVALID_POLICY=SDN.ASSURANCE_INVALID_POLICY,
+    SDN_ASSURANCE_INVALID_CADENCE=SDN.ASSURANCE_INVALID_CADENCE,
+    SDN_ASSURANCE_INVALID_RESPONSE_MODE=SDN.ASSURANCE_INVALID_RESPONSE_MODE,
+    SDN_ASSURANCE_INVALID_TRIGGER=SDN.ASSURANCE_INVALID_TRIGGER,
+    SDN_ASSURANCE_RUN_NOT_FOUND=SDN.ASSURANCE_RUN_NOT_FOUND,
 )
 
 
@@ -515,6 +529,13 @@ FALLBACK_MESSAGES = {
     SDN.INVALID_HOST_IP: "期望主机 IP 非法: {detail}",
     SDN.INVALID_INTERFACE: "接口身份非法: {detail}",
     SDN.OPERATION_IN_PROGRESS: "同一 operation 已有动作进行中: id={id}",
+    # S3-001 VPC 受限保障
+    SDN.ASSURANCE_POLICY_VERSION_CONFLICT: "策略版本冲突: expected={expected}, given={given}",
+    SDN.ASSURANCE_INVALID_POLICY: "策略载荷不合法（enabled/version 类型错误）",
+    SDN.ASSURANCE_INVALID_CADENCE: "保障节奏不合法: cadence={cadence}",
+    SDN.ASSURANCE_INVALID_RESPONSE_MODE: "响应模式不合法: response_mode={response_mode}",
+    SDN.ASSURANCE_INVALID_TRIGGER: "评估触发方式不合法: trigger={trigger}",
+    SDN.ASSURANCE_RUN_NOT_FOUND: "保障评估运行不存在: vpc_id={vpc_id}, run_id={run_id}",
 }
 
 
