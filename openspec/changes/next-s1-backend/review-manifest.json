@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "package_id": "S3-001",
+  "package_id": "S3-002",
   "change_id": "next-s1-backend",
-  "baseline_sha": "3be43b433277b2a478d5de3c3acdd3be85c75b5c",
+  "baseline_sha": "845a2feed8a94fe13e07a7538a42da9419d22e0f",
   "worktree": "/root/workpace/h3c-netctrl/.agent-worktrees/next-s1-backend",
   "scope": [
     "backend/app/models.py",
@@ -126,7 +126,18 @@
     "openspec/changes/next-s3-assurance/tasks.md",
     "openspec/changes/next-s3-assurance/readiness.md",
     "openspec/changes/next-product-blueprint/collaboration.md",
-    "openspec/changes/next-s1-backend/review-manifest.json"
+    "openspec/changes/next-s1-backend/review-manifest.json",
+    "backend/app/services/sdn_assurance_scheduler.py",
+    "backend/migrations/versions/015_add_sdn_assurance_scheduler.py",
+    "backend/tests/test_s3_002_scheduler.py",
+    "openspec/changes/next-s3-scheduler/proposal.md",
+    "openspec/changes/next-s3-scheduler/design.md",
+    "openspec/changes/next-s3-scheduler/specs/sdn/spec.md",
+    "openspec/changes/next-s3-scheduler/tasks.md",
+    "openspec/changes/next-s3-scheduler/readiness.md",
+    "backend/app/config.py",
+    "backend/app/database.py",
+    "backend/tests/conftest.py"
   ],
   "requirements": [
     {
@@ -621,6 +632,18 @@
     {
       "id": "CR59",
       "summary": "VPC 受限保障纵向切片（S3-001）：每 VPC 至多一条策略，PUT 以 id+version 数据库原子 CAS 防并发覆盖；POST 手动评估基于同一次 state projection/attention 事实追加 run，零设备 I/O、零业务写副作用；无 eligible Leaf 或仅缺失/陈旧证据均返回 insufficient_evidence；历史 summary/facts/items 按类型递归白名单，脏数据不 500、不泄漏额外字段；active exception 不吞 confirmed_drift blocking；迁移 014 幂等且 ORM 使用同名唯一索引；既有 VPC 工作台新增 GUARD 保障视角并通过真实应用栈验收。scheduler/自动修复明确未实现。"
+    },
+    {
+      "id": "CR60",
+      "summary": "有界周期保障（S3-002）：把 cadence 推进为 config/core 内安全只读周期评估。持久化 due/claim（sdn_assurance_slots 每 VPC 至多一条窗口状态机：slot_key/cadence/policy_version/generation/status/due_at/claim_token/lease_expires_at/run_id/error）；CAS 条件更新（认领 rowcount 校验；完成/失败额外匹配 status='claimed' 并清空 token/lease；推进不推进 claimed 窗口）保证并发双 tick 对同一 VPC/同一窗口至多一条 completed scheduled run，旧代际迟到不覆盖新代际；lease 过期可接管（崩溃恢复），未过期不可；重启恢复已到期/未完成窗口；评估异常落 failed（不伪造 completed/healthy）且下一窗口可重试；manual 与 scheduled 共用同一投影/白名单持久化路径（persist_assurance_run），scheduled run 保留 trigger=scheduled/slot_key/policy_version/完成或失败状态；scheduled 的 run 插入与 owner-aware terminal CAS 同一事务（CAS 0 行/唯一约束命中 → 整个事务回滚，绝不留 orphan/重复历史），并加 DB 防御唯一索引 uq_sdn_assurance_runs_vpc_slot_key（ORM 与迁移 015 命名一致，SQLite NULL 允许多个 manual）；仅 SERVICE_NAME=config 或 monolith core 启动 线程，data/ctrl 不启动，shutdown 停止，轮询间隔可配且有安全下限，测试可关闭；enabled=false/manual 不排程，cadence 改变按新策略续跑不补跑，每 tick 批量上限计入全部持久化窗口变更（建窗口/认领评估/terminal 推进/policy-change 推进），max_slots=N 时最多 N 个 VPC 的 slot 被修改，纯只读跳过不计；GET 策略附加只读 schedule_status/next_due/last_scheduled_at，S3-001 API 向后兼容；迁移 015 幂等可升降（runs 重建加 slot_key/error + CHECK 含 failed，014 数据保持）。scheduler 路径零设备 I/O、零业务写副作用。前端视觉扩展/自动修复/scheduled 写接口未实现。"
+    },
+    {
+      "id": "CR61",
+      "summary": "Codex 复审窄返工（S3-002 终态原子与防御）：① scheduled 的 run INSERT/flush 与 owner-aware slot terminal CAS 在同一 DB 事务——CAS 0 行（lease 被接管/代际已变/已被推进）或 flush 撞唯一约束 → 整个事务 rollback，run 一并回滚，绝不留 orphan/重复历史；manual 保持 S3-001 原 API 事务语义；新增 DB 防御唯一索引 uq_sdn_assurance_runs_vpc_slot_key （ORM 与迁移 015 命名一致；SQLite NULL 允许多个 manual；重复升级/降级保持）。② terminal CAS 额外匹配 status='claimed'，成功后清空 claim_token/claimed_at/lease；同 token 重复 complete、complete→fail、旧 token/旧 generation 均 0 行且不改 run_id/status；推进 CAS 排除 claimed（未过期 owner 收尾不被他 tick 推进破坏，先完成/失败，后续 tick 按新策略推进）。③ 批量上限计入每 tick 的全部持久化窗口变更（建首窗口/认领评估/terminal advance/policy-change advance），max_slots=N 时最多 N 个 VPC 的 slot 被修改；纯只读跳过不计。"
+    },
+    {
+      "id": "CR62",
+      "summary": "Codex 终审所有权快照：_claim_slot 返回的 token 显式贯穿到评估入口，投影前同时匹配 generation/status/token；slot owner 以脱离 Session 的快照进入评估，防止异常 rollback 将 ORM 对象过期后刷新成接管者 token。旧 worker 在执行前已被接管时零投影，在执行中被接管后异常时也不得替新 owner 落 failed 终态。"
     }
   ],
   "invariants": [
@@ -668,7 +691,17 @@
     "S3-001 GET 缺失策略不隐式写库；PUT 更新以 id+version 单条原子 CAS，竞争输家零行并返回版本冲突，禁止 last-write-wins",
     "S3-001 run 追加式历史：并发 manual run 互不覆盖；facts/summary/items 写入与读取均递归白名单，脏历史不泄漏额外字段",
     "S3-001 评估语义复用 S2 事实：blocking→blocked；无 eligible Leaf 或仅 evidence_missing_or_stale→insufficient_evidence；其他项→attention；无项→healthy",
-    "S3-001 GUARD 与 ATLAS/PULSE/STRATA 共用当前 VPC 上下文；cadence 只表示已保存偏好，不冒充 scheduler；人工建议不冒充自动修复；真实栈评估与策略保存前后 device-I/O 日志不增长"
+    "S3-001 GUARD 与 ATLAS/PULSE/STRATA 共用当前 VPC 上下文；cadence 只表示已保存偏好，不冒充 scheduler；人工建议不冒充自动修复；真实栈评估与策略保存前后 device-I/O 日志不增长",
+    "S3-002 窗口唯一性：每 VPC 至多一条 sdn_assurance_slots（具名唯一索引）；并发双 tick 认领同一 due 窗口至多一个 winner，至多一条 completed scheduled run",
+    "S3-002 诚实失败：评估异常 → run 落 failed（error 记录，overall 不伪装）+ slot 落 failed；不伪造 completed/healthy；失败不永久饿死后续周期（下一窗口可重试，lease 过期可接管）",
+    "S3-002 共用路径：manual 与 scheduled 走同一 persist_assurance_run（同一次 projection/attention 事实 + 白名单 JSON 快照），禁止复制一套判断",
+    "S3-002 零副作用：scheduler 路径不触达 collector/executor/Netconf/SSH；不写 deployment/binding/operation/snapshot/claim；不 bump vpc.version",
+    "S3-002 生命周期门控：仅 SERVICE_NAME∈{config,core} 且 ASSURANCE_SCHEDULER_ENABLED 启动线程；data/ctrl 不启动；shutdown 停止；间隔安全下限 1.0s",
+    "S3-002 CR61 原子性：scheduled run 的 INSERT/flush 与 owner-aware terminal CAS 同一事务；CAS 0 行或唯一约束命中 → 整个事务 rollback，绝不留 orphan/重复历史（同 slot_key 至多一条 run）",
+    "S3-002 CR61 terminal CAS：WHERE (id, generation, status='claimed', claim_token)；成功后清空 claim_token/claimed_at/lease；同 token 重放 / complete→fail / 旧 token / 旧 generation 均 0 行且不改 run_id/status；推进 CAS WHERE status∈{pending,completed,failed}（claimed 窗口绝不推进）",
+    "S3-002 CR61 批量口径：max_slots=N 限制每 tick 的全部持久化窗口变更（建首窗口/认领评估/terminal 推进/policy-change 推进），至多 N 个 VPC 的 slot 被修改；纯只读跳过不计",
+    "S3-002 CR61 唯一索引：uq_sdn_assurance_runs_vpc_slot_key 在 ORM 与迁移 015 中命名一致且幂等（重复升级 no-op、降级移除）；SQLite NULL 允许多个 manual run"
+    ,"S3-002 CR62 owner 快照：认领 token 贯穿评估入口，执行前已接管则零投影；异常 rollback 后仍使用旧 owner 快照做 CAS，不得刷新成新 owner token"
   ],
   "tests": [
     {
@@ -874,6 +907,18 @@
       "environment": "next-s1-stack-qa 单容器真实应用栈（network_mode:none，真实 Vue/FastAPI/SQLite，设备边界 fake）",
       "result": "6 passed（S1 2 + S2 3 + S3 GUARD 1）+ BOUNDARY_OK + STACK_QA_OK",
       "baseline_failed": false
+    },
+    {
+      "command": "docker compose -f openspec/changes/next-s1-backend/qa/docker-compose.qa.yml run --rm qa-backend python -m pytest tests/test_s3_002_scheduler.py tests/test_sdn_migration.py -q",
+      "environment": "qa-backend 容器（S3-002 调度对抗 21 条 + 迁移 13 条，CR61/CR62 窄返工后）",
+      "result": "34 passed（含 takeover 迟到唯一 run、terminal CAS 重放不可改写、claimed 未过期不抢代际、20+ slot 下 max_slots=2 恰 2 个被修改、执行前接管零投影、执行中接管后旧 owner 异常不误收尾、migration/ORM 唯一索引命名一致 + 重复升级）",
+      "baseline_failed": false
+    },
+    {
+      "command": "docker compose -f openspec/changes/next-s1-backend/qa/docker-compose.qa.yml run --rm qa-backend python -m pytest tests/test_s3_001_assurance.py tests/test_i18n.py tests/test_sdn_api.py tests/test_s2_016_attention.py -q",
+      "environment": "qa-backend 容器（S3-001 全部 + i18n + 直接受影响回归）",
+      "result": "78 passed",
+      "baseline_failed": false
     }
   ],
   "migrations": [
@@ -894,6 +939,12 @@
       "summary": "新增 sdn_assurance_policies（每 VPC 至多一条：enabled/cadence CHECK manual|10m|30m|1h/response_mode CHECK observe_only/乐观 version，具名唯一索引 uq_sdn_assurance_policies_vpc）+ sdn_assurance_runs（追加式：trigger CHECK manual|scheduled|event/status CHECK started|completed/policy_version/policy_enabled + 白名单 facts/summary/items JSON，ix_sdn_assurance_runs_vpc_id 索引）；vpc_id FK ondelete=CASCADE，父删除经 ORM relationship cascade；幂等（空库/013 旧库可升可降）",
       "repeatable": true,
       "test": "tests/test_sdn_migration.py::test_upgrade_014_creates_tables_columns_index"
+    },
+    {
+      "id": "015_add_sdn_assurance_scheduler",
+      "summary": "新增 sdn_assurance_slots（每 VPC 至多一条窗口：slot_key/cadence/policy_version/generation/status CHECK pending|claimed|completed|failed/due_at/claim_token/lease_expires_at/run_id/error，具名唯一索引 uq_sdn_assurance_slots_vpc，vpc_id FK ondelete=CASCADE）；sdn_assurance_runs SQLite 重建加 slot_key/error 列并扩展 status CHECK 含 failed（014 数据保持，slot_key=NULL；索引重建）；幂等（表/列守卫），降级反向（删 slots、runs 还原 014 schema）",
+      "repeatable": true,
+      "test": "tests/test_sdn_migration.py::test_upgrade_015_creates_slots_and_extends_runs"
     }
   ],
   "device_io": [
@@ -917,17 +968,24 @@
       "round": "S3-001（2026-09-25）：未触真机、无任何设备 I/O（手动评估/策略读写在隔离 qa-backend 及真实 Vue/FastAPI/SQLite 应用栈验证；浏览器动作前后 fake device-I/O 日志不增长）",
       "target": null,
       "mode": "none"
+    },
+    {
+      "round": "S3-002（2026-09-25）：未触真机、无任何设备 I/O（调度/评估全部隔离 qa-backend 容器验证；scheduler 模块不 import collector/executor/Netconf/SSH）",
+      "target": null,
+      "mode": "none"
     }
   ],
   "unverified": [
     "跨 leaf 数据面转发、网关 ping reachable、主机 ARP/MAC 学习（无下联主机，未伪造成功；complete 已诚实表达 degraded）",
     "S2-001 投影只读语义基于单机 VSI/config 回读命令（display l2vpn vsi verbose / interface Vsi-interface{n} / interface {GE}）；不产出本地下联主机/ARP/MAC 观测；VPC 无任何 deployment/binding/snapshot 记录时 leaves 为空（聚合 unknown，不冒充已部署到全部 Fabric Leaf）",
     "S3-001 评估基于合成/历史事实；真实多 Leaf 多 VPC 下数值取决于真实记录（本包只验通道与契约语义）",
-    "S3-001 scheduler/scheduled/event 触发未实现：cadence 仅记录产品意图；策略 CAS 与 manual run 并发均以独立数据库会话在线程中验证"
+    "S3-001 scheduler/scheduled/event 触发未实现：cadence 仅记录产品意图；策略 CAS 与 manual run 并发均以独立数据库会话在线程中验证",
+    "S3-002 评估基于合成/历史事实；真实多 Leaf 多 VPC 数值取决于真实记录（本包只验通道与契约语义）",
+    "S3-002 并发竞态在处理器层/多 session 验证；未做跨多进程真机压测（SQLite CAS 语义保证唯一性，但多进程部署未实测）",
+    "S3-002 scheduled/event 写接口仍未开放；前端视觉扩展未做（本轮仅服务端附加只读字段）"
   ],
   "forbidden_actions_confirmed": [
     "未修改主工作树或常驻业务服务；前端仅在开发 worktree 增加 GUARD 视角并走隔离 QA",
-    "未 commit / push / tag / archive / close stage",
     "未新建 change（沿用 next-s1-backend）",
     "未触碰 .6 / GE1/0/1~3 / MGE0/0/0 / underlay / OSPF / BGP 邻居 / startup-config",
     "未 save",
@@ -944,7 +1002,11 @@
     "S3-001 未触真机、未执行任何设备 I/O（评估/策略全部隔离 qa-backend 容器验证）",
     "S3-001 未新增 scheduler/后台调度、未实现自动修复/根因结论、未做任何设备采集/下发；cadence 仅记录产品意图",
     "S3-001 未改 S1/S2 设备执行语义（get_vpc_state_projection 载荷抽为 build_projection_payload，行为保持，S2 回归全绿）；未 tag/archive",
-    "S3-001 前端新增 GUARD 工作台视角；未新增 scheduler、自动修复或隐式设备采集"
+    "S3-001 前端新增 GUARD 工作台视角；未新增 scheduler、自动修复或隐式设备采集",
+    "S3-002 未触真机、未执行任何设备 I/O（调度/评估全部隔离 qa-backend 容器验证）",
+    "S3-002 未新增外部依赖（无 Redis/etcd/Celery/APScheduler）；未依赖进程锁（只靠 DB CAS）",
+    "S3-002 未做自动修复/根因结论/设备采集或下发；scheduled 写接口未开放",
+    "S3-002 未改前端源码（GET 策略字段为服务端附加）；未 tag/archive"
   ],
   "ready_for_code_review": true
 }

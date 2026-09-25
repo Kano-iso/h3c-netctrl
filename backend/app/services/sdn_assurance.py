@@ -15,6 +15,10 @@ import json
 from datetime import datetime
 from typing import Optional
 
+from sqlalchemy.orm import Session
+
+from app.models import SdnAssuranceRun
+
 OVERALL_HEALTHY = "healthy"
 OVERALL_ATTENTION = "attention"
 OVERALL_BLOCKED = "blocked"
@@ -209,3 +213,99 @@ def facts_json(result: dict) -> str:
     if not isinstance(facts, dict):
         facts = {"vpc_version": None, "scope": {}, "leaves": [], "attention": {}}
     return json.dumps(facts, ensure_ascii=False, default=_json_default)
+
+
+class SdnAssuranceVpcNotFound(Exception):
+    """目标 VPC 无 state projection 事实（手动路由映射为 sdn.vpc_not_found 错误响应）。"""
+
+
+def persist_assurance_run(
+    db: Session,
+    vpc_id: int,
+    *,
+    trigger: str,
+    policy: Optional["SdnAssurancePolicy"] = None,
+    slot_key: Optional[str] = None,
+    now: Optional[datetime] = None,
+) -> "SdnAssuranceRun":
+    """S3-002 抽取的公共评估持久化路径：manual 与 scheduled 共用。
+
+    同一次 state projection/attention 事实 → evaluate_assurance → 白名单 JSON 快照 →
+    追加一条 run。不调用 collector/executor/Netconf/SSH；不写
+    deployment/binding/operation/snapshot/claim；不 bump vpc.version。VPC 无投影事实
+    时抛 SdnAssuranceVpcNotFound。评估/持久化异常由调用方决定如何诚实记录
+    （scheduler 记 failed 状态，manual 路由记错误响应）。
+    """
+    from app.models import SdnAssurancePolicy
+    from app.routers.sdn import build_projection_payload
+
+    projection = build_projection_payload(db, vpc_id)
+    if projection is None:
+        raise SdnAssuranceVpcNotFound(f"vpc {vpc_id} has no state projection facts")
+
+    if policy is None:
+        policy = (
+            db.query(SdnAssurancePolicy).filter(SdnAssurancePolicy.vpc_id == vpc_id).first()
+        )
+    policy_version = policy.version if policy is not None else 0
+    policy_enabled = bool(policy.enabled) if policy is not None else False
+
+    result = evaluate_assurance(projection, now=now)
+    now = now or datetime.utcnow()
+    run = SdnAssuranceRun(
+        vpc_id=vpc_id,
+        trigger=trigger,
+        status="completed",
+        started_at=now,
+        completed_at=now,
+        policy_version=policy_version,
+        policy_enabled=policy_enabled,
+        slot_key=slot_key,
+        facts_json=facts_json(result),
+        summary_json=run_summary_json(result),
+        items_json=items_json(result.get("items") or []),
+    )
+    db.add(run)
+    db.commit()
+    db.refresh(run)
+    return run
+
+
+def persist_failed_run(
+    db: Session,
+    vpc_id: int,
+    *,
+    trigger: str,
+    policy: Optional["SdnAssurancePolicy"] = None,
+    slot_key: Optional[str] = None,
+    error: str,
+    now: Optional[datetime] = None,
+) -> "SdnAssuranceRun":
+    """诚实记录一条失败 run（status=failed + error），绝不伪造 completed/healthy。"""
+    from app.models import SdnAssurancePolicy
+
+    if policy is None:
+        policy = (
+            db.query(SdnAssurancePolicy).filter(SdnAssurancePolicy.vpc_id == vpc_id).first()
+        )
+    policy_version = policy.version if policy is not None else 0
+    policy_enabled = bool(policy.enabled) if policy is not None else False
+    now = now or datetime.utcnow()
+    run = SdnAssuranceRun(
+        vpc_id=vpc_id,
+        trigger=trigger,
+        status="failed",
+        started_at=now,
+        completed_at=now,
+        policy_version=policy_version,
+        policy_enabled=policy_enabled,
+        slot_key=slot_key,
+        error=(error or "")[:500],
+        facts_json=json.dumps({"vpc_version": None, "scope": {}, "leaves": [], "attention": {}}),
+        summary_json=json.dumps({"overall": None, "total": 0, "blocking": 0, "review": 0, "deferred": 0}, ensure_ascii=False),
+        items_json="[]",
+    )
+    db.add(run)
+    db.commit()
+    db.refresh(run)
+    return run

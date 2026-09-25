@@ -1,9 +1,10 @@
 """S3-001 VPC 受限保障：策略 + 只读手动评估（NEXT/S3 后端切片）。
 
 沿用 /api/sdn 风格与 APIResponse。策略写库（短事务、零设备 I/O）；手动评估只读复用
-同一次 state projection/attention 事实（build_projection_payload），持久化一条 run
-（触发仅 manual）。本路由不调用 collector/executor/Netconf/SSH，不创建
-deployment/binding/operation/snapshot/claim，不 bump vpc.version，不做后台调度。
+同一次 state projection/attention 事实（公共持久化路径 persist_assurance_run，与
+scheduled 共用），持久化一条 run（触发仅 manual）。本路由不调用
+collector/executor/Netconf/SSH，不创建 deployment/binding/operation/snapshot/claim，
+不 bump vpc.version，不做后台调度（调度见 services/sdn_assurance_scheduler）。
 """
 import json
 from datetime import datetime
@@ -16,15 +17,12 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.i18n_keys import err, error_response
 from app.models import SdnAssurancePolicy, SdnAssuranceRun, SdnVpc
-from app.routers.sdn import build_projection_payload
 from app.schemas import APIResponse
 from app.services.sdn_assurance import (
     ASSURANCE_CADENCES,
     ASSURANCE_RESPONSE_MODE,
-    evaluate_assurance,
-    facts_json,
-    items_json,
-    run_summary_json,
+    SdnAssuranceVpcNotFound,
+    persist_assurance_run,
 )
 
 router = APIRouter(prefix="/api/sdn", tags=["sdn-assurance"])
@@ -40,7 +38,10 @@ RUN_LIST_DEFAULT_LIMIT = 20
 RUN_LIST_MAX_LIMIT = 100
 
 
-def _serialize_policy(row: SdnAssurancePolicy) -> dict:
+def _serialize_policy(row: SdnAssurancePolicy, db: Session) -> dict:
+    from app.services.sdn_assurance_scheduler import schedule_status_for_policy
+
+    info = schedule_status_for_policy(db, row)
     return {
         "id": row.id,
         "vpc_id": row.vpc_id,
@@ -50,6 +51,10 @@ def _serialize_policy(row: SdnAssurancePolicy) -> dict:
         "version": row.version,
         "created_at": row.created_at.isoformat() if row.created_at else None,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+        # S3-002：稳定调度信息（只读，供前端未来使用）
+        "schedule_status": info["schedule_status"],
+        "next_due": info["next_due"],
+        "last_scheduled_at": info["last_scheduled_at"],
     }
 
 
@@ -147,6 +152,10 @@ def _safe_items(raw: Optional[str]) -> list:
 
 def _serialize_run(run: SdnAssuranceRun) -> dict:
     summary = _safe_summary(run.summary_json)
+    failed = run.status == "failed"
+    if failed:
+        # S3-002：失败 run 诚实呈现（overall 不得伪装成 insufficient_evidence/healthy）
+        summary["overall"] = None
     return {
         "id": run.id,
         "vpc_id": run.vpc_id,
@@ -156,7 +165,10 @@ def _serialize_run(run: SdnAssuranceRun) -> dict:
         "completed_at": run.completed_at.isoformat() if run.completed_at else None,
         "policy_version": run.policy_version,
         "policy_enabled": bool(run.policy_enabled),
-        "overall": summary.get("overall"),
+        # S3-002：scheduled 运行的窗口 key（manual 为 None）+ 失败原因（仅 failed 非空）
+        "slot_key": run.slot_key,
+        "error": run.error,
+        "overall": None if failed else summary.get("overall"),
         "summary": summary,
         "facts": _safe_facts(run.facts_json),
         "items": _safe_items(run.items_json),
@@ -171,8 +183,18 @@ def get_assurance_policy(vpc_id: int, db: Session = Depends(get_db)):
         return error_response(err.SDN_VPC_NOT_FOUND, params={"id": vpc_id})
     row = db.query(SdnAssurancePolicy).filter(SdnAssurancePolicy.vpc_id == vpc_id).first()
     if row is None:
-        return APIResponse(success=True, data=dict(DEFAULT_POLICY, vpc_id=vpc_id))
-    return APIResponse(success=True, data=_serialize_policy(row))
+        return APIResponse(
+            success=True,
+            data=dict(
+                DEFAULT_POLICY,
+                vpc_id=vpc_id,
+                # S3-002：缺失策略的稳定调度信息（enabled=false → disabled）
+                schedule_status="disabled",
+                next_due=None,
+                last_scheduled_at=None,
+            ),
+        )
+    return APIResponse(success=True, data=_serialize_policy(row, db))
 
 
 @router.put("/vpcs/{vpc_id}/assurance-policy", response_model=APIResponse)
@@ -257,7 +279,7 @@ def put_assurance_policy(vpc_id: int, body: dict, db: Session = Depends(get_db))
     row = (
         db.query(SdnAssurancePolicy).filter(SdnAssurancePolicy.vpc_id == vpc_id).first()
     )
-    return APIResponse(success=True, data=_serialize_policy(row))
+    return APIResponse(success=True, data=_serialize_policy(row, db))
 
 
 @router.post("/vpcs/{vpc_id}/assurance-runs", response_model=APIResponse)
@@ -274,33 +296,10 @@ def create_manual_assurance_run(vpc_id: int, body: Optional[dict] = None, db: Se
     if trigger != "manual":
         return error_response(err.SDN_ASSURANCE_INVALID_TRIGGER, params={"trigger": trigger})
 
-    projection = build_projection_payload(db, vpc_id)
-    if projection is None:
+    try:
+        run = persist_assurance_run(db, vpc_id, trigger="manual")
+    except SdnAssuranceVpcNotFound:
         return error_response(err.SDN_VPC_NOT_FOUND, params={"id": vpc_id})
-
-    policy = (
-        db.query(SdnAssurancePolicy).filter(SdnAssurancePolicy.vpc_id == vpc_id).first()
-    )
-    policy_version = policy.version if policy is not None else 0
-    policy_enabled = bool(policy.enabled) if policy is not None else False
-
-    result = evaluate_assurance(projection)
-    now = datetime.utcnow()
-    run = SdnAssuranceRun(
-        vpc_id=vpc_id,
-        trigger="manual",
-        status="completed",
-        started_at=now,
-        completed_at=now,
-        policy_version=policy_version,
-        policy_enabled=policy_enabled,
-        facts_json=facts_json(result),
-        summary_json=run_summary_json(result),
-        items_json=items_json(result.get("items") or []),
-    )
-    db.add(run)
-    db.commit()
-    db.refresh(run)
     return APIResponse(success=True, data=_serialize_run(run))
 
 

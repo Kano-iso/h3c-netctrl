@@ -121,6 +121,26 @@ def on_startup():
             # 启动期降级失败不阻塞容器启动（采集按钮仍可手动触发）
             logger.error(f"data 容器启动降级失败: {e}", exc_info=True)
 
+    # S3-002 有界周期保障：仅 config / monolith core 启动调度线程；data/ctrl 不启动；
+    # 测试环境 ASSURANCE_SCHEDULER_ENABLED=false 关闭。迁移已在上面跑完，线程直接可用。
+    from app.services.sdn_assurance_scheduler import scheduler_enabled_for, get_scheduler
+
+    if settings.ASSURANCE_SCHEDULER_ENABLED and scheduler_enabled_for(SERVICE_NAME):
+        get_scheduler().start()
+        logging.getLogger("app").info(
+            f"assurance scheduler started (service={SERVICE_NAME}, "
+            f"interval={settings.ASSURANCE_SCHEDULER_INTERVAL_SECONDS}s)"
+        )
+
+
+@app.on_event("shutdown")
+def on_shutdown():
+    """S3-002：应用关闭时停止调度线程（不阻塞、不丢已持久化窗口）。"""
+    from app.services.sdn_assurance_scheduler import get_scheduler
+
+    get_scheduler().stop()
+    logging.getLogger("app").info("assurance scheduler stopped")
+
 
 @app.get("/health")
 def health_check():

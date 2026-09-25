@@ -220,6 +220,10 @@ class SdnVpc(Base):
     assurance_runs: Mapped[list["SdnAssuranceRun"]] = relationship(
         "SdnAssuranceRun", back_populates="vpc", cascade="all, delete-orphan"
     )
+    # S3-002：每 VPC 至多一条调度窗口（父删除级联清理）
+    assurance_slot: Mapped[Optional["SdnAssuranceSlot"]] = relationship(
+        "SdnAssuranceSlot", back_populates="vpc", cascade="all, delete-orphan", uselist=False
+    )
 
 
 class SdnPortBinding(Base):
@@ -446,12 +450,13 @@ class SdnAssurancePolicy(Base):
 
 
 class SdnAssuranceRun(Base):
-    """VPC 保障评估运行（S3-001，只读评估历史）。
+    """VPC 保障评估运行（S3-001 只读历史 + S3-002 scheduled 审计）。
 
-    一次手动评估 = 同一次 state projection/attention 事实的白名单快照 + 确定性建议。
-    写接口只允许 trigger=manual（scheduled/event 为未来 scheduler 保留枚举）；status
-    本包恒为 completed。facts_json/summary_json/items_json 是脱敏快照（不含原始配置/
-    CLI/凭据/error）。写评估只追加行：并发多次 manual run 各自完整、互不覆盖；不写
+    manual 恒为 completed；scheduled 运行保留可审计的 slot_key（对应
+    sdn_assurance_slots 的窗口）与完成/失败状态（status ∈ started/completed/failed，
+    error 记录失败原因）。facts_json/summary_json/items_json 是脱敏快照（不含原始配置/
+    CLI/凭据/error）。写评估只追加行：并发多次 manual run 各自完整、互不覆盖；scheduled
+    由 scheduler 经 slot CAS 保证同一窗口至多一条 completed；不写
     deployment/binding/operation/snapshot/claim，零设备 I/O。
     """
     __tablename__ = "sdn_assurance_runs"
@@ -461,10 +466,14 @@ class SdnAssuranceRun(Base):
             name="ck_sdn_assurance_runs_trigger",
         ),
         CheckConstraint(
-            "status IN ('started', 'completed')",
+            "status IN ('started', 'completed', 'failed')",
             name="ck_sdn_assurance_runs_status",
         ),
         CheckConstraint("policy_version >= 0", name="ck_sdn_assurance_runs_policy_version"),
+        # CR61 DB 防御：同一窗口（vpc_id, slot_key）至多一条 run；slot_key NULL（manual）
+        # 在 SQLite 中允许多行，互不影响。scheduled 的原子路径正常不会触发，这里兜底
+        # 防"同 slot_key 重复历史"。
+        Index("uq_sdn_assurance_runs_vpc_slot_key", "vpc_id", "slot_key", unique=True),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -477,12 +486,68 @@ class SdnAssuranceRun(Base):
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     policy_version: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     policy_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # S3-002：scheduled 运行对应 sdn_assurance_slots 的窗口 key（manual 为 NULL）
+    slot_key: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    # S3-002：失败原因（仅 status=failed 时非空；不伪造 completed/healthy）
+    error: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     facts_json: Mapped[str] = mapped_column(Text, nullable=False)
     summary_json: Mapped[str] = mapped_column(Text, nullable=False)
     items_json: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     vpc: Mapped["SdnVpc"] = relationship("SdnVpc", back_populates="assurance_runs")
+
+
+class SdnAssuranceSlot(Base):
+    """VPC 保障调度窗口（S3-002，持久化 due/claim）。
+
+    每个 VPC 至多一条当前窗口（vpc_id 具名唯一索引）。status:
+    - pending：到期（due_at <= now）可被任何 scheduler tick 认领；
+    - claimed：某 tick 已认领（claim_token + lease_expires_at）；lease 未过期不可接管，
+      lease 过期可由其他 tick 接管（崩溃恢复，同一代际新 token）；
+    - completed / failed：窗口终结，下一 tick 推进到下一代际窗口（generation+1，due 锚定
+      终结时刻 + cadence，不补跑无限历史）。
+    CAS 语义：认领/完成都按 (id, generation[, claim_token]) 条件更新并校验受影响行数——
+    并发双 tick 对同一 VPC/同一窗口至多一个 completed scheduled run；旧代际迟到
+    （token 或 generation 不匹配）不能覆盖新代际。失败/崩溃不永久饿死后续周期。
+    写操作零设备 I/O。
+    """
+    __tablename__ = "sdn_assurance_slots"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'claimed', 'completed', 'failed')",
+            name="ck_sdn_assurance_slots_status",
+        ),
+        CheckConstraint("generation >= 0", name="ck_sdn_assurance_slots_generation"),
+        CheckConstraint(
+            "cadence IN ('manual', '10m', '30m', '1h')",
+            name="ck_sdn_assurance_slots_cadence",
+        ),
+        # 与迁移 015 具名索引一致（ORM create_all 与 alembic 同构）
+        Index("uq_sdn_assurance_slots_vpc", "vpc_id", unique=True),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    vpc_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("sdn_vpcs.id", ondelete="CASCADE"), nullable=False
+    )
+    slot_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    cadence: Mapped[str] = mapped_column(String(10), default="manual", nullable=False)
+    policy_version: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    generation: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)
+    due_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    claimed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    claim_token: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    lease_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    run_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    error: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    vpc: Mapped["SdnVpc"] = relationship("SdnVpc", back_populates="assurance_slot")
 
 
 class SdnPlan(Base):

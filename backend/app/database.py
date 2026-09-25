@@ -6,7 +6,9 @@ from app.config import settings
 
 engine = create_engine(
     f"sqlite:///{settings.DB_PATH}",
-    connect_args={"check_same_thread": False},
+    # timeout=5：SQLite 并发写（scheduler 认领/完成的 CAS 与 API 写）在锁竞争时等待
+    # 而非立刻 "database is locked"；配合 (id,generation[,token]) 条件更新保证并发唯一 winner
+    connect_args={"check_same_thread": False, "timeout": 5},
 )
 
 SessionLocal = sessionmaker(

@@ -6,6 +6,9 @@ from fastapi.testclient import TestClient
 # 设置测试环境变量
 os.environ["ENCRYPTION_KEY"] = "BRPOu1O4FIvcdwijI1yf0quviQjeSr0V1Zfw2CRwgRQ="
 os.environ["DB_PATH"] = "/tmp/test_h3c.db"
+# S3-002：测试默认关闭 scheduler 线程（避免 TestClient 上下文启动后台线程写库）；
+# scheduler 逻辑测试直接同步调用 tick_once / 显式构造 Scheduler
+os.environ["ASSURANCE_SCHEDULER_ENABLED"] = "false"
 
 # v2.6 i18n: 必须在 from app.main import app 之前 import app.models。
 # `import app.models` 会把当前 namespace 的 `app` 重新绑定到 `app` package module，

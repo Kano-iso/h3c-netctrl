@@ -32,6 +32,16 @@ class Settings(BaseSettings):
     # v3.1.3 ZTP 恢复上线：ctrl/backend 写入，ztp-server 通过共享 volume 读取
     ZTP_STATE_DIR: str = "/app/data/ztp"
 
+    # v3.x S3-002 有界周期保障：仅 SERVICE_NAME=config/core 的进程启动调度线程；
+    # data/ctrl 不启动；测试环境可显式关闭（conftest 置 false）
+    ASSURANCE_SCHEDULER_ENABLED: bool = True
+    # 轮询间隔（秒），安全下限 1.0；重启从 DB 恢复未完成/已到期窗口
+    ASSURANCE_SCHEDULER_INTERVAL_SECONDS: float = 5.0
+    # 认领租约时长（秒）：崩溃恢复——lease 过期后其他 tick 可接管同一窗口
+    ASSURANCE_SLOT_LEASE_SECONDS: float = 120.0
+    # 每 tick 最多处理的到期窗口数（防止风暴）
+    ASSURANCE_TICK_MAX_SLOTS: int = 20
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
 

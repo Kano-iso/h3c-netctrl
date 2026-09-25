@@ -349,3 +349,228 @@ def test_downgrade_014_drops_tables(monkeypatch, tmp_path):
     assert "sdn_assurance_runs" not in tables
     assert "sdn_vpcs" in tables  # 旧表保留
     engine.dispose()
+
+
+# ============================ S3-002 迁移 015 ============================
+
+
+def _upgrade_to_014(db_file, monkeypatch):
+    """013 旧库骨架 → upgrade 014（S3-001 表）。"""
+    engine = create_engine(f"sqlite:///{db_file}")
+    _make_legacy_schema(engine)
+    engine.dispose()
+    cfg = _alembic_config()
+    _stamp_013(cfg, db_file, monkeypatch)
+    from alembic import command
+    command.upgrade(cfg, "014")
+    return cfg
+
+
+def _insert_014_fixture(db_file):
+    """014 库插一条 vpc + 策略 + 一条 completed manual run（供 015 数据保持验证）。"""
+    from sqlalchemy import text as _t
+    engine = create_engine(f"sqlite:///{db_file}")
+    with engine.begin() as conn:
+        conn.execute(_t("INSERT INTO sdn_vpcs (id) VALUES (1)"))
+        conn.execute(_t(
+            "INSERT INTO sdn_assurance_policies (vpc_id, enabled, cadence, response_mode, version) "
+            "VALUES (1, 1, '10m', 'observe_only', 1)"
+        ))
+        conn.execute(_t(
+            "INSERT INTO sdn_assurance_runs (vpc_id, trigger, status, started_at, completed_at, "
+            "policy_version, policy_enabled, facts_json, summary_json, items_json) "
+            "VALUES (1, 'manual', 'completed', '2026-09-25 00:00:00', '2026-09-25 00:00:01', "
+            "1, 1, '{}', '{\"overall\": \"healthy\"}', '[]')"
+        ))
+    engine.dispose()
+
+
+def test_upgrade_015_creates_slots_and_extends_runs(monkeypatch, tmp_path):
+    """014 旧库（含数据）→ upgrade 015：slots 表 + 唯一索引 + runs 加 slot_key/error + CHECK 扩展。"""
+    db_file = tmp_path / "up015.db"
+    cfg = _upgrade_to_014(db_file, monkeypatch)
+    _insert_014_fixture(db_file)
+
+    from alembic import command
+    command.upgrade(cfg, "015")
+
+    engine = create_engine(f"sqlite:///{db_file}")
+    insp = inspect(engine)
+    tables = set(insp.get_table_names())
+    assert "sdn_assurance_slots" in tables
+    assert "sdn_assurance_runs" in tables
+    assert _index_exists(engine, "uq_sdn_assurance_slots_vpc")
+
+    slot_cols = {c["name"] for c in insp.get_columns("sdn_assurance_slots")}
+    assert {"id", "vpc_id", "slot_key", "cadence", "policy_version", "generation",
+            "status", "due_at", "claimed_at", "claim_token", "lease_expires_at",
+            "run_id", "error", "created_at", "updated_at"} <= slot_cols
+
+    run_cols = {c["name"] for c in insp.get_columns("sdn_assurance_runs")}
+    assert "slot_key" in run_cols and "error" in run_cols
+    assert _index_exists(engine, "ix_sdn_assurance_runs_vpc_id")  # 重建后索引仍在
+    # CR61：同窗口 (vpc_id, slot_key) 至多一条 run 的 DB 防御（与 ORM 命名一致）
+    assert _index_exists(engine, "uq_sdn_assurance_runs_vpc_slot_key")
+
+    # 014 旧数据保持（手动 run 的 slot_key 为 NULL）
+    from sqlalchemy import text as _t
+    with engine.connect() as conn:
+        runs = conn.execute(_t(
+            "SELECT trigger, status, slot_key, error FROM sdn_assurance_runs"
+        )).fetchall()
+        assert len(runs) == 1
+        assert runs[0][0] == "manual" and runs[0][1] == "completed"
+        assert runs[0][2] is None and runs[0][3] is None
+        policies = conn.execute(_t(
+            "SELECT enabled, cadence, version FROM sdn_assurance_policies"
+        )).fetchall()
+        assert len(policies) == 1 and policies[0][2] == 1
+
+    # 新 CHECK 允许 status='failed'（014 旧 CHECK 会拒绝）
+    with engine.begin() as conn:
+        conn.execute(_t(
+            "INSERT INTO sdn_assurance_runs (vpc_id, trigger, status, started_at, completed_at, "
+            "policy_version, policy_enabled, slot_key, error, facts_json, summary_json, items_json) "
+            "VALUES (1, 'scheduled', 'failed', '2026-09-25 01:00:00', '2026-09-25 01:00:01', "
+            "1, 1, 'vpc:1:slot:gen:0', 'boom', '{}', '{\"overall\": null}', '[]')"
+        ))
+    # 唯一索引实际拒绝同一 VPC 两个窗口
+    from sqlalchemy.exc import IntegrityError
+    with engine.begin() as conn:
+        conn.execute(_t(
+            "INSERT INTO sdn_assurance_slots (vpc_id, slot_key, cadence, policy_version, generation, "
+            "status, due_at) VALUES (1, 'vpc:1:slot:gen:0', '10m', 1, 0, 'pending', '2026-09-25 02:00:00')"
+        ))
+        try:
+            conn.execute(_t(
+                "INSERT INTO sdn_assurance_slots (vpc_id, slot_key, cadence, policy_version, generation, "
+                "status, due_at) VALUES (1, 'vpc:1:slot:gen:1', '10m', 1, 1, 'pending', '2026-09-25 02:10:00')"
+            ))
+            raise AssertionError("duplicate vpc_id slot should be rejected")
+        except IntegrityError:
+            pass
+
+    # CR61：同 (vpc_id, slot_key) 至多一条 run；slot_key NULL（manual）允许多行
+    with engine.begin() as conn:
+        conn.execute(_t(
+            "INSERT INTO sdn_assurance_runs (vpc_id, trigger, status, started_at, completed_at, "
+            "policy_version, policy_enabled, slot_key, facts_json, summary_json, items_json) "
+            "VALUES (1, 'scheduled', 'completed', '2026-09-25 03:00:00', '2026-09-25 03:00:01', "
+            "1, 1, 'vpc:1:slot:gen:5', '{}', '{}', '[]')"
+        ))
+        try:
+            conn.execute(_t(
+                "INSERT INTO sdn_assurance_runs (vpc_id, trigger, status, started_at, completed_at, "
+                "policy_version, policy_enabled, slot_key, facts_json, summary_json, items_json) "
+                "VALUES (1, 'scheduled', 'completed', '2026-09-25 03:01:00', '2026-09-25 03:01:01', "
+                "1, 1, 'vpc:1:slot:gen:5', '{}', '{}', '[]')"
+            ))
+            raise AssertionError("duplicate (vpc_id, slot_key) run should be rejected")
+        except IntegrityError:
+            pass
+        # 两条 manual（slot_key NULL）共存
+        conn.execute(_t(
+            "INSERT INTO sdn_assurance_runs (vpc_id, trigger, status, started_at, completed_at, "
+            "policy_version, policy_enabled, facts_json, summary_json, items_json) "
+            "VALUES (1, 'manual', 'completed', '2026-09-25 04:00:00', '2026-09-25 04:00:01', "
+            "1, 1, '{}', '{}', '[]')"
+        ))
+        conn.execute(_t(
+            "INSERT INTO sdn_assurance_runs (vpc_id, trigger, status, started_at, completed_at, "
+            "policy_version, policy_enabled, facts_json, summary_json, items_json) "
+            "VALUES (1, 'manual', 'completed', '2026-09-25 04:01:00', '2026-09-25 04:01:01', "
+            "1, 1, '{}', '{}', '[]')"
+        ))
+    engine.dispose()
+
+
+def test_upgrade_015_idempotent(monkeypatch, tmp_path):
+    """015 重复升级 no-op（不重建、不丢数据）。"""
+    db_file = tmp_path / "up015b.db"
+    cfg = _upgrade_to_014(db_file, monkeypatch)
+    _insert_014_fixture(db_file)
+
+    from alembic import command
+    command.upgrade(cfg, "015")
+    command.upgrade(cfg, "015")
+
+    from sqlalchemy import text as _t
+    engine = create_engine(f"sqlite:///{db_file}")
+    with engine.connect() as conn:
+        runs = conn.execute(_t("SELECT count(*) FROM sdn_assurance_runs")).scalar()
+        assert runs == 1  # 重复升级不重建、数据仍在
+    assert _index_exists(engine, "uq_sdn_assurance_slots_vpc")
+    assert _index_exists(engine, "uq_sdn_assurance_runs_vpc_slot_key")  # CR61 幂等
+    engine.dispose()
+
+
+def test_downgrade_015_drops_slots_restores_runs(monkeypatch, tmp_path):
+    """降级 015→014：slots 表删除；runs 回到旧 schema（slot_key/error 去掉、CHECK 复原拒绝 failed）。"""
+    db_file = tmp_path / "down015.db"
+    cfg = _upgrade_to_014(db_file, monkeypatch)
+    _insert_014_fixture(db_file)
+
+    from alembic import command
+    command.upgrade(cfg, "015")
+    engine = create_engine(f"sqlite:///{db_file}")
+    with engine.begin() as conn:
+        conn.execute(text(
+            "INSERT INTO sdn_assurance_slots (vpc_id, slot_key, cadence, policy_version, generation, "
+            "status, due_at) VALUES (1, 'vpc:1:slot:gen:0', '10m', 1, 0, 'pending', '2026-09-25 03:00:00')"
+        ))
+        conn.execute(text(
+            "INSERT INTO sdn_assurance_runs (vpc_id, trigger, status, started_at, completed_at, "
+            "policy_version, policy_enabled, slot_key, error, facts_json, summary_json, items_json) "
+            "VALUES (1, 'scheduled', 'failed', '2026-09-25 03:10:00', '2026-09-25 03:10:01', "
+            "1, 1, 'vpc:1:slot:gen:0', 'boom', '{}', '{\"overall\": null}', '[]')"
+        ))
+    engine.dispose()
+
+    command.downgrade(cfg, "014")
+
+    engine = create_engine(f"sqlite:///{db_file}")
+    tables = set(inspect(engine).get_table_names())
+    assert "sdn_assurance_slots" not in tables
+    run_cols = {c["name"] for c in inspect(engine).get_columns("sdn_assurance_runs")}
+    assert "slot_key" not in run_cols and "error" not in run_cols
+    assert _index_exists(engine, "ix_sdn_assurance_runs_vpc_id")
+    assert not _index_exists(engine, "uq_sdn_assurance_runs_vpc_slot_key")  # CR61 索引随降级移除
+    # 014 无 failed 语义；降级保留行并映射为 started，不冒充 completed。
+    with engine.connect() as conn:
+        statuses = [row[0] for row in conn.execute(text(
+            "SELECT status FROM sdn_assurance_runs WHERE trigger='scheduled'"
+        )).fetchall()]
+    assert statuses == ["started"]
+    # 旧 CHECK 复原：status='failed' 被拒绝
+    from sqlalchemy.exc import IntegrityError
+    with engine.begin() as conn:
+        try:
+            conn.execute(text(
+                "INSERT INTO sdn_assurance_runs (vpc_id, trigger, status, started_at, completed_at, "
+                "policy_version, policy_enabled, facts_json, summary_json, items_json) "
+                "VALUES (1, 'scheduled', 'failed', '2026-09-25 04:00:00', '2026-09-25 04:00:01', "
+                "1, 1, '{}', '{}', '[]')"
+            ))
+            raise AssertionError("status='failed' must be rejected at 014 schema")
+        except IntegrityError:
+            pass
+    engine.dispose()
+
+
+def test_orm_create_all_matches_015_unique_index(monkeypatch, tmp_path):
+    """CR61：ORM create_all 生成的 run 表具名唯一索引与迁移 015 命名一致（幂等重复升级同）。"""
+    from app.database import Base
+
+    db_file = tmp_path / "orm015.db"
+    engine = create_engine(f"sqlite:///{db_file}")
+    Base.metadata.create_all(bind=engine)
+    assert _index_exists(engine, "uq_sdn_assurance_runs_vpc_slot_key")
+    assert _index_exists(engine, "uq_sdn_assurance_slots_vpc")
+    # ORM 表结构可再升级一次 015（幂等不炸）
+    cfg = _alembic_config()
+    cfg.set_main_option("sqlalchemy.url", f"sqlite:///{db_file}")
+    from alembic import command
+    command.stamp(cfg, "014")
+    command.upgrade(cfg, "015")
+    assert _index_exists(engine, "uq_sdn_assurance_runs_vpc_slot_key")
+    engine.dispose()
