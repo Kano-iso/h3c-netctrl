@@ -25,4 +25,6 @@
 - 直接受影响回归 `test_s3_001_assurance / test_s3_002_scheduler / test_s2_014_scope_exception /
   test_s1_006|007|008_adversarial / test_sdn_api / test_i18n / test_s2_016_attention`：
   **169 passed**
-- 前端：本轮无前端源码变更（仅服务端附加只读 event_key 字段，API client 不变）
+- 隔离真实应用栈：**6 passed + BOUNDARY_OK + STACK_QA_OK**（GUARD 展示 scope-exception
+  新增/清除产生的两条 event 历史，设备 I/O 计数不增长）
+- 前端：无生产源码变更；复用既有 GUARD trigger 标签与历史列表（API client 不变）

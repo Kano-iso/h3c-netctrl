@@ -30,7 +30,7 @@ async function vpcIdOf(request) {
   return body.data.vpcs.find((vpc) => vpc.name === 'stack-vpc').id
 }
 
-test('S3 real stack: GUARD evaluates, records history, saves preference, and performs no device I/O', async ({ page, request }) => {
+test('S3 real stack: GUARD evaluates manual and business events without device I/O', async ({ page, request }) => {
   await openGuard(page)
   const guard = page.locator('.guard-view')
   const vpcId = await vpcIdOf(request)
@@ -67,5 +67,54 @@ test('S3 real stack: GUARD evaluates, records history, saves preference, and per
     response_mode: 'observe_only',
     version: 1,
   })
+  expect(ioLines()).toBe(ioBefore)
+
+  // A persisted business-context change triggers an event evaluation.  Re-open GUARD
+  // through the real UI so the user-visible history, not only the API row, is verified.
+  const projectionResponse = await request.get(`/api/sdn/vpcs/${vpcId}/state-projection`)
+  expect(projectionResponse.ok()).toBeTruthy()
+  const projection = (await projectionResponse.json()).data
+  const spare = projection.scope.members.find((member) => member.name === 'Leaf-Spare')
+  expect(spare).toBeTruthy()
+
+  const addException = await request.put(
+    `/api/sdn/vpcs/${vpcId}/devices/${spare.device_id}/scope-exception`,
+    { data: { exception_type: 'maintenance_pause', reason: 'S3 event assurance probe' } },
+  )
+  expect(addException.ok()).toBeTruthy()
+  const exceptionListResponse = await request.get(`/api/sdn/vpcs/${vpcId}/scope-exceptions`)
+  expect(exceptionListResponse.ok()).toBeTruthy()
+  const addedException = (await exceptionListResponse.json()).data.exceptions.find(
+    (entry) => entry.device_id === spare.device_id,
+  )
+  expect(addedException).toBeTruthy()
+  expect(ioLines()).toBe(ioBefore)
+
+  await page.reload({ waitUntil: 'networkidle' })
+  await openGuard(page)
+  await expect(page.locator('.guard-history-list button')).toHaveCount(2)
+  await expect(page.locator('.guard-history-list')).toContainText('事件')
+
+  const clearException = await request.delete(
+    `/api/sdn/vpcs/${vpcId}/devices/${spare.device_id}/scope-exception`,
+  )
+  expect(clearException.ok()).toBeTruthy()
+  expect(ioLines()).toBe(ioBefore)
+
+  const finalRunsResponse = await request.get(`/api/sdn/vpcs/${vpcId}/assurance-runs`)
+  expect(finalRunsResponse.ok()).toBeTruthy()
+  const finalRuns = (await finalRunsResponse.json()).data.runs
+  expect(finalRuns).toHaveLength(3)
+  expect(finalRuns.filter((run) => run.trigger === 'event')).toHaveLength(2)
+  expect(finalRuns.filter((run) => run.trigger === 'event').every((run) => run.status === 'completed')).toBe(true)
+  const eventKeys = finalRuns.filter((run) => run.trigger === 'event').map((run) => run.event_key).sort()
+  expect(eventKeys[0]).toMatch(/^scope-exc:\d+:cleared$/)
+  expect(eventKeys[1]).toMatch(/^scope-exc:\d+:v1$/)
+  expect(eventKeys[0].split(':')[1]).toBe(eventKeys[1].split(':')[1])
+
+  await page.reload({ waitUntil: 'networkidle' })
+  await openGuard(page)
+  await expect(page.locator('.guard-history-list button')).toHaveCount(3)
+  await expect(page.locator('.guard-history-list').getByText(/事件/)).toHaveCount(2)
   expect(ioLines()).toBe(ioBefore)
 })

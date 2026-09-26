@@ -1,8 +1,9 @@
 # S1-027/S1-028 + S2-018 真实应用栈隔离联调通道（qa/）
 
-浏览器驱动【真实 FastAPI + 隔离 SQLite + 真实 vite dev】完成 NEXT 工作台接入故事与
-S2 用户故事验收（覆盖范围、范围例外、可行动关注队列），设备执行/采集仅在进程内以
-边界 fake 替代，并事后断言 `device-io.log` 证明无真实设备 I/O。
+浏览器驱动【真实 FastAPI + 隔离 SQLite + 真实 vite dev】完成 NEXT 工作台接入故事、
+S2 用户故事验收（覆盖范围、范围例外、可行动关注队列）与 S3 GUARD 保障验收（手动、
+策略与业务事件历史），设备执行/采集仅在进程内以边界 fake 替代，并事后断言
+`device-io.log` 证明无真实设备 I/O。
 默认不连任何真实设备；不连生产 DB、不读 `.env`、不挂 docker.sock、不碰 5174 演示环境。
 
 S1-028 整改：镜像从**公开固定基础镜像（node:20-alpine）独立构建**（不依赖任何本项目
@@ -27,7 +28,7 @@ docker compose -f openspec/changes/next-s1-workbench/qa/docker-compose.stack-qa.
 # 2) 运行联调（幂等、可重复；network_mode: none —— 容器无外部网络）
 docker compose -f openspec/changes/next-s1-workbench/qa/docker-compose.stack-qa.yml \
   run --rm qa-stack bash /opt/stack/qa/run_stack_qa.sh
-# 成功末尾：5 passed（S1 2 条 + S2 3 条）+ BOUNDARY_OK（device-io.log 全 fake）+ STACK_QA_OK
+# 成功末尾：6 passed（S1 2 条 + S2 3 条 + S3 1 条）+ BOUNDARY_OK（device-io.log 全 fake）+ STACK_QA_OK
 # S2-018 验收要求：完整运行连续两次全绿（空库/状态无污染），并记录真实 test 数。
 ```
 
@@ -68,6 +69,9 @@ docker compose -f openspec/changes/next-s1-workbench/qa/docker-compose.stack-qa.
   经真实 API sync 落库漂移快照 → attention confirmed_drift blocking，active 例外
   不吞掉事实且携带 exception；浏览器层固定文案「不下发配置、不隐藏漂移」与
   「不代表根因、不会自动修复」。fake 收集器新增 `collector-mode=drifted`（vsi 缺失）。
+- S3（stack-qa-s3.spec.js，1 条）：GUARD 真实保存策略并完成手动评估；启用保障后，
+  scope-exception 新增/清除分别追加 event 历史，页面显示两条「事件」记录及稳定
+  event_key；全过程 `device-io.log` 不增长。
 
 ## 网络边界
 

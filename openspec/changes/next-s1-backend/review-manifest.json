@@ -655,7 +655,7 @@
     },
     {
       "id": "CR63",
-      "summary": "有界事件保障（S3-003）：当且仅当 VPC 已启用保障时，在两类已成功持久化的业务事件后追加 trigger=event 只读评估——(1) validation/sync 成功落入新快照（event_key=snapshot:{id}）；(2) scope-exception 新增/修改/清除（event_key=scope-exc:{id}:v{version} / :cleared）。评估复用 S3-001 投影/白名单路径，不再次采集、不下发、不改 vpc.version 与 deployment/binding/operation/snapshot/claim；原业务事件一旦成功，评估失败不回滚、不伪装业务失败，追加 status=failed 的 event run 供审计，钩子绝不向调用方抛异常。未配策略或 enabled=false 必须零 event run；manual cadence 仅禁用周期，已 enabled 仍允许事件检查。同源事件重试不重复历史：run 增加 稳定 event_key（仅含稳定内部 ID/版本，不含凭据/原始 CLI）+ DB 具名唯一索引 uq_sdn_assurance_runs_event_key（manual/scheduled NULL 不受影响），迁移 016 幂等可升降；event_key 作为只读审计字段返回。前端视觉扩展未做。"
+      "summary": "有界事件保障（S3-003）：当且仅当 VPC 已启用保障时，在两类已成功持久化的业务事件后追加 trigger=event 只读评估——(1) validation/sync 成功落入新快照（event_key=snapshot:{id}）；(2) scope-exception 新增/修改/清除（event_key=scope-exc:{id}:v{version} / :cleared）。评估复用 S3-001 投影/白名单路径，不再次采集、不下发、不改 vpc.version 与 deployment/binding/operation/snapshot/claim；原业务事件一旦成功，评估失败不回滚、不伪装业务失败，追加 status=failed 的 event run 供审计，钩子绝不向调用方抛异常。未配策略或 enabled=false 必须零 event run；manual cadence 仅禁用周期，已 enabled 仍允许事件检查。同源事件重试不重复历史：run 增加稳定 event_key（仅含稳定内部 ID/版本，不含凭据/原始 CLI）+ DB 具名唯一索引 uq_sdn_assurance_runs_event_key（manual/scheduled NULL 不受影响），迁移 016 幂等可升降；event_key 作为只读审计字段返回。既有 GUARD 历史复用 trigger 标签展示事件记录，并经真实应用栈验证。"
     }
   ],
   "invariants": [
@@ -921,7 +921,7 @@
     {
       "command": "HOME=<worktree>/.stackqa/home docker compose -f openspec/changes/next-s1-workbench/qa/docker-compose.stack-qa.yml run --rm qa-stack bash /opt/stack/qa/run_stack_qa.sh",
       "environment": "next-s1-stack-qa 单容器真实应用栈（network_mode:none，真实 Vue/FastAPI/SQLite，设备边界 fake）",
-      "result": "6 passed（S1 2 + S2 3 + S3 GUARD 1）+ BOUNDARY_OK + STACK_QA_OK",
+      "result": "6 passed（S1 2 + S2 3 + S3 GUARD 1；S3 覆盖手动评估、策略保存、scope-exception 新增/清除触发两条可见 event 历史）+ BOUNDARY_OK + STACK_QA_OK",
       "baseline_failed": false
     },
     {
@@ -1009,7 +1009,7 @@
       "mode": "none"
     },
     {
-      "round": "S3-003（2026-09-25）：未触真机、无任何设备 I/O（事件评估全部隔离 qa-backend 容器验证；事件路径不调用 collector/executor/Netconf/SSH，collector.sync 调用计数=1 仅业务侧）",
+      "round": "S3-003（2026-09-26）：未触真机、无任何真实设备 I/O（事件评估经隔离 qa-backend 与 network_mode:none 真实应用栈验证；事件路径不调用 collector/executor/Netconf/SSH，GUARD 故事前后 fake device-I/O 计数不增长）",
       "target": null,
       "mode": "none"
     }
@@ -1023,7 +1023,7 @@
     "S3-002 并发竞态在处理器层/多 session 验证；未做跨多进程真机压测（SQLite CAS 语义保证唯一性，但多进程部署未实测）",
     "S3-002 scheduled/event 写接口仍未开放；GUARD 已接入基础调度状态，更深的调度时间线/事件触发视觉化未做",
     "S3-003 评估基于合成/历史事实；真实多 Leaf 多 VPC 数值取决于真实记录（本包只验通道与契约语义）",
-    "S3-003 trigger 写接口未开放（event run 仅由业务事件钩子产生）；前端视觉扩展未做",
+    "S3-003 trigger 写接口未开放（event run 仅由业务事件钩子产生）；GUARD 已显示事件来源，但独立事件详情/完整时间线未做",
     "S3-003 多进程真机压测未做（event_key 唯一性由 DB 唯一索引保证，与 S3-002 CR61 同模式）"
   ],
   "forbidden_actions_confirmed": [
@@ -1051,7 +1051,7 @@
     "S3-002 GUARD 仅消费只读调度字段，不新增隐式采集/下发；未 tag/archive",
     "S3-003 未触真机、未执行任何设备 I/O（事件评估全部隔离 qa-backend 容器验证）",
     "S3-003 未新增外部依赖；未做自动修复/根因结论/设备采集或下发；event 写接口未开放",
-    "S3-003 未改前端源码（仅服务端附加只读 event_key 字段）；未 commit/push/tag/archive"
+    "S3-003 未改前端生产源码（仅扩充隔离真实栈验收）；后端检查点 e213578 已推送；未 tag/archive"
   ],
   "ready_for_code_review": true
 }
