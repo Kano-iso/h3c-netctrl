@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     # 每 tick 最多处理的到期窗口数（防止风暴）
     ASSURANCE_TICK_MAX_SLOTS: int = 20
 
+    # S3-004：受控修复提案有效期（proposed → 过期由读取端保守标 stale，不自动执行）
+    REMEDIATION_PROPOSAL_TTL_SECONDS: float = 86400.0
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
 

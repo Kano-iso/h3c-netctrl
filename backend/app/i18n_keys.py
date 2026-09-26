@@ -225,6 +225,15 @@ class SDN:
     ASSURANCE_INVALID_RESPONSE_MODE = I18nKey("sdn.assurance_invalid_response_mode")  # 响应模式不合法: response_mode={response_mode}
     ASSURANCE_INVALID_TRIGGER = I18nKey("sdn.assurance_invalid_trigger")  # 评估触发方式不合法: trigger={trigger}
     ASSURANCE_RUN_NOT_FOUND = I18nKey("sdn.assurance_run_not_found")  # 保障评估运行不存在: vpc_id={vpc_id}, run_id={run_id}
+    # S3-004 受控修复提案（只生成、不执行）
+    REMEDIATION_RUN_NOT_FOUND = I18nKey("sdn.remediation_run_not_found")  # 提案所依赖的 completed 保障 run 不存在: vpc_id={vpc_id}, run_id={run_id}
+    REMEDIATION_ITEM_NOT_FOUND = I18nKey("sdn.remediation_item_not_found")  # run 中不存在可提案的 confirmed_drift blocking 项: item_key={item_key}
+    REMEDIATION_INVALID_ITEM = I18nKey("sdn.remediation_invalid_item")  # 提案 item 缺失稳定 device 归属: item_key={item_key}
+    REMEDIATION_DEVICE_NOT_LEAF = I18nKey("sdn.remediation_device_not_leaf")  # 目标设备不再是 EVPN Leaf: device_id={device_id}
+    REMEDIATION_OWNERSHIP_MISMATCH = I18nKey("sdn.remediation_ownership_mismatch")  # device 不属于该 VPC 的目标 Leaf: device_id={device_id}
+    REMEDIATION_STALE = I18nKey("sdn.remediation_stale")  # 提案已陈旧，拒绝生成: reason={reason}
+    REMEDIATION_ACTIVE_MAINTENANCE_EXCEPTION = I18nKey("sdn.remediation_active_maintenance_exception")  # 目标 Leaf 存在 active maintenance 例外: device_id={device_id}
+    REMEDIATION_NOT_FOUND = I18nKey("sdn.remediation_not_found")  # 修复提案不存在: vpc_id={vpc_id}, proposal_id={proposal_id}
 
 
 # ===== 集中导出（便于 import，支持 err.X 点访问） =====
@@ -375,6 +384,15 @@ err = SimpleNamespace(
     SDN_ASSURANCE_INVALID_RESPONSE_MODE=SDN.ASSURANCE_INVALID_RESPONSE_MODE,
     SDN_ASSURANCE_INVALID_TRIGGER=SDN.ASSURANCE_INVALID_TRIGGER,
     SDN_ASSURANCE_RUN_NOT_FOUND=SDN.ASSURANCE_RUN_NOT_FOUND,
+    # S3-004 受控修复提案
+    SDN_REMEDIATION_RUN_NOT_FOUND=SDN.REMEDIATION_RUN_NOT_FOUND,
+    SDN_REMEDIATION_ITEM_NOT_FOUND=SDN.REMEDIATION_ITEM_NOT_FOUND,
+    SDN_REMEDIATION_INVALID_ITEM=SDN.REMEDIATION_INVALID_ITEM,
+    SDN_REMEDIATION_DEVICE_NOT_LEAF=SDN.REMEDIATION_DEVICE_NOT_LEAF,
+    SDN_REMEDIATION_OWNERSHIP_MISMATCH=SDN.REMEDIATION_OWNERSHIP_MISMATCH,
+    SDN_REMEDIATION_STALE=SDN.REMEDIATION_STALE,
+    SDN_REMEDIATION_ACTIVE_MAINTENANCE_EXCEPTION=SDN.REMEDIATION_ACTIVE_MAINTENANCE_EXCEPTION,
+    SDN_REMEDIATION_NOT_FOUND=SDN.REMEDIATION_NOT_FOUND,
 )
 
 
@@ -536,6 +554,15 @@ FALLBACK_MESSAGES = {
     SDN.ASSURANCE_INVALID_RESPONSE_MODE: "响应模式不合法: response_mode={response_mode}",
     SDN.ASSURANCE_INVALID_TRIGGER: "评估触发方式不合法: trigger={trigger}",
     SDN.ASSURANCE_RUN_NOT_FOUND: "保障评估运行不存在: vpc_id={vpc_id}, run_id={run_id}",
+    # S3-004 受控修复提案
+    SDN.REMEDIATION_RUN_NOT_FOUND: "提案所依赖的 completed 保障 run 不存在: vpc_id={vpc_id}, run_id={run_id}",
+    SDN.REMEDIATION_ITEM_NOT_FOUND: "run 中不存在可提案的 confirmed_drift blocking 项: item_key={item_key}",
+    SDN.REMEDIATION_INVALID_ITEM: "提案 item 缺失稳定 device 归属: item_key={item_key}",
+    SDN.REMEDIATION_DEVICE_NOT_LEAF: "目标设备不再是 EVPN Leaf: device_id={device_id}",
+    SDN.REMEDIATION_OWNERSHIP_MISMATCH: "device 不属于该 VPC 的目标 Leaf: device_id={device_id}",
+    SDN.REMEDIATION_STALE: "提案已陈旧，拒绝生成: reason={reason}",
+    SDN.REMEDIATION_ACTIVE_MAINTENANCE_EXCEPTION: "目标 Leaf 存在 active maintenance 例外: device_id={device_id}",
+    SDN.REMEDIATION_NOT_FOUND: "修复提案不存在: vpc_id={vpc_id}, proposal_id={proposal_id}",
 }
 
 

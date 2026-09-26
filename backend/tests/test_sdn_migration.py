@@ -679,3 +679,101 @@ def test_orm_create_all_matches_016_event_key_index(monkeypatch, tmp_path):
     command.upgrade(cfg, "016")
     assert _index_exists(engine, "uq_sdn_assurance_runs_event_key")
     engine.dispose()
+
+
+# ── S3-004 迁移 017：sdn_remediation_proposals 表 + (run_id, item_key) 具名唯一索引
+# ──（幂等可升降，与 ORM 一致；只生成提案、零设备执行语义由服务层保证）──
+
+
+def _upgrade_to_017(db_file, monkeypatch):
+    """014 库（含 fixture）→ 015 → 016 → 017。"""
+    cfg = _upgrade_to_016(db_file, monkeypatch)
+    from alembic import command
+    command.upgrade(cfg, "017")
+    return cfg
+
+
+def _insert_proposal_row(conn, *, run_id=1, item_key="vpc:1:device:1:confirmed_drift"):
+    from sqlalchemy import text as _t
+    conn.execute(_t(
+        "INSERT INTO sdn_remediation_proposals (vpc_id, run_id, item_key, device_id, "
+        "vpc_version_at_create, policy_version, evidence_snapshot_id, expires_at, "
+        "fingerprint, summary_json) "
+        "VALUES (1, :run_id, :item_key, 1, 0, 1, 7, '2026-09-26 00:00:00', "
+        "'a' || 'b', '{\"action\": \"redeploy_vpc_on_device\", \"executed\": false}')"
+    ).bindparams(run_id=run_id, item_key=item_key))
+
+
+def test_upgrade_017_creates_proposals_table_and_unique_index(monkeypatch, tmp_path):
+    """016 → 017：proposals 表 + 具名唯一索引；同 run+item 拒绝重复；不同 run/item 共存。"""
+    db_file = tmp_path / "up017.db"
+    cfg = _upgrade_to_017(db_file, monkeypatch)
+
+    from alembic import command
+    command.upgrade(cfg, "017")  # 重复升级 no-op
+
+    engine = create_engine(f"sqlite:///{db_file}")
+    insp = inspect(engine)
+    assert "sdn_remediation_proposals" in set(insp.get_table_names())
+    cols = {c["name"] for c in insp.get_columns("sdn_remediation_proposals")}
+    for col in ("vpc_id", "run_id", "item_key", "device_id", "action", "category",
+                "vpc_version_at_create", "policy_version", "evidence_snapshot_id",
+                "status", "expires_at", "fingerprint", "summary_json", "created_at", "updated_at"):
+        assert col in cols, col
+    assert _index_exists(engine, "uq_sdn_remediation_proposals_run_item")
+    # 016 的 runs.event_key 结构保持
+    assert "event_key" in {c["name"] for c in insp.get_columns("sdn_assurance_runs")}
+
+    from sqlalchemy.exc import IntegrityError
+    with engine.begin() as conn:
+        _insert_proposal_row(conn)
+        # 同 (run_id, item_key) 重复 → 唯一索引拒绝
+        try:
+            _insert_proposal_row(conn)
+            raise AssertionError("duplicate (run_id, item_key) should be rejected")
+        except IntegrityError:
+            pass
+        # 不同 item_key 同 run → 允许（每 run+item 至多一条）
+        _insert_proposal_row(conn, item_key="vpc:1:device:1:confirmed_drift#2")
+        # 不同 run 同 item_key → 允许（新 run 可重新提案）
+        _insert_proposal_row(conn, run_id=2)
+    engine.dispose()
+
+
+def test_downgrade_017_removes_proposals_table(monkeypatch, tmp_path):
+    """017 → 016：proposals 表删除；016 runs.event_key 列/索引保持。"""
+    db_file = tmp_path / "down017.db"
+    cfg = _upgrade_to_017(db_file, monkeypatch)
+
+    from alembic import command
+    command.downgrade(cfg, "016")
+
+    engine = create_engine(f"sqlite:///{db_file}")
+    insp = inspect(engine)
+    assert "sdn_remediation_proposals" not in set(insp.get_table_names())
+    run_cols = {c["name"] for c in insp.get_columns("sdn_assurance_runs")}
+    assert "event_key" in run_cols  # 016 结构保持
+    assert _index_exists(engine, "uq_sdn_assurance_runs_event_key")
+    engine.dispose()
+
+
+def test_orm_create_all_matches_017_proposals_index(monkeypatch, tmp_path):
+    """ORM create_all 生成的 proposals 唯一索引与迁移 017 命名一致；可再升级 017（幂等）。"""
+    from app.database import Base
+    from app.config import settings
+
+    db_file = tmp_path / "orm017.db"
+    engine = create_engine(f"sqlite:///{db_file}")
+    Base.metadata.create_all(bind=engine)
+    assert "sdn_remediation_proposals" in set(inspect(engine).get_table_names())
+    assert _index_exists(engine, "uq_sdn_remediation_proposals_run_item")
+    assert _index_exists(engine, "uq_sdn_assurance_runs_event_key")
+    # ORM 表结构上再跑 016→017（幂等不炸；env.py 用 settings.DB_PATH 覆盖 url，须 monkeypatch）
+    monkeypatch.setattr(settings, "DB_PATH", str(db_file))
+    cfg = _alembic_config()
+    cfg.set_main_option("sqlalchemy.url", f"sqlite:///{db_file}")
+    from alembic import command
+    command.stamp(cfg, "016")
+    command.upgrade(cfg, "017")
+    assert _index_exists(engine, "uq_sdn_remediation_proposals_run_item")
+    engine.dispose()

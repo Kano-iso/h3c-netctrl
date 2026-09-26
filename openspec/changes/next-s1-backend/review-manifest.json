@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "package_id": "S3-003",
+  "package_id": "S3-004",
   "change_id": "next-s1-backend",
-  "baseline_sha": "9ea4a2bc4e4e8a70af8056c6a56e60de1c6671c1",
+  "baseline_sha": "05e8dc2b663915546b56af4a253d78f385126bac",
   "worktree": "/root/workpace/h3c-netctrl/.agent-worktrees/next-s1-backend",
   "scope": [
     "backend/app/models.py",
@@ -145,7 +145,21 @@
     "openspec/changes/next-s3-event-assurance/design.md",
     "openspec/changes/next-s3-event-assurance/specs/sdn/spec.md",
     "openspec/changes/next-s3-event-assurance/tasks.md",
-    "openspec/changes/next-s3-event-assurance/readiness.md"
+    "openspec/changes/next-s3-event-assurance/readiness.md",
+    "backend/app/config.py",
+    "backend/app/services/sdn_remediation.py",
+    "backend/migrations/versions/017_add_sdn_remediation_proposals.py",
+    "backend/app/routers/sdn_remediation.py",
+    "backend/app/main.py",
+    "backend/app/models.py",
+    "backend/app/i18n_keys.py",
+    "backend/tests/test_s3_004_remediation_proposal.py",
+    "backend/tests/test_sdn_migration.py",
+    "openspec/changes/next-s3-remediation-proposal/proposal.md",
+    "openspec/changes/next-s3-remediation-proposal/design.md",
+    "openspec/changes/next-s3-remediation-proposal/specs/sdn/spec.md",
+    "openspec/changes/next-s3-remediation-proposal/tasks.md",
+    "openspec/changes/next-s3-remediation-proposal/readiness.md"
   ],
   "requirements": [
     {
@@ -656,6 +670,10 @@
     {
       "id": "CR63",
       "summary": "有界事件保障（S3-003）：当且仅当 VPC 已启用保障时，在两类已成功持久化的业务事件后追加 trigger=event 只读评估——(1) validation/sync 成功落入新快照（event_key=snapshot:{id}）；(2) scope-exception 新增/修改/清除（event_key=scope-exc:{id}:v{version} / :cleared）。评估复用 S3-001 投影/白名单路径，不再次采集、不下发、不改 vpc.version 与 deployment/binding/operation/snapshot/claim；原业务事件一旦成功，评估失败不回滚、不伪装业务失败，追加 status=failed 的 event run 供审计，钩子绝不向调用方抛异常。未配策略或 enabled=false 必须零 event run；manual cadence 仅禁用周期，已 enabled 仍允许事件检查。同源事件重试不重复历史：run 增加稳定 event_key（仅含稳定内部 ID/版本，不含凭据/原始 CLI）+ DB 具名唯一索引 uq_sdn_assurance_runs_event_key（manual/scheduled NULL 不受影响），迁移 016 幂等可升降；event_key 作为只读审计字段返回。既有 GUARD 历史复用 trigger 标签展示事件记录，并经真实应用栈验证。"
+    },
+    {
+      "id": "CR64",
+      "summary": "受控修复提案（S3-004，只生成、绝不执行设备配置）：持久化 remediation plan（迁移 017 新表 sdn_remediation_proposals——VPC/run/item key/device/固定 action=redeploy_vpc_on_device 与 category=confirmed_drift（DB CHECK 防御）/创建时 VPC version/policy version/证据 snapshot id/status proposed|stale|cancelled/expires_at/稳定 fingerprint/脱敏 summary_json（planner dry-run 的语义单元名+保留项+executed=false，绝不含原始 CLI/凭据/planned_config）/created/updated，具名唯一索引 uq_sdn_remediation_proposals_run_item 使每 run+item 至多一条、幂等并发由唯一约束兜底）。API：POST 创建 / GET 列表 / GET 详情 / POST 取消（/api/sdn/vpcs/{vpc_id}/remediation-proposals*）。创建仅接受 completed run 中 severity=blocking、category=confirmed_drift 的真实 item，服务端从 run 白名单 items 取 device/item，不信任调用方重填设备或动作；创建时重读当前投影并同时满足：VPC/run/item 归属一致、当前 VPC version==run facts vpc_version、目标仍 EVPN Leaf 且仍 confirmed_drift blocking、当前最新 snapshot==run source_refs 证据、无 active maintenance exception——任一不满足即明确拒绝或返回 stale，不生成可用提案。读取时保守标 stale（短事务/CAS：VPC version/最新快照/当前分类/例外状态任一变化 → proposed 标 stale，绝不仍显示可执行）；取消仅 proposed→cancelled 且重复幂等（cancelled 不复活不被改写）。全路径零设备 I/O：不调用 executor/collector/Netconf/SSH，不创建 deployment/operation/binding/claim，不改 vpc.version，不实现 confirm/apply 端点，不把 proposed 写成已修复；VPCConfigPlanner dry-run 纯计算只提取语义单元名/描述。前端本轮零改动（由 Codex 契约复审后实现）。"
     }
   ],
   "invariants": [
@@ -717,7 +735,12 @@
     "S3-003 事件门控：未配策略或 enabled=false → 零 event run；manual cadence 只禁用周期，enabled 时仍允许事件检查",
     "S3-003 只读评估：复用 S3-001 投影/白名单，不采集、不下发、不改 vpc.version 与 deployment/binding/operation/snapshot/claim；事件路径零设备 I/O",
     "S3-003 业务成功不被破坏：评估失败不回滚/不伪装原业务失败，追加 status=failed 的 event run（error 记录、overall 不伪造）；钩子绝不向调用方抛异常",
-    "S3-003 去重：event_key 仅含稳定内部 ID/版本（snapshot:{id} / scope-exc:{id}:v{ver} / :cleared），DB 具名唯一索引 uq_sdn_assurance_runs_event_key 兜底（NULL 允许多个 manual/scheduled）；同源事件重试（含失败）不重复历史"
+    "S3-003 去重：event_key 仅含稳定内部 ID/版本（snapshot:{id} / scope-exc:{id}:v{ver} / :cleared），DB 具名唯一索引 uq_sdn_assurance_runs_event_key 兜底（NULL 允许多个 manual/scheduled）；同源事件重试（含失败）不重复历史",
+    "S3-004 准入：创建仅接受 completed run 中 severity=blocking、category=confirmed_drift 的真实 item；服务端从 run 白名单取 device/item，不信任调用方重填设备或动作（action 固定 redeploy_vpc_on_device / category 固定 confirmed_drift）",
+    "S3-004 防陈旧：创建时重读投影，VPC version==run facts、目标仍 EVPN Leaf 且仍 confirmed_drift、最新 snapshot==run source_refs 证据、无 active maintenance exception，任一不满足 → 明确拒绝/返回 stale，不生成可用提案",
+    "S3-004 读取保守标 stale（CAS）：VPC version / 最新 snapshot / 当前分类 / 例外状态任一变化 → proposed 标 stale，绝不仍显示可执行；cancelled 不被复活也不被改写为 stale",
+    "S3-004 幂等与取消：同 run+item 至多一条（DB 具名唯一索引 uq_sdn_remediation_proposals_run_item 兜底并发）；重复请求返回同一提案；取消仅 proposed→cancelled、重复取消幂等；历史不级联伪造业务成功",
+    "S3-004 零设备 I/O / 零业务副作用：不调用 executor/collector/Netconf/SSH，不创建 deployment/operation/binding/claim，不改 vpc.version，不实现 confirm/apply 端点；planner dry-run 纯计算只提取语义单元名/描述，summary_json 绝不含原始 CLI/凭据/planned_config"
   ],
   "tests": [
     {
@@ -947,6 +970,18 @@
       "environment": "qa-backend 容器（S3-001/S3-002/scope-exception/validation 对抗/sdn_api/i18n/attention 直接受影响回归）",
       "result": "169 passed",
       "baseline_failed": false
+    },
+    {
+      "command": "docker compose -f openspec/changes/next-s1-backend/qa/docker-compose.qa.yml run --rm qa-backend python -m pytest tests/test_s3_004_remediation_proposal.py tests/test_sdn_migration.py -q",
+      "environment": "qa-backend 容器（S3-004 对抗 16 条 + 完整迁移测试 20 条（含 017 升降/ORM 一致 3 条））",
+      "result": "36 passed（准入/防陈旧（VPC 版本/分类/证据/例外/非 Leaf）/空表并发唯一/陈旧后幂等重试返回同一提案/读取保守标 stale（CAS）/取消幂等/白名单无 CLI 凭据（API+DB 双层）/零设备 I/O 零业务副作用（planner dry-run 仅 1 次、vpc.version 与业务计数不变、无 confirm/apply 路由）/迁移 017 升降与 ORM 命名一致）",
+      "baseline_failed": false
+    },
+    {
+      "command": "docker compose -f openspec/changes/next-s1-backend/qa/docker-compose.qa.yml run --rm qa-backend python -m pytest tests/test_s3_001_assurance.py tests/test_s3_002_scheduler.py tests/test_s3_003_event_assurance.py tests/test_s2_014_scope_exception.py tests/test_s2_016_attention.py tests/test_s2_012_scope_projection.py tests/test_s2_001_state_projection.py tests/test_s1_006_adversarial.py tests/test_s1_007_adversarial.py tests/test_s1_008_adversarial.py tests/test_sdn_api.py tests/test_i18n.py -q",
+      "environment": "qa-backend 容器（S3-001/S3-002/S3-003/scope-exception/attention/scope 投影/state 投影/validation 对抗/sdn_api/i18n 直接受影响回归）",
+      "result": "219 passed",
+      "baseline_failed": false
     }
   ],
   "migrations": [
@@ -979,6 +1014,12 @@
       "summary": "sdn_assurance_runs 加 nullable event_key(String 128)（trigger=event 的稳定去重 key，仅含内部 ID/版本，不含凭据/CLI；manual/scheduled 为 NULL 不受影响）+ 具名唯一索引 uq_sdn_assurance_runs_event_key（ORM 与迁移命名一致）。幂等（列/索引存在即跳过，重复升级 no-op）；降级 drop 索引 + SQLite 表重建回 015 schema（保留 slot_key/error 与 CR61 索引）",
       "repeatable": true,
       "test": "tests/test_sdn_migration.py::test_upgrade_016_adds_event_key_and_unique_index"
+    },
+    {
+      "id": "017_add_sdn_remediation_proposals",
+      "summary": "新增 sdn_remediation_proposals（S3-004 受控修复提案：vpc_id/run_id/device_id FK ondelete=CASCADE + item_key + action CHECK redeploy_vpc_on_device + category CHECK confirmed_drift + vpc_version_at_create/policy_version/evidence_snapshot_id + status CHECK proposed|stale|cancelled + expires_at + fingerprint(64) + summary_json（语义单元名/保留项/executed=false，无 CLI/凭据）+ created/updated；具名唯一索引 uq_sdn_remediation_proposals_run_item（每 run+item 至多一条、幂等并发兜底）+ vpc_id/device_id 普通索引）。幂等（表/索引守卫，重复升级 no-op）；降级整表删除（索引随表删除），016 runs.event_key 结构保持；ORM __table_args__ Index 命名与迁移一致",
+      "repeatable": true,
+      "test": "tests/test_sdn_migration.py::test_upgrade_017_creates_proposals_table_and_unique_index"
     }
   ],
   "device_io": [
@@ -1012,6 +1053,11 @@
       "round": "S3-003（2026-09-26）：未触真机、无任何真实设备 I/O（事件评估经隔离 qa-backend 与 network_mode:none 真实应用栈验证；事件路径不调用 collector/executor/Netconf/SSH，GUARD 故事前后 fake device-I/O 计数不增长）",
       "target": null,
       "mode": "none"
+    },
+    {
+      "round": "S3-004（2026-09-26）：未触真机、无任何设备 I/O（提案创建/读取/取消全部隔离 qa-backend 容器验证；路径不调用 executor/collector/Netconf/SSH，VPCConfigPlanner dry-run 纯计算仅 1 次）",
+      "target": null,
+      "mode": "none"
     }
   ],
   "unverified": [
@@ -1024,7 +1070,10 @@
     "S3-002 scheduled/event 写接口仍未开放；GUARD 已接入基础调度状态，更深的调度时间线/事件触发视觉化未做",
     "S3-003 评估基于合成/历史事实；真实多 Leaf 多 VPC 数值取决于真实记录（本包只验通道与契约语义）",
     "S3-003 trigger 写接口未开放（event run 仅由业务事件钩子产生）；GUARD 已显示事件来源，但独立事件详情/完整时间线未做",
-    "S3-003 多进程真机压测未做（event_key 唯一性由 DB 唯一索引保证，与 S3-002 CR61 同模式）"
+    "S3-003 多进程真机压测未做（event_key 唯一性由 DB 唯一索引保证，与 S3-002 CR61 同模式）",
+    "S3-004 提案仅 proposed/stale/cancelled，无执行/确认/回滚端点；下一轮人工确认执行由 Codex 契约复审后另行交付",
+    "S3-004 评估基于合成/历史事实；真实多 Leaf 多 VPC 数值取决于真实记录（本包只验通道与契约语义）；多进程真机并发压测未做（唯一性由 DB 唯一索引保证，与 S3-002/S3-003 同模式）",
+    "S3-004 前端展示未做（前端由 Codex 契约复审后实现）"
   ],
   "forbidden_actions_confirmed": [
     "未修改主工作树或常驻业务服务；前端仅在开发 worktree 增加 GUARD 视角并走隔离 QA",
@@ -1051,7 +1100,10 @@
     "S3-002 GUARD 仅消费只读调度字段，不新增隐式采集/下发；未 tag/archive",
     "S3-003 未触真机、未执行任何设备 I/O（事件评估全部隔离 qa-backend 容器验证）",
     "S3-003 未新增外部依赖；未做自动修复/根因结论/设备采集或下发；event 写接口未开放",
-    "S3-003 未改前端生产源码（仅扩充隔离真实栈验收）；后端检查点 e213578 已推送；未 tag/archive"
+    "S3-003 未改前端生产源码（仅扩充隔离真实栈验收）；后端检查点 e213578 已推送；未 tag/archive",
+    "S3-004 未触真机、未执行任何设备 I/O（提案全部隔离 qa-backend 容器验证）",
+    "S3-004 未新增外部依赖；未实现 confirm/apply/execute 端点、未把 proposed 写成已修复；未做自动修复/根因结论/设备采集或下发",
+    "S3-004 未改前端生产源码（前端由 Codex 契约复审后实现）；未 commit/push/tag/archive"
   ],
   "ready_for_code_review": true
 }

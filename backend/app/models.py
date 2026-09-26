@@ -224,6 +224,10 @@ class SdnVpc(Base):
     assurance_slot: Mapped[Optional["SdnAssuranceSlot"]] = relationship(
         "SdnAssuranceSlot", back_populates="vpc", cascade="all, delete-orphan", uselist=False
     )
+    # S3-004：受控修复提案（父删除级联清理，历史不级联伪造成功）
+    remediation_proposals: Mapped[list["SdnRemediationProposal"]] = relationship(
+        "SdnRemediationProposal", back_populates="vpc", cascade="all, delete-orphan"
+    )
 
 
 class SdnPortBinding(Base):
@@ -554,6 +558,68 @@ class SdnAssuranceSlot(Base):
     )
 
     vpc: Mapped["SdnVpc"] = relationship("SdnVpc", back_populates="assurance_slot")
+
+
+class SdnRemediationProposal(Base):
+    """受控修复提案（S3-004，只生成提案、绝不执行设备配置）。
+
+    绑定当时的保障 run、VPC version、目标 Leaf 与最新证据，为下一轮人工确认执行建立
+    防陈旧边界：
+    - 每个 (run_id, item_key) 至多一条提案（具名唯一约束兜底幂等并发）；
+    - 状态 proposed → stale（读取端 CAS：VPC version / 最新 snapshot / 当前分类 / 例外
+      变化即保守标 stale）/ cancelled（仅 proposed 可取消，重复取消幂等）；
+    - action/category 固定为 redeploy_vpc_on_device / confirmed_drift（DB CHECK 防御）；
+    - summary_json 只含语义单元名/影响范围（经 planner dry-run 计算），绝不含原始 CLI、
+      凭据、planned_config；fingerprint 为稳定摘要；
+    - 写操作零设备 I/O：不创建 deployment/operation/binding/claim，不改 vpc.version，
+      不实现 confirm/apply。
+    """
+    __tablename__ = "sdn_remediation_proposals"
+    __table_args__ = (
+        Index("uq_sdn_remediation_proposals_run_item", "run_id", "item_key", unique=True),
+        CheckConstraint(
+            "action IN ('redeploy_vpc_on_device')",
+            name="ck_sdn_remediation_proposals_action",
+        ),
+        CheckConstraint(
+            "category IN ('confirmed_drift')",
+            name="ck_sdn_remediation_proposals_category",
+        ),
+        CheckConstraint(
+            "status IN ('proposed', 'stale', 'cancelled')",
+            name="ck_sdn_remediation_proposals_status",
+        ),
+        CheckConstraint(
+            "vpc_version_at_create >= 0", name="ck_sdn_remediation_proposals_vpc_version"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    vpc_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("sdn_vpcs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    run_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("sdn_assurance_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    item_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    device_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    action: Mapped[str] = mapped_column(String(64), default="redeploy_vpc_on_device", nullable=False)
+    category: Mapped[str] = mapped_column(String(32), default="confirmed_drift", nullable=False)
+    vpc_version_at_create: Mapped[int] = mapped_column(Integer, nullable=False)
+    policy_version: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    evidence_snapshot_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="proposed", nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    summary_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    vpc: Mapped["SdnVpc"] = relationship("SdnVpc", back_populates="remediation_proposals")
 
 
 class SdnPlan(Base):

@@ -16,6 +16,7 @@ from app.routers import ctrl_internal, data_internal
 from app.routers import sdn
 from app.routers import sdn_access
 from app.routers import sdn_assurance
+from app.routers import sdn_remediation
 from app.routers import ztp
 from app.utils.logger import setup_logging
 
@@ -58,6 +59,7 @@ app.include_router(backup.router, prefix="/api")
 app.include_router(sdn.router)  # sdn router 自带 prefix=/api/sdn
 app.include_router(sdn_access.router)  # S1 终端接入端点，自带 prefix=/api/sdn
 app.include_router(sdn_assurance.router)  # S3-001 VPC 保障（策略 + 只读评估），prefix=/api/sdn
+app.include_router(sdn_remediation.router)  # S3-004 受控修复提案（只生成、不执行），prefix=/api/sdn
 app.include_router(ztp.router)
 
 # 内部端点（v241-container-split，测试用，monolith 模式也注册）
