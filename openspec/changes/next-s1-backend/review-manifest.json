@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "package_id": "S3-002",
+  "package_id": "S3-003",
   "change_id": "next-s1-backend",
-  "baseline_sha": "845a2feed8a94fe13e07a7538a42da9419d22e0f",
+  "baseline_sha": "9ea4a2bc4e4e8a70af8056c6a56e60de1c6671c1",
   "worktree": "/root/workpace/h3c-netctrl/.agent-worktrees/next-s1-backend",
   "scope": [
     "backend/app/models.py",
@@ -137,7 +137,15 @@
     "openspec/changes/next-s3-scheduler/readiness.md",
     "backend/app/config.py",
     "backend/app/database.py",
-    "backend/tests/conftest.py"
+    "backend/tests/conftest.py",
+    "backend/app/services/sdn_assurance_events.py",
+    "backend/migrations/versions/016_add_assurance_run_event_key.py",
+    "backend/tests/test_s3_003_event_assurance.py",
+    "openspec/changes/next-s3-event-assurance/proposal.md",
+    "openspec/changes/next-s3-event-assurance/design.md",
+    "openspec/changes/next-s3-event-assurance/specs/sdn/spec.md",
+    "openspec/changes/next-s3-event-assurance/tasks.md",
+    "openspec/changes/next-s3-event-assurance/readiness.md"
   ],
   "requirements": [
     {
@@ -644,6 +652,10 @@
     {
       "id": "CR62",
       "summary": "Codex 终审所有权快照：_claim_slot 返回的 token 显式贯穿到评估入口，投影前同时匹配 generation/status/token；slot owner 以脱离 Session 的快照进入评估，防止异常 rollback 将 ORM 对象过期后刷新成接管者 token。旧 worker 在执行前已被接管时零投影，在执行中被接管后异常时也不得替新 owner 落 failed 终态。"
+    },
+    {
+      "id": "CR63",
+      "summary": "有界事件保障（S3-003）：当且仅当 VPC 已启用保障时，在两类已成功持久化的业务事件后追加 trigger=event 只读评估——(1) validation/sync 成功落入新快照（event_key=snapshot:{id}）；(2) scope-exception 新增/修改/清除（event_key=scope-exc:{id}:v{version} / :cleared）。评估复用 S3-001 投影/白名单路径，不再次采集、不下发、不改 vpc.version 与 deployment/binding/operation/snapshot/claim；原业务事件一旦成功，评估失败不回滚、不伪装业务失败，追加 status=failed 的 event run 供审计，钩子绝不向调用方抛异常。未配策略或 enabled=false 必须零 event run；manual cadence 仅禁用周期，已 enabled 仍允许事件检查。同源事件重试不重复历史：run 增加 稳定 event_key（仅含稳定内部 ID/版本，不含凭据/原始 CLI）+ DB 具名唯一索引 uq_sdn_assurance_runs_event_key（manual/scheduled NULL 不受影响），迁移 016 幂等可升降；event_key 作为只读审计字段返回。前端视觉扩展未做。"
     }
   ],
   "invariants": [
@@ -700,8 +712,12 @@
     "S3-002 CR61 原子性：scheduled run 的 INSERT/flush 与 owner-aware terminal CAS 同一事务；CAS 0 行或唯一约束命中 → 整个事务 rollback，绝不留 orphan/重复历史（同 slot_key 至多一条 run）",
     "S3-002 CR61 terminal CAS：WHERE (id, generation, status='claimed', claim_token)；成功后清空 claim_token/claimed_at/lease；同 token 重放 / complete→fail / 旧 token / 旧 generation 均 0 行且不改 run_id/status；推进 CAS WHERE status∈{pending,completed,failed}（claimed 窗口绝不推进）",
     "S3-002 CR61 批量口径：max_slots=N 限制每 tick 的全部持久化窗口变更（建首窗口/认领评估/terminal 推进/policy-change 推进），至多 N 个 VPC 的 slot 被修改；纯只读跳过不计",
-    "S3-002 CR61 唯一索引：uq_sdn_assurance_runs_vpc_slot_key 在 ORM 与迁移 015 中命名一致且幂等（重复升级 no-op、降级移除）；SQLite NULL 允许多个 manual run"
-    ,"S3-002 CR62 owner 快照：认领 token 贯穿评估入口，执行前已接管则零投影；异常 rollback 后仍使用旧 owner 快照做 CAS，不得刷新成新 owner token"
+    "S3-002 CR61 唯一索引：uq_sdn_assurance_runs_vpc_slot_key 在 ORM 与迁移 015 中命名一致且幂等（重复升级 no-op、降级移除）；SQLite NULL 允许多个 manual run",
+    "S3-002 CR62 owner 快照：认领 token 贯穿评估入口，执行前已接管则零投影；异常 rollback 后仍使用旧 owner 快照做 CAS，不得刷新成新 owner token",
+    "S3-003 事件门控：未配策略或 enabled=false → 零 event run；manual cadence 只禁用周期，enabled 时仍允许事件检查",
+    "S3-003 只读评估：复用 S3-001 投影/白名单，不采集、不下发、不改 vpc.version 与 deployment/binding/operation/snapshot/claim；事件路径零设备 I/O",
+    "S3-003 业务成功不被破坏：评估失败不回滚/不伪装原业务失败，追加 status=failed 的 event run（error 记录、overall 不伪造）；钩子绝不向调用方抛异常",
+    "S3-003 去重：event_key 仅含稳定内部 ID/版本（snapshot:{id} / scope-exc:{id}:v{ver} / :cleared），DB 具名唯一索引 uq_sdn_assurance_runs_event_key 兜底（NULL 允许多个 manual/scheduled）；同源事件重试（含失败）不重复历史"
   ],
   "tests": [
     {
@@ -919,6 +935,18 @@
       "environment": "qa-backend 容器（S3-001 全部 + i18n + 直接受影响回归）",
       "result": "78 passed",
       "baseline_failed": false
+    },
+    {
+      "command": "docker compose -f openspec/changes/next-s1-backend/qa/docker-compose.qa.yml run --rm qa-backend python -m pytest tests/test_s3_003_event_assurance.py tests/test_sdn_migration.py -q",
+      "environment": "qa-backend 容器（S3-003 对抗 9 条 + 完整迁移测试 16 条）",
+      "result": "25 passed",
+      "baseline_failed": false
+    },
+    {
+      "command": "docker compose -f openspec/changes/next-s1-backend/qa/docker-compose.qa.yml run --rm qa-backend python -m pytest tests/test_s3_001_assurance.py tests/test_s3_002_scheduler.py tests/test_s2_014_scope_exception.py tests/test_s1_006_adversarial.py tests/test_s1_007_adversarial.py tests/test_s1_008_adversarial.py tests/test_sdn_api.py tests/test_i18n.py tests/test_s2_016_attention.py -q",
+      "environment": "qa-backend 容器（S3-001/S3-002/scope-exception/validation 对抗/sdn_api/i18n/attention 直接受影响回归）",
+      "result": "169 passed",
+      "baseline_failed": false
     }
   ],
   "migrations": [
@@ -945,6 +973,12 @@
       "summary": "新增 sdn_assurance_slots（每 VPC 至多一条窗口：slot_key/cadence/policy_version/generation/status CHECK pending|claimed|completed|failed/due_at/claim_token/lease_expires_at/run_id/error，具名唯一索引 uq_sdn_assurance_slots_vpc，vpc_id FK ondelete=CASCADE）；sdn_assurance_runs SQLite 重建加 slot_key/error 列并扩展 status CHECK 含 failed（014 数据保持，slot_key=NULL；索引重建）；幂等（表/列守卫），降级反向（删 slots、runs 还原 014 schema）",
       "repeatable": true,
       "test": "tests/test_sdn_migration.py::test_upgrade_015_creates_slots_and_extends_runs"
+    },
+    {
+      "id": "016_add_assurance_run_event_key",
+      "summary": "sdn_assurance_runs 加 nullable event_key(String 128)（trigger=event 的稳定去重 key，仅含内部 ID/版本，不含凭据/CLI；manual/scheduled 为 NULL 不受影响）+ 具名唯一索引 uq_sdn_assurance_runs_event_key（ORM 与迁移命名一致）。幂等（列/索引存在即跳过，重复升级 no-op）；降级 drop 索引 + SQLite 表重建回 015 schema（保留 slot_key/error 与 CR61 索引）",
+      "repeatable": true,
+      "test": "tests/test_sdn_migration.py::test_upgrade_016_adds_event_key_and_unique_index"
     }
   ],
   "device_io": [
@@ -973,6 +1007,11 @@
       "round": "S3-002（2026-09-25）：未触真机、无任何设备 I/O（调度/评估全部隔离 qa-backend 容器验证；scheduler 模块不 import collector/executor/Netconf/SSH）",
       "target": null,
       "mode": "none"
+    },
+    {
+      "round": "S3-003（2026-09-25）：未触真机、无任何设备 I/O（事件评估全部隔离 qa-backend 容器验证；事件路径不调用 collector/executor/Netconf/SSH，collector.sync 调用计数=1 仅业务侧）",
+      "target": null,
+      "mode": "none"
     }
   ],
   "unverified": [
@@ -982,7 +1021,10 @@
     "S3-001 scheduler/scheduled/event 触发未实现：cadence 仅记录产品意图；策略 CAS 与 manual run 并发均以独立数据库会话在线程中验证",
     "S3-002 评估基于合成/历史事实；真实多 Leaf 多 VPC 数值取决于真实记录（本包只验通道与契约语义）",
     "S3-002 并发竞态在处理器层/多 session 验证；未做跨多进程真机压测（SQLite CAS 语义保证唯一性，但多进程部署未实测）",
-    "S3-002 scheduled/event 写接口仍未开放；GUARD 已接入基础调度状态，更深的调度时间线/事件触发视觉化未做"
+    "S3-002 scheduled/event 写接口仍未开放；GUARD 已接入基础调度状态，更深的调度时间线/事件触发视觉化未做",
+    "S3-003 评估基于合成/历史事实；真实多 Leaf 多 VPC 数值取决于真实记录（本包只验通道与契约语义）",
+    "S3-003 trigger 写接口未开放（event run 仅由业务事件钩子产生）；前端视觉扩展未做",
+    "S3-003 多进程真机压测未做（event_key 唯一性由 DB 唯一索引保证，与 S3-002 CR61 同模式）"
   ],
   "forbidden_actions_confirmed": [
     "未修改主工作树或常驻业务服务；前端仅在开发 worktree 增加 GUARD 视角并走隔离 QA",
@@ -1006,7 +1048,10 @@
     "S3-002 未触真机、未执行任何设备 I/O（调度/评估全部隔离 qa-backend 容器验证）",
     "S3-002 未新增外部依赖（无 Redis/etcd/Celery/APScheduler）；未依赖进程锁（只靠 DB CAS）",
     "S3-002 未做自动修复/根因结论/设备采集或下发；scheduled 写接口未开放",
-    "S3-002 GUARD 仅消费只读调度字段，不新增隐式采集/下发；未 tag/archive"
+    "S3-002 GUARD 仅消费只读调度字段，不新增隐式采集/下发；未 tag/archive",
+    "S3-003 未触真机、未执行任何设备 I/O（事件评估全部隔离 qa-backend 容器验证）",
+    "S3-003 未新增外部依赖；未做自动修复/根因结论/设备采集或下发；event 写接口未开放",
+    "S3-003 未改前端源码（仅服务端附加只读 event_key 字段）；未 commit/push/tag/archive"
   ],
   "ready_for_code_review": true
 }

@@ -168,6 +168,8 @@ def _serialize_run(run: SdnAssuranceRun) -> dict:
         # S3-002：scheduled 运行的窗口 key（manual 为 None）+ 失败原因（仅 failed 非空）
         "slot_key": run.slot_key,
         "error": run.error,
+        # S3-003：event 运行的稳定去重审计 key（manual/scheduled 为 None；只读）
+        "event_key": run.event_key,
         "overall": None if failed else summary.get("overall"),
         "summary": summary,
         "facts": _safe_facts(run.facts_json),

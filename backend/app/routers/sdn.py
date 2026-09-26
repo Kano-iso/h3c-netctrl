@@ -87,6 +87,32 @@ logger = logging.getLogger("app")
 router = APIRouter(prefix="/api/sdn", tags=["sdn"])
 
 
+# ─────────── S3-003 事件保障钩子 ───────────
+
+def _record_event_check(db: Session, vpc_id: int, event_key: str) -> None:
+    """业务事件成功持久化后追加 trigger=event 只读评估（S3-003）。
+
+    任何情况都不抛给调用方：评估失败只追加 failed run，不影响已成功的原业务事件；
+    未配策略 / enabled=false → 零 event run；同源事件重试由 event_key 唯一约束去重。
+    """
+    try:
+        from app.services.sdn_assurance_events import record_event_check as _rec
+
+        _rec(db, vpc_id=vpc_id, event_key=event_key)
+    except Exception:
+        logger.exception(f"s3-003 event hook failed vpc={vpc_id} key={event_key}")
+
+
+def _snapshot_event_key(snapshot_id: int) -> str:
+    return f"snapshot:{snapshot_id}"
+
+
+def _scope_exception_event_key(exception_id: int, version: Optional[int] = None, *, cleared: bool = False) -> str:
+    if cleared:
+        return f"scope-exc:{exception_id}:cleared"
+    return f"scope-exc:{exception_id}:v{version}"
+
+
 # ─────────── 内部辅助 ───────────
 
 def _acquire_resource_claims(db: Session, keys: list[str]) -> list[str]:
@@ -1512,6 +1538,9 @@ def sync_vpc_validation(
         if error["key"] == "device.not_found":
             return error_response(err.DEVICE_NOT_FOUND, params=error.get("params"))
         return error_response(err.OPERATION_FAILED, params=error.get("params"))
+    # S3-003：sync 成功落入快照后追加 trigger=event 只读评估（失败只留 failed run 审计，
+    # 绝不影响已成功的 sync 响应；同快照重试由 event_key 唯一约束去重）。
+    _record_event_check(db, vpc_id, _snapshot_event_key(snapshot.id))
     return APIResponse(success=True, data=collector.to_response(snapshot, cached=cached))
 
 
@@ -2116,6 +2145,9 @@ def upsert_vpc_scope_exception(vpc_id: int, device_id: int, body: dict, db: Sess
 
     row = (db.query(SdnScopeException)
            .filter(SdnScopeException.vpc_id == vpc_id, SdnScopeException.device_id == device_id).first())
+    # S3-003：scope-exception 新增/修改成功后追加 trigger=event 只读评估（按 id+version 去重）
+    if row is not None:
+        _record_event_check(db, vpc_id, _scope_exception_event_key(row.id, row.version))
     return APIResponse(success=True, data=_serialize_scope_exception(row))
 
 
@@ -2134,8 +2166,13 @@ def clear_vpc_scope_exception(vpc_id: int, device_id: int, db: Session = Depends
         .first()
     )
     deleted = False
+    exc_id = None
     if row is not None:
+        exc_id = row.id
         db.delete(row)
         db.commit()
         deleted = True
+    # S3-003：scope-exception 清除成功后追加 trigger=event 只读评估（按 id 去重，每例一次）
+    if deleted:
+        _record_event_check(db, vpc_id, _scope_exception_event_key(exc_id, cleared=True))
     return APIResponse(success=True, data={"vpc_id": vpc_id, "device_id": device_id, "deleted": deleted})

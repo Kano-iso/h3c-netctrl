@@ -566,11 +566,116 @@ def test_orm_create_all_matches_015_unique_index(monkeypatch, tmp_path):
     Base.metadata.create_all(bind=engine)
     assert _index_exists(engine, "uq_sdn_assurance_runs_vpc_slot_key")
     assert _index_exists(engine, "uq_sdn_assurance_slots_vpc")
-    # ORM 表结构可再升级一次 015（幂等不炸）
+    # ORM 表结构可再升级一次 015（幂等不炸；env.py 用 settings.DB_PATH 覆盖 url，须 monkeypatch）
+    from app.config import settings
+    monkeypatch.setattr(settings, "DB_PATH", str(db_file))
     cfg = _alembic_config()
     cfg.set_main_option("sqlalchemy.url", f"sqlite:///{db_file}")
     from alembic import command
     command.stamp(cfg, "014")
     command.upgrade(cfg, "015")
     assert _index_exists(engine, "uq_sdn_assurance_runs_vpc_slot_key")
+    engine.dispose()
+
+
+# ── S3-003 迁移 016：runs.event_key 列 + 具名唯一去重索引（幂等可升降，与 ORM 一致）──
+
+
+def _upgrade_to_016(db_file, monkeypatch):
+    """014 库（含 fixture 数据）→ 015 → 016。"""
+    cfg = _upgrade_to_014(db_file, monkeypatch)
+    _insert_014_fixture(db_file)
+    from alembic import command
+    command.upgrade(cfg, "015")
+    command.upgrade(cfg, "016")
+    return cfg
+
+
+def test_upgrade_016_adds_event_key_and_unique_index(monkeypatch, tmp_path):
+    """015 → 016：event_key 列 + 具名唯一索引；同源事件去重；NULL（manual/scheduled）不受影响。"""
+    db_file = tmp_path / "up016.db"
+    cfg = _upgrade_to_016(db_file, monkeypatch)
+
+    from alembic import command
+    command.upgrade(cfg, "016")  # 重复升级 no-op
+
+    engine = create_engine(f"sqlite:///{db_file}")
+    insp = inspect(engine)
+    run_cols = {c["name"] for c in insp.get_columns("sdn_assurance_runs")}
+    assert "event_key" in run_cols
+    assert _index_exists(engine, "uq_sdn_assurance_runs_event_key")
+    assert _index_exists(engine, "uq_sdn_assurance_runs_vpc_slot_key")  # 015 索引仍在
+
+    from sqlalchemy.exc import IntegrityError
+    with engine.begin() as conn:
+        # 014 fixture 的 manual run 保持（slot_key/event_key 均 NULL）
+        conn.execute(text(
+            "INSERT INTO sdn_assurance_runs (vpc_id, trigger, status, started_at, completed_at, "
+            "policy_version, policy_enabled, slot_key, event_key, facts_json, summary_json, items_json) "
+            "VALUES (1, 'scheduled', 'completed', '2026-09-25 05:00:00', '2026-09-25 05:00:01', "
+            "1, 1, 'vpc:1:slot:gen:0', 'snapshot:7', '{}', '{}', '[]')"
+        ))
+        # 同源事件重试 → 唯一索引拒绝（不重复历史）
+        try:
+            conn.execute(text(
+                "INSERT INTO sdn_assurance_runs (vpc_id, trigger, status, started_at, completed_at, "
+                "policy_version, policy_enabled, event_key, facts_json, summary_json, items_json) "
+                "VALUES (1, 'event', 'failed', '2026-09-25 05:01:00', '2026-09-25 05:01:01', "
+                "1, 1, 'snapshot:7', '{}', '{}', '[]')"
+            ))
+            raise AssertionError("duplicate event_key should be rejected")
+        except IntegrityError:
+            pass
+        # 多条 manual（event_key NULL）共存不受影响
+        conn.execute(text(
+            "INSERT INTO sdn_assurance_runs (vpc_id, trigger, status, started_at, completed_at, "
+            "policy_version, policy_enabled, facts_json, summary_json, items_json) "
+            "VALUES (1, 'manual', 'completed', '2026-09-25 06:00:00', '2026-09-25 06:00:01', "
+            "1, 1, '{}', '{}', '[]')"
+        ))
+        conn.execute(text(
+            "INSERT INTO sdn_assurance_runs (vpc_id, trigger, status, started_at, completed_at, "
+            "policy_version, policy_enabled, facts_json, summary_json, items_json) "
+            "VALUES (1, 'manual', 'completed', '2026-09-25 06:01:00', '2026-09-25 06:01:01', "
+            "1, 1, '{}', '{}', '[]')"
+        ))
+    engine.dispose()
+
+
+def test_downgrade_016_removes_event_key(monkeypatch, tmp_path):
+    """016 → 015：event_key 列与去重索引移除；slot_key/error 与 CR61 索引保持。"""
+    db_file = tmp_path / "down016.db"
+    cfg = _upgrade_to_016(db_file, monkeypatch)
+
+    from alembic import command
+    command.downgrade(cfg, "015")
+
+    engine = create_engine(f"sqlite:///{db_file}")
+    run_cols = {c["name"] for c in inspect(engine).get_columns("sdn_assurance_runs")}
+    assert "event_key" not in run_cols
+    assert not _index_exists(engine, "uq_sdn_assurance_runs_event_key")
+    assert "slot_key" in run_cols and "error" in run_cols  # 015 schema 保持
+    assert _index_exists(engine, "uq_sdn_assurance_runs_vpc_slot_key")
+    assert _index_exists(engine, "ix_sdn_assurance_runs_vpc_id")
+    engine.dispose()
+
+
+def test_orm_create_all_matches_016_event_key_index(monkeypatch, tmp_path):
+    """ORM create_all 生成的 event_key 唯一索引与迁移 016 命名一致；可再升级 016（幂等）。"""
+    from app.database import Base
+
+    db_file = tmp_path / "orm016.db"
+    engine = create_engine(f"sqlite:///{db_file}")
+    Base.metadata.create_all(bind=engine)
+    assert _index_exists(engine, "uq_sdn_assurance_runs_event_key")
+    assert _index_exists(engine, "uq_sdn_assurance_runs_vpc_slot_key")
+    # ORM 表结构上再跑 015→016（幂等不炸；env.py 用 settings.DB_PATH 覆盖 url，须 monkeypatch）
+    from app.config import settings
+    monkeypatch.setattr(settings, "DB_PATH", str(db_file))
+    cfg = _alembic_config()
+    cfg.set_main_option("sqlalchemy.url", f"sqlite:///{db_file}")
+    from alembic import command
+    command.stamp(cfg, "015")
+    command.upgrade(cfg, "016")
+    assert _index_exists(engine, "uq_sdn_assurance_runs_event_key")
     engine.dispose()

@@ -474,6 +474,9 @@ class SdnAssuranceRun(Base):
         # 在 SQLite 中允许多行，互不影响。scheduled 的原子路径正常不会触发，这里兜底
         # 防"同 slot_key 重复历史"。
         Index("uq_sdn_assurance_runs_vpc_slot_key", "vpc_id", "slot_key", unique=True),
+        # S3-003 DB 防御：同源事件至多一条 event run（event_key NULL 允许多个
+        # manual/scheduled）；同一源事件重试不重复历史。
+        Index("uq_sdn_assurance_runs_event_key", "event_key", unique=True),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -490,6 +493,9 @@ class SdnAssuranceRun(Base):
     slot_key: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     # S3-002：失败原因（仅 status=failed 时非空；不伪造 completed/healthy）
     error: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    # S3-003：event 运行的稳定去重 key（snapshot:{id} / scope-exc:{id}:v{ver} / :cleared），
+    # 仅含稳定内部 ID/版本，不含凭据/原始 CLI；manual/scheduled 为 NULL。
+    event_key: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     facts_json: Mapped[str] = mapped_column(Text, nullable=False)
     summary_json: Mapped[str] = mapped_column(Text, nullable=False)
     items_json: Mapped[str] = mapped_column(Text, nullable=False)
