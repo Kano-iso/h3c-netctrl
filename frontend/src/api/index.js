@@ -143,6 +143,14 @@ export const sdnApi = {
     return apiCall(`/sdn/vpcs/${vpcId}/assurance-runs${qs ? '?' + qs : ''}`)
   },
   getAssuranceRun: (vpcId, runId) => apiCall(`/sdn/vpcs/${vpcId}/assurance-runs/${runId}`),
+  listRemediationProposals: (vpcId) => apiCall(`/sdn/vpcs/${vpcId}/remediation-proposals`),
+  createRemediationProposal: (vpcId, payload) =>
+    apiCall(`/sdn/vpcs/${vpcId}/remediation-proposals`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  cancelRemediationProposal: (vpcId, proposalId) =>
+    apiCall(`/sdn/vpcs/${vpcId}/remediation-proposals/${proposalId}/cancel`, { method: 'POST' }),
 
   previewAccess: (vpcId, payload) =>
     apiCall(`/sdn/vpcs/${vpcId}/access-preview`, {

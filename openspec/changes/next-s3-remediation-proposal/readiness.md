@@ -1,6 +1,6 @@
 # Readiness
 
-状态：**READY_FOR_CODE_REVIEW**（受控修复提案后端切片；非 S3/NEXT 成品，未宣称 Codex 已通过）。
+状态：**INTEGRATED_CHECKPOINT**（受控修复提案前后端已集成；非 S3/NEXT 成品）。
 
 ## 已交付（qa-backend 容器验证，真实 SQLite）
 
@@ -16,17 +16,21 @@
   CAS）；取消仅 proposed → cancelled 且重复幂等。
 - 全路径零设备 I/O、零业务副作用：不创建 deployment/operation/binding/claim、不改
   vpc.version、无 confirm/apply 端点。
+- GUARD 已接入提案创建、持久化读取与取消，展示目标 Leaf、语义单元、保留范围、有效期、
+  指纹和“尚未执行”边界；页面没有确认或执行按钮。
 - 对抗测试 **16 条**（准入/防陈旧/真实空表并发/陈旧后幂等重试/读取标 stale/取消/
   白名单无密钥/零设备 I/O 零副作用）+ 完整迁移测试 **20 条**（含 017 升降 3 条）=
   **36 passed**。
 - 直接受影响回归 **169 passed**（清单见 review-manifest.json）。
+- 前端 lint/build/unit **73 passed**；隔离真实应用栈 **6 passed**，并验证提案创建/取消前后
+  fake `device-io.log` 不增长（BOUNDARY_OK + STACK_QA_OK）。
 
 ## 未实现 / 未验证边界（诚实声明）
 
 - 提案仅 proposed/stale/cancelled，无执行/确认/回滚端点；下一轮人工确认执行由 Codex 契约
   复审后另行交付。
 - 未做多进程真机并发压测（唯一性由 DB 唯一索引保证，与 S3-002/S3-003 同模式）；
-  未做前端展示（前端由 Codex 契约复审后实现）；评估基于合成/历史事实，非真实多 VPC 数值。
+  评估与前端联调基于合成/历史事实，非真实多 VPC 数值。
 - 预存在 ops_toolkit_paramiko 环境失败不在本包范围（未跑全量测试）。
 
 ## 请求复审要点

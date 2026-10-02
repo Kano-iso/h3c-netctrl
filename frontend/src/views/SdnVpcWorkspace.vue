@@ -32,6 +32,8 @@ const assurancePolicy = ref({
 })
 const assuranceRuns = ref([])
 const assuranceRun = ref(null)
+const remediationProposal = ref(null)
+const remediationOpen = ref(false)
 
 const accessOpen = ref(false)
 const accessStep = ref('form')
@@ -189,14 +191,25 @@ function assuranceTriggerLabel(trigger) {
   return translatedCode('assurance_trigger', trigger, trigger || t('sdn.next.unknown'))
 }
 function assuranceRecommendation(item) {
+  if (item?.category === 'confirmed_drift' && item?.recommendation === 'inspect_drift') {
+    return t('sdn.next.remediation_create')
+  }
   return translatedCode('assurance_recommendation', item?.recommendation, item?.recommendation)
+}
+function remediationMeta(status) {
+  const tone = status === 'proposed' ? 'warn' : status === 'cancelled' ? 'mute' : 'bad'
+  return { tone, label: translatedCode('remediation_status', status, status || t('sdn.next.unknown')) }
+}
+function remediationPreservedLabel(value) {
+  return translatedCode('remediation_preserved', value, value)
 }
 async function loadAssurance() {
   if (!selectedVpcId.value) return
   assuranceLoading.value = true
-  const [policyResult, runsResult] = await Promise.all([
+  const [policyResult, runsResult, proposalsResult] = await Promise.all([
     sdnApi.getAssurancePolicy(selectedVpcId.value),
     sdnApi.listAssuranceRuns(selectedVpcId.value, { limit: 20 }),
+    sdnApi.listRemediationProposals(selectedVpcId.value),
   ])
   assuranceLoading.value = false
   if (!policyResult.success || !runsResult.success) {
@@ -206,6 +219,7 @@ async function loadAssurance() {
   assurancePolicy.value = policyResult.data
   assuranceRuns.value = runsResult.data?.runs || []
   assuranceRun.value = assuranceRuns.value[0] || null
+  if (proposalsResult.success) remediationProposal.value = proposalsResult.data?.proposals?.[0] || null
 }
 async function saveAssurancePolicy() {
   busy.value = 'assurance-policy'
@@ -240,6 +254,9 @@ async function openAssuranceRun(run) {
   assuranceRun.value = result.data
 }
 async function handleAssuranceItem(item) {
+  if (item.category === 'confirmed_drift' && item.recommendation === 'inspect_drift') {
+    return createRemediation(item)
+  }
   if (item.recommendation === 'refresh_evidence') return refreshProjectionLeaf(item.device_id)
   workspaceMode.value = 'strata'
   const member = attentionMember(item)
@@ -248,6 +265,32 @@ async function handleAssuranceItem(item) {
     return
   }
   selectObject('device', deviceById(item.device_id) || { id: item.device_id, name: item.name, host: item.host })
+}
+async function createRemediation(item) {
+  if (!latestAssuranceRun.value?.id) return
+  busy.value = `remediation-${item.key}`
+  clearNotice()
+  const result = await sdnApi.createRemediationProposal(selectedVpcId.value, {
+    run_id: latestAssuranceRun.value.id,
+    item_key: item.key,
+  })
+  busy.value = ''
+  if (!result.success) return void (error.value = result.error || t('sdn.next.remediation_create_failed'))
+  remediationProposal.value = result.data?.proposal || null
+  remediationOpen.value = Boolean(remediationProposal.value)
+  message.value = result.data?.result === 'duplicate'
+    ? t('sdn.next.remediation_existing_opened')
+    : t('sdn.next.remediation_created')
+}
+async function cancelRemediation() {
+  if (!remediationProposal.value?.id) return
+  busy.value = `remediation-cancel-${remediationProposal.value.id}`
+  clearNotice()
+  const result = await sdnApi.cancelRemediationProposal(selectedVpcId.value, remediationProposal.value.id)
+  busy.value = ''
+  if (!result.success) return void (error.value = result.error || t('sdn.next.remediation_cancel_failed'))
+  remediationProposal.value = result.data
+  message.value = t('sdn.next.remediation_cancelled')
 }
 async function handleAttention(item) {
   if (item.recommended_action === 'refresh_evidence') return refreshProjectionLeaf(item.device_id)
@@ -585,6 +628,8 @@ watch(selectedVpcId, async () => {
   historyOpenDeviceId.value = null
   assuranceRuns.value = []
   assuranceRun.value = null
+  remediationProposal.value = null
+  remediationOpen.value = false
   await loadContext()
   if (workspaceMode.value === 'guard') await loadAssurance()
 })
@@ -799,7 +844,7 @@ onMounted(loadBase)
                   <article v-for="item in latestAssuranceRun.items" :key="item.key">
                     <b class="status-chip" :class="attentionMeta(item).tone">{{ attentionMeta(item).label }}</b>
                     <span><strong>{{ attentionTitle(item) }}</strong><small>{{ item.name || `#${item.device_id}` }} · {{ item.host || '—' }}</small></span>
-                    <button class="text-button" @click="handleAssuranceItem(item)">{{ assuranceRecommendation(item) }}</button>
+                    <button class="text-button" :disabled="busy === `remediation-${item.key}`" @click="handleAssuranceItem(item)">{{ assuranceRecommendation(item) }}</button>
                   </article>
                 </div>
                 <div v-else class="guard-empty">
@@ -820,6 +865,28 @@ onMounted(loadBase)
                 <button class="secondary" :disabled="busy === 'assurance-policy'" @click="saveAssurancePolicy">{{ t('sdn.next.assurance_save_policy') }}</button>
               </aside>
             </div>
+
+            <section v-if="remediationProposal && remediationOpen" class="remediation-proposal" aria-live="polite">
+              <header>
+                <span><small>{{ t('sdn.next.remediation_eyebrow') }}</small><strong>{{ t('sdn.next.remediation_title') }}</strong></span>
+                <span class="status-chip" :class="remediationMeta(remediationProposal.status).tone">{{ remediationMeta(remediationProposal.status).label }}</span>
+                <button class="icon-button" :title="t('common.close')" @click="remediationOpen = false">×</button>
+              </header>
+              <div class="remediation-summary">
+                <span><small>{{ t('sdn.next.remediation_target') }}</small><strong>{{ remediationProposal.device_name || `#${remediationProposal.device_id}` }}</strong></span>
+                <span><small>{{ t('sdn.next.remediation_action') }}</small><strong>{{ t('sdn.next.remediation_action_redeploy') }}</strong></span>
+                <span><small>{{ t('sdn.next.remediation_expires') }}</small><strong>{{ formatTime(remediationProposal.expires_at) }}</strong></span>
+              </div>
+              <p class="remediation-boundary"><strong>{{ t('sdn.next.remediation_not_executed') }}</strong>{{ t('sdn.next.remediation_boundary') }}</p>
+              <div class="remediation-columns">
+                <div><small>{{ t('sdn.next.remediation_units') }}</small><ol><li v-for="unit in remediationProposal.units" :key="unit.name"><b>{{ unit.name }}</b><span>{{ unit.description }}</span></li></ol></div>
+                <div><small>{{ t('sdn.next.remediation_preserved_title') }}</small><ul><li v-for="item in remediationProposal.preserved" :key="item">{{ remediationPreservedLabel(item) }}</li></ul></div>
+              </div>
+              <footer>
+                <span>{{ t('sdn.next.remediation_fingerprint') }} {{ remediationProposal.fingerprint?.slice(0, 12) }}</span>
+                <button v-if="remediationProposal.status === 'proposed'" class="danger-text" :disabled="busy === `remediation-cancel-${remediationProposal.id}`" @click="cancelRemediation">{{ t('sdn.next.remediation_cancel') }}</button>
+              </footer>
+            </section>
 
             <section class="guard-history">
               <header><span><small>{{ t('sdn.next.assurance_history') }}</small><strong>{{ t('sdn.next.assurance_history_title') }}</strong></span><b>{{ assuranceRuns.length }}</b></header>
@@ -914,4 +981,6 @@ onMounted(loadBase)
 @media(max-width:720px){.impact-map>header{flex-direction:column}.impact-map>header p{text-align:left}.impact-chain{align-items:stretch;flex-direction:column}.impact-link{flex:0 0 25px;min-height:25px}.impact-link i{width:1px;flex:1;min-height:13px}.impact-link i:after{right:-3px;top:auto;bottom:0;border-width:5px 3px 0;border-color:#7c9195 transparent transparent}}
 .guard-layout{grid-template-columns:minmax(0,1fr) 270px}.guard-schedule-state{margin-top:13px;padding:10px;border:1px solid #d8e2e2;background:#fff}.guard-schedule-state>span{display:flex;align-items:center;justify-content:space-between;gap:8px}.guard-schedule-state>span b{font-size:10px}.guard-schedule-state>span b.good{color:#087462}.guard-schedule-state>span b.warn{color:#a46d09}.guard-schedule-state>span b.mute{color:#718086}.guard-schedule-state dl{display:grid;grid-template-columns:auto minmax(0,1fr);gap:5px 9px;margin:9px 0 0;padding-top:8px;border-top:1px solid #e4eaea;font-size:9px}.guard-schedule-state dt{color:#7b898d}.guard-schedule-state dd{margin:0;overflow-wrap:anywhere;color:#33494f;text-align:right}.guard-policy-note{border-left-color:#16806f;background:#eef8f5;color:#456861}
 @media(max-width:720px){.guard-command-bar,.guard-layout{grid-template-columns:1fr}.guard-command-bar .primary{width:100%}.guard-policy{padding:16px 0 0;border-top:1px solid #d9e2e3;border-left:0}.guard-score{grid-template-columns:1fr 1fr}.guard-score>span:nth-child(2){border-right:0}.guard-score>span:nth-child(-n+2){border-bottom:1px solid #e2e8e9}.guard-recommendations article{grid-template-columns:auto minmax(0,1fr)}.guard-recommendations .text-button{grid-column:2;justify-self:start;padding-left:0}.guard-history-list{flex-direction:column}.guard-history-list button{width:100%}}
+.remediation-proposal{margin:0 0 18px;padding:16px 0;border-top:3px solid #c18a27;border-bottom:1px solid #d7e0e1;background:#fff}.remediation-proposal>header{display:grid;grid-template-columns:minmax(0,1fr) auto 40px;align-items:center;gap:12px;padding:0 16px 13px}.remediation-proposal>header>span:first-child{display:flex;flex-direction:column}.remediation-proposal>header small,.remediation-columns>div>small{color:#0d7a6b;font-size:9px;font-weight:900;text-transform:uppercase}.remediation-proposal>header strong{margin-top:3px;font-size:15px}.remediation-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border-top:1px solid #e1e7e8;border-bottom:1px solid #e1e7e8}.remediation-summary>span{display:flex;min-width:0;flex-direction:column;gap:4px;padding:11px 16px;border-right:1px solid #e1e7e8}.remediation-summary>span:last-child{border-right:0}.remediation-summary small{color:#748287;font-size:9px}.remediation-summary strong{font-size:11px;overflow-wrap:anywhere}.remediation-boundary{margin:12px 16px;padding:10px 12px;border-left:3px solid #c18a27;background:#fff8e9;color:#705c35;font-size:11px;line-height:1.5}.remediation-boundary strong{margin-right:4px;color:#80580c}.remediation-columns{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(180px,.7fr);gap:24px;padding:4px 16px 14px}.remediation-columns ol,.remediation-columns ul{margin:8px 0 0;padding:0;list-style:none}.remediation-columns ol{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}.remediation-columns li{font-size:10px}.remediation-columns ol li{display:flex;min-width:0;flex-direction:column;padding:9px;border-left:3px solid #4e6971;background:#f3f6f6}.remediation-columns ol b{font-size:10px}.remediation-columns ol span{margin-top:3px;color:#6d7b80;line-height:1.4}.remediation-columns ul{display:flex;flex-wrap:wrap;gap:6px}.remediation-columns ul li{padding:6px 8px;background:#e8f4f1;color:#28665b;font-weight:750}.remediation-proposal>footer{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px 0;border-top:1px solid #edf0f1}.remediation-proposal>footer>span{color:#859196;font-family:monospace;font-size:9px}
+@media(max-width:720px){.remediation-proposal>header{grid-template-columns:minmax(0,1fr) auto 40px}.remediation-summary,.remediation-columns{grid-template-columns:1fr}.remediation-summary>span{border-right:0;border-bottom:1px solid #e1e7e8}.remediation-summary>span:last-child{border-bottom:0}.remediation-columns ol{grid-template-columns:1fr}.remediation-proposal>footer{align-items:flex-start;flex-direction:column}.remediation-proposal>footer .danger-text{width:100%}}
 </style>

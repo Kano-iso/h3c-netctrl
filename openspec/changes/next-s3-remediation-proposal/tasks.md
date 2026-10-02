@@ -22,3 +22,7 @@
        vpc.version 与业务计数不变、无 confirm/apply 路由）；迁移 017 3 条
 - [x] 6. OpenSpec change `next-s3-remediation-proposal` + review-manifest 扩展 +
        collaboration.md 索引
+- [x] 7. GUARD 前端集成：从 confirmed drift 生成持久化提案，展示目标 Leaf、语义单元、
+       保留范围、有效期与“尚未执行”边界；仅允许取消，不提供确认/执行入口
+- [x] 8. 隔离真实应用栈：Vue → FastAPI → SQLite 创建/读取/取消提案，前后
+       `device-io.log` 不增长；完整栈 6 passed + BOUNDARY_OK + STACK_QA_OK

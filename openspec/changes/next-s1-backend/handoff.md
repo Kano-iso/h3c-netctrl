@@ -257,3 +257,5 @@ S1_019_REAL=1 S1_019_REAL_HOST=192.168.100.5 \
 **S2-017 前端集成（Codex 完成）**：STRATA 新增关注队列，消费后端稳定 severity/category/action，不在浏览器重算事实；动作只下钻差异、显式刷新证据或打开范围例外上下文，固定声明“不代表根因、不自动修复”。确认漂移与维护例外可同时可见。QA：frontend lint/build、14 focused unit、5 focused Playwright 通过；未触真机。
 
 **S2-018 真实应用栈整合验收（未触真机）**：扩展 next-s1-workbench qa/ 单容器栈（network_mode:none、空库 alembic upgrade head、真实 FastAPI + vite dev + Playwright，无 page.route mock）验收 S2 用户故事。seed 两 Leaf（targeted + 未覆盖）+ 非 EVPN → 覆盖 1/2；fake 收集器新增 drifted 模式经真实 sync API 落库漂移快照；3 条新 Playwright：STRATA 覆盖/分类/coverage_gap 不当漂移；范围例外 PUT/DELETE 闭环（零记录新增、零设备 I/O、attention 变 deferred/恢复）；漂移 + active 例外不吞掉 blocking。后端零生产源码改动（仅 qa 通道文件）。QA：qa-backend 53 passed（S2-012/014/016 + migration）+ 完整 stack QA 连续两次各 5 passed + BOUNDARY_OK + STACK_QA_OK + frontend lint/build/unit + 门禁全绿。前端/后续收尾交 Codex，未提交/推送。
+
+**S3-004 受控修复提案整合（未触真机）**：后端 proposal API 已由 GUARD 消费。confirmed drift 可生成、重新打开和取消持久化提案；页面明确列出目标 Leaf、重建单元、保留范围和“尚未执行”，没有确认/执行按钮。组件回归 73 passed；真实应用栈 6 passed + BOUNDARY_OK + STACK_QA_OK，创建/取消不产生设备 I/O。下一阶段若加入人工确认执行，必须另行定义执行准入、恢复与设备验证，不得把本提案状态直接当成已修复。

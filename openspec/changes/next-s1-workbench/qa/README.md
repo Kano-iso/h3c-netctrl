@@ -2,13 +2,14 @@
 
 浏览器驱动【真实 FastAPI + 隔离 SQLite + 真实 vite dev】完成 NEXT 工作台接入故事、
 S2 用户故事验收（覆盖范围、范围例外、可行动关注队列）与 S3 GUARD 保障验收（手动、
-策略与业务事件历史），设备执行/采集仅在进程内以边界 fake 替代，并事后断言
+策略、业务事件历史与受控修复提案），设备执行/采集仅在进程内以边界 fake 替代，并事后断言
 `device-io.log` 证明无真实设备 I/O。
 默认不连任何真实设备；不连生产 DB、不读 `.env`、不挂 docker.sock、不碰 5174 演示环境。
 
 S1-028 整改：镜像从**公开固定基础镜像（node:20-alpine）独立构建**（不依赖任何本项目
-预构建镜像），前端依赖走仓库锁文件 `npm ci`（apk/npm 各设有界重试抵御构建期瞬时
-网络错误——重试次数有上限、全部失败仍构建失败，无 `|| true` 吞错）；运行容器
+预构建镜像），前端依赖走仓库锁文件 `npm ci`（npm 使用容器可达镜像源，apk/npm 各设
+有界重试；只有 Vite/Playwright 可执行文件真实存在才算成功，全部失败则构建失败，
+无 `|| true` 吞错）；运行容器
 `network_mode: none` 硬隔离——**构建期联网下载公开依赖，运行期无外部网络**，
 FastAPI/Vite/Chromium 全部经容器内 loopback 通信。
 
@@ -71,7 +72,8 @@ docker compose -f openspec/changes/next-s1-workbench/qa/docker-compose.stack-qa.
   「不代表根因、不会自动修复」。fake 收集器新增 `collector-mode=drifted`（vsi 缺失）。
 - S3（stack-qa-s3.spec.js，1 条）：GUARD 真实保存策略并完成手动评估；启用保障后，
   scope-exception 新增/清除分别追加 event 历史，页面显示两条「事件」记录及稳定
-  event_key；全过程 `device-io.log` 不增长。
+  event_key；制造新鲜漂移后从 GUARD 生成、读取并取消持久化修复提案，明确展示“尚未执行”、
+  重建单元与保留范围；提案创建/取消全过程 `device-io.log` 不增长。
 
 ## 网络边界
 

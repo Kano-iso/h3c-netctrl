@@ -57,12 +57,17 @@ COPY docs/ /opt/docs/
 # npm 内容缓存跨轮复用，失败的请求在下一轮被跳过，数轮内收敛；三轮全失败仍导致
 # 构建失败（绝不吞错）。
 RUN set -e; cd /opt/stack/app/frontend; \
+    installed=0; \
     for i in 1 2 3; do \
-      npm ci --no-audit --no-fund --fetch-retries=0 --fetch-timeout=15000 \
-        && exit 0 \
-        || { echo "[stack-qa] npm ci attempt $i/3 failed, retrying"; }; \
+      if npm ci --registry=https://registry.npmmirror.com \
+          --no-audit --no-fund --fetch-retries=1 --fetch-timeout=60000 \
+          && test -x node_modules/.bin/vite \
+          && test -x node_modules/.bin/playwright; then \
+        installed=1; break; \
+      fi; \
+      echo "[stack-qa] npm ci attempt $i/3 incomplete, retrying"; \
     done; \
-    exit 1
+    test "$installed" = 1
 
 ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 ENV PATH="/opt/stack/venv/bin:${PATH}"

@@ -525,3 +525,5 @@
 **S2-016（CR57：VPC 可行动关注队列）**：只读 additive 顶层 `attention`——纯函数矩阵模块 + endpoint 复用同一次已加载数据批量组装；active exception 不消灭漂移（仍 blocking 携带 exception）、expired/invalid exception 独立成项且与 blocking 共存 key 不冲突、targeted+aligned 无 item、非 EVPN 不进入；排序固定、key 稳定、source_refs 脱敏、坏字段稳定降级不 500；无新表/迁移/写接口/设备命令，零 DB 写零设备 I/O。真实 QA：聚焦 14 passed + 直接受影响回归 210 passed；OpenSpec strict / manifest JSON / git diff --check 通过。未提交、未推送、未触真机。
 
 **S2-018（CR58：真实应用栈 S2 整合验收）**：既有隔离栈 QA 扩展为 S2 用户故事验收——seed 覆盖 1/2 + 非 EVPN 排除、fake 收集器 drifted 模式落库真实持久化漂移快照、3 条真实栈 Playwright 故事（覆盖/分类/coverage_gap 不当漂移；范围例外 PUT/DELETE 闭环零记录新增零设备 I/O、attention 变 deferred/恢复；漂移 + active 例外仍 confirmed_drift blocking 携带 exception）；浏览器层固定文案验证。零生产行为改动。真实 QA：qa-backend 53 passed；stack QA 连续两次各 5 passed（S1 2 + S2 3）+ BOUNDARY_OK + STACK_QA_OK；frontend lint/build/unit + OpenSpec strict / manifest JSON / compose config / git diff --check 通过。未提交、未推送、未触真机。
+
+**S3-004 前端整合（Codex）**：GUARD 从 confirmed drift 生成后端持久化修复提案，并展示目标 Leaf、拟议重建单元、保留范围、有效期、指纹与“尚未执行”边界；只提供取消，不暴露确认/执行入口。组件回归 73 passed；隔离真实应用栈 6 passed + BOUNDARY_OK + STACK_QA_OK，提案创建/取消前后 device-I/O 计数不增长。QA 镜像 npm 安装门槛同时收紧为 Vite/Playwright 可执行文件实际存在，避免 npm 异常退出码造成假成功。

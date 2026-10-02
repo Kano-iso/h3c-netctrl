@@ -159,7 +159,15 @@
     "openspec/changes/next-s3-remediation-proposal/design.md",
     "openspec/changes/next-s3-remediation-proposal/specs/sdn/spec.md",
     "openspec/changes/next-s3-remediation-proposal/tasks.md",
-    "openspec/changes/next-s3-remediation-proposal/readiness.md"
+    "openspec/changes/next-s3-remediation-proposal/readiness.md",
+    "frontend/src/api/index.js",
+    "frontend/src/views/SdnVpcWorkspace.vue",
+    "frontend/src/i18n/zh-CN.js",
+    "frontend/src/i18n/en-US.js",
+    "frontend/src/__tests__/SdnVpcWorkspace.spec.js",
+    "frontend/tests/stack-qa/stack-qa-s3.spec.js",
+    "openspec/changes/next-s1-workbench/qa/Dockerfile.stack-qa",
+    "openspec/changes/next-s1-workbench/qa/README.md"
   ],
   "requirements": [
     {
@@ -673,7 +681,7 @@
     },
     {
       "id": "CR64",
-      "summary": "受控修复提案（S3-004，只生成、绝不执行设备配置）：持久化 remediation plan（迁移 017 新表 sdn_remediation_proposals——VPC/run/item key/device/固定 action=redeploy_vpc_on_device 与 category=confirmed_drift（DB CHECK 防御）/创建时 VPC version/policy version/证据 snapshot id/status proposed|stale|cancelled/expires_at/稳定 fingerprint/脱敏 summary_json（planner dry-run 的语义单元名+保留项+executed=false，绝不含原始 CLI/凭据/planned_config）/created/updated，具名唯一索引 uq_sdn_remediation_proposals_run_item 使每 run+item 至多一条、幂等并发由唯一约束兜底）。API：POST 创建 / GET 列表 / GET 详情 / POST 取消（/api/sdn/vpcs/{vpc_id}/remediation-proposals*）。创建仅接受 completed run 中 severity=blocking、category=confirmed_drift 的真实 item，服务端从 run 白名单 items 取 device/item，不信任调用方重填设备或动作；创建时重读当前投影并同时满足：VPC/run/item 归属一致、当前 VPC version==run facts vpc_version、目标仍 EVPN Leaf 且仍 confirmed_drift blocking、当前最新 snapshot==run source_refs 证据、无 active maintenance exception——任一不满足即明确拒绝或返回 stale，不生成可用提案。读取时保守标 stale（短事务/CAS：VPC version/最新快照/当前分类/例外状态任一变化 → proposed 标 stale，绝不仍显示可执行）；取消仅 proposed→cancelled 且重复幂等（cancelled 不复活不被改写）。全路径零设备 I/O：不调用 executor/collector/Netconf/SSH，不创建 deployment/operation/binding/claim，不改 vpc.version，不实现 confirm/apply 端点，不把 proposed 写成已修复；VPCConfigPlanner dry-run 纯计算只提取语义单元名/描述。前端本轮零改动（由 Codex 契约复审后实现）。"
+      "summary": "受控修复提案（S3-004，只生成、绝不执行设备配置）：持久化 remediation plan（迁移 017 新表 sdn_remediation_proposals——VPC/run/item key/device/固定 action=redeploy_vpc_on_device 与 category=confirmed_drift（DB CHECK 防御）/创建时 VPC version/policy version/证据 snapshot id/status proposed|stale|cancelled/expires_at/稳定 fingerprint/脱敏 summary_json（planner dry-run 的语义单元名+保留项+executed=false，绝不含原始 CLI/凭据/planned_config）/created/updated，具名唯一索引 uq_sdn_remediation_proposals_run_item 使每 run+item 至多一条、幂等并发由唯一约束兜底）。API：POST 创建 / GET 列表 / GET 详情 / POST 取消（/api/sdn/vpcs/{vpc_id}/remediation-proposals*）。创建仅接受 completed run 中 severity=blocking、category=confirmed_drift 的真实 item，服务端从 run 白名单 items 取 device/item，不信任调用方重填设备或动作；创建时重读当前投影并同时满足：VPC/run/item 归属一致、当前 VPC version==run facts vpc_version、目标仍 EVPN Leaf 且仍 confirmed_drift blocking、当前最新 snapshot==run source_refs 证据、无 active maintenance exception——任一不满足即明确拒绝或返回 stale，不生成可用提案。读取时保守标 stale（短事务/CAS：VPC version/最新快照/当前分类/例外状态任一变化 → proposed 标 stale，绝不仍显示可执行）；取消仅 proposed→cancelled 且重复幂等（cancelled 不复活不被改写）。全路径零设备 I/O：不调用 executor/collector/Netconf/SSH，不创建 deployment/operation/binding/claim，不改 vpc.version，不实现 confirm/apply 端点，不把 proposed 写成已修复；VPCConfigPlanner dry-run 纯计算只提取语义单元名/描述。GUARD 前端已接入创建、读取与取消，展示目标 Leaf、语义单元、保留范围、有效期、指纹和“尚未执行”边界，不提供执行入口；隔离真实应用栈验证前后端闭环且提案动作不增加 device-I/O。"
     }
   ],
   "invariants": [
@@ -982,6 +990,18 @@
       "environment": "qa-backend 容器（S3-001/S3-002/S3-003/scope-exception/attention/scope 投影/state 投影/validation 对抗/sdn_api/i18n 直接受影响回归）",
       "result": "219 passed",
       "baseline_failed": false
+    },
+    {
+      "command": "npm run lint && npm run build && npm run test:unit -- --run",
+      "environment": "frontend QA（S3-004 GUARD 提案集成与全部组件回归）",
+      "result": "lint/build passed; 73 passed",
+      "baseline_failed": false
+    },
+    {
+      "command": "docker compose -f openspec/changes/next-s1-workbench/qa/docker-compose.stack-qa.yml run --rm qa-stack bash /opt/stack/qa/run_stack_qa.sh",
+      "environment": "network_mode:none 隔离真实应用栈（Vue → FastAPI → SQLite；设备边界均为 fake）",
+      "result": "6 passed; BOUNDARY_OK events=29; STACK_QA_OK（提案创建/取消不增加 device-I/O）",
+      "baseline_failed": false
     }
   ],
   "migrations": [
@@ -1073,7 +1093,7 @@
     "S3-003 多进程真机压测未做（event_key 唯一性由 DB 唯一索引保证，与 S3-002 CR61 同模式）",
     "S3-004 提案仅 proposed/stale/cancelled，无执行/确认/回滚端点；下一轮人工确认执行由 Codex 契约复审后另行交付",
     "S3-004 评估基于合成/历史事实；真实多 Leaf 多 VPC 数值取决于真实记录（本包只验通道与契约语义）；多进程真机并发压测未做（唯一性由 DB 唯一索引保证，与 S3-002/S3-003 同模式）",
-    "S3-004 前端展示未做（前端由 Codex 契约复审后实现）"
+    "S3-004 GUARD 前端已集成提案创建/读取/取消，但确认执行、执行进度与回滚体验仍未实现"
   ],
   "forbidden_actions_confirmed": [
     "未修改主工作树或常驻业务服务；前端仅在开发 worktree 增加 GUARD 视角并走隔离 QA",
@@ -1103,7 +1123,7 @@
     "S3-003 未改前端生产源码（仅扩充隔离真实栈验收）；后端检查点 e213578 已推送；未 tag/archive",
     "S3-004 未触真机、未执行任何设备 I/O（提案全部隔离 qa-backend 容器验证）",
     "S3-004 未新增外部依赖；未实现 confirm/apply/execute 端点、未把 proposed 写成已修复；未做自动修复/根因结论/设备采集或下发",
-    "S3-004 未改前端生产源码（前端由 Codex 契约复审后实现）；未 commit/push/tag/archive"
+    "S3-004 前端仅提供提案创建/读取/取消与尚未执行边界，不提供任何设备执行入口；未 tag/archive"
   ],
   "ready_for_code_review": true
 }

@@ -14,6 +14,7 @@ vi.mock('../api/index.js', () => ({
     deployVpc: vi.fn(), withdrawVpc: vi.fn(), accessOverview: vi.fn(), stateProjection: vi.fn(), stateProjectionHistory: vi.fn(), previewAccess: vi.fn(),
     upsertScopeException: vi.fn(), clearScopeException: vi.fn(),
     getAssurancePolicy: vi.fn(), putAssurancePolicy: vi.fn(), createAssuranceRun: vi.fn(), listAssuranceRuns: vi.fn(), getAssuranceRun: vi.fn(),
+    listRemediationProposals: vi.fn(), createRemediationProposal: vi.fn(), cancelRemediationProposal: vi.fn(),
     executeAccess: vi.fn(), getOperation: vi.fn(), completeOperation: vi.fn(), syncValidation: vi.fn(),
     withdrawOperation: vi.fn(), reconcileOperation: vi.fn(),
   },
@@ -137,6 +138,24 @@ describe('SdnVpcWorkspace.vue', () => {
       items: [{ key: '2:5:confirmed_drift', device_id: 5, name: 'Leaf-04', host: '192.168.100.5', severity: 'blocking', category: 'confirmed_drift', recommendation: 'inspect_drift' }],
     } })
     sdnApi.getAssuranceRun.mockImplementation(async (_vpcId, runId) => ({ success: true, data: { id: runId, overall: 'healthy', completed_at: '2026-09-24T02:00:00Z', summary: { total: 0, blocking: 0, review: 0, deferred: 0 }, facts: { leaves: [] }, items: [] } }))
+    sdnApi.listRemediationProposals.mockResolvedValue({ success: true, data: { proposals: [] } })
+    sdnApi.createRemediationProposal.mockResolvedValue({ success: true, data: { result: 'created', proposal: {
+      id: 71, vpc_id: 2, run_id: 12, item_key: '2:5:confirmed_drift', device_id: 5, device_name: 'Leaf-04',
+      action: 'redeploy_vpc_on_device', category: 'confirmed_drift', status: 'proposed', executed: false,
+      expires_at: '2026-09-26T02:00:00Z', fingerprint: '1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',
+      units: [
+        { name: 'vsi-l2', description: 'VSI 实例与 VXLAN 绑定' },
+        { name: 'evpn', description: 'EVPN 封装与 RD' },
+        { name: 'l3vpn', description: '共享 L3VPN 实例' },
+        { name: 'vsi-l3', description: '三层网关接口' },
+        { name: 'global', description: '设备级全局配置' },
+      ],
+      preserved: ['tenant', 'vpc', 'other_leaves', 'port_bindings'],
+    } } })
+    sdnApi.cancelRemediationProposal.mockResolvedValue({ success: true, data: {
+      id: 71, status: 'cancelled', device_id: 5, device_name: 'Leaf-04', action: 'redeploy_vpc_on_device',
+      units: [], preserved: ['tenant', 'vpc', 'other_leaves', 'port_bindings'], fingerprint: '1234567890abcdef', executed: false,
+    } })
   })
 
   it('renders a VPC-centered map and excludes non-EVPN devices', async () => {
@@ -214,8 +233,39 @@ describe('SdnVpcWorkspace.vue', () => {
     expect(sdnApi.createAssuranceRun).toHaveBeenCalledWith(2, { trigger: 'manual' })
     expect(wrapper.text()).toContain('存在阻断')
     expect(wrapper.text()).toContain('已确认配置差异')
-    expect(wrapper.text()).toContain('查看差异')
+    expect(wrapper.text()).toContain('生成修复提案')
     expect(wrapper.text()).toContain('评估只读取平台现有记录和设备证据')
+  })
+
+  it('turns confirmed drift into a persisted proposal without pretending to execute it', async () => {
+    sdnApi.listAssuranceRuns.mockResolvedValue({ success: true, data: { runs: [{
+      id: 12, overall: 'blocked', completed_at: '2026-09-25T02:00:00Z', policy_enabled: true,
+      summary: { total: 1, blocking: 1, review: 0, deferred: 0 }, facts: { leaves: [{ device_id: 5 }] },
+      items: [{ key: '2:5:confirmed_drift', device_id: 5, name: 'Leaf-04', host: '192.168.100.5', severity: 'blocking', category: 'confirmed_drift', recommendation: 'inspect_drift' }],
+    }] } })
+    const wrapper = mountPage()
+    await flushPromises()
+    await wrapper.findAll('button').find((button) => button.text().includes('GUARD')).trigger('click')
+    await flushPromises()
+
+    const createButton = wrapper.findAll('.guard-recommendations button').find((button) => button.text().includes('生成修复提案'))
+    expect(createButton).toBeTruthy()
+    await createButton.trigger('click')
+    await flushPromises()
+
+    expect(sdnApi.createRemediationProposal).toHaveBeenCalledWith(2, {
+      run_id: 12, item_key: '2:5:confirmed_drift',
+    })
+    expect(wrapper.find('.remediation-proposal').exists()).toBe(true)
+    expect(wrapper.text()).toContain('尚未执行')
+    expect(wrapper.text()).toContain('在此 Leaf 重建 VPC 配置')
+    expect(wrapper.text()).toContain('端口接入绑定')
+    expect(wrapper.text()).toContain('vsi-l3')
+
+    await wrapper.find('.remediation-proposal .danger-text').trigger('click')
+    await flushPromises()
+    expect(sdnApi.cancelRemediationProposal).toHaveBeenCalledWith(2, 71)
+    expect(wrapper.text()).toContain('已取消')
   })
 
   it('records a scope exception without presenting it as device configuration or health', async () => {

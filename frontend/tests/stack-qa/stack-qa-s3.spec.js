@@ -1,7 +1,7 @@
 // S3 GUARD real-stack acceptance: real Vue -> FastAPI -> isolated SQLite.
 // Assurance evaluates persisted projection facts only; device-I/O must not grow.
 import { test, expect } from '@playwright/test'
-import { readFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const STACK_QA_DIR = process.env.STACK_QA_DIR || '/tmp/stack-qa'
@@ -117,4 +117,52 @@ test('S3 real stack: GUARD evaluates manual and business events without device I
   await expect(page.locator('.guard-history-list button')).toHaveCount(3)
   await expect(page.locator('.guard-history-list').getByText(/事件/)).toHaveCount(2)
   expect(ioLines()).toBe(ioBefore)
+
+  // Create fresh persisted drift evidence through the real STRATA UI, then prove GUARD
+  // creates and cancels a durable proposal without any additional device I/O.
+  writeFileSync(join(STACK_QA_DIR, 'collector-mode'), 'drifted')
+  await page.getByRole('button', { name: /STRATA/ }).click()
+  const stackCard = page.locator('.projection-card', { hasText: 'Leaf-Stack' })
+  await stackCard.locator('button[title="重新采集此设备的状态证据"]').click()
+  await expect(stackCard).toContainText('存在差异')
+  const proposalIoBefore = ioLines()
+
+  await page.getByRole('button', { name: /GUARD/ }).click()
+  await guard.getByRole('button', { name: '立即评估' }).click()
+  const driftFinding = guard.locator('.guard-recommendations article', { hasText: '已确认配置差异' })
+  await expect(driftFinding).toBeVisible()
+  await driftFinding.getByRole('button', { name: '生成修复提案' }).click()
+
+  const proposal = guard.locator('.remediation-proposal')
+  await expect(proposal).toBeVisible()
+  await expect(proposal).toContainText('尚未执行')
+  await expect(proposal).toContainText('Leaf-Stack')
+  await expect(proposal).toContainText('vsi-l3')
+  await expect(proposal).toContainText('端口接入绑定')
+  expect(ioLines()).toBe(proposalIoBefore)
+  if (process.env.STACK_QA_SCREENSHOT) {
+    const localeToggle = page.getByTestId('locale-toggle')
+    await localeToggle.click()
+    await expect(proposal).toContainText('Not executed')
+    await page.screenshot({ path: process.env.STACK_QA_SCREENSHOT, fullPage: true })
+    await localeToggle.click()
+    await expect(proposal).toContainText('尚未执行')
+  }
+
+  const proposalResponse = await request.get(`/api/sdn/vpcs/${vpcId}/remediation-proposals`)
+  expect(proposalResponse.ok()).toBeTruthy()
+  const proposals = (await proposalResponse.json()).data.proposals
+  expect(proposals).toHaveLength(1)
+  expect(proposals[0]).toMatchObject({ status: 'proposed', action: 'redeploy_vpc_on_device', executed: false })
+
+  await proposal.getByRole('button', { name: '取消提案' }).click()
+  await expect(proposal).toContainText('已取消')
+  expect(ioLines()).toBe(proposalIoBefore)
+
+  // Restore aligned evidence for any later stack story. This is the only post-proposal
+  // device boundary call, and remains the existing fake collector path.
+  writeFileSync(join(STACK_QA_DIR, 'collector-mode'), 'fresh')
+  await page.getByRole('button', { name: /STRATA/ }).click()
+  await stackCard.locator('button[title="重新采集此设备的状态证据"]').click()
+  await expect(stackCard).toContainText('一致')
 })
